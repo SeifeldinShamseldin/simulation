@@ -1,10 +1,10 @@
 /**
  * Robot control component
- * Now using unified ikAPI for all Inverse Kinematics operations
+ * Now using unified robotService for all robot operations
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { GLOBAL_CONFIG } from '../../utils/GlobalVariables';
-import { robotRegistry } from '../../core/Config/RobotConfigRegistry';
+import robotService from '../../core/services/RobotService'; // Updated import
 import ControlJoints from './ControlJoints/ControlJoints';
 import RobotLoader from './RobotLoader/RobotLoader';
 import ActionButtons from './ActionButtons/ActionButtons';
@@ -76,6 +76,22 @@ const DebugInfo = ({ enabled, jointInfo, jointValues }) => {
               </pre>
             </details>
           </div>
+          <div style={{ marginTop: '0.5rem' }}>
+            <details>
+              <summary>RobotService Status</summary>
+              <pre style={{ 
+                maxHeight: '200px', 
+                overflow: 'auto',
+                backgroundColor: '#343a40',
+                color: '#f8f9fa',
+                padding: '0.5rem',
+                fontSize: '0.7rem',
+                marginTop: '0.5rem'
+              }}>
+                {JSON.stringify(robotService.getStatus(), null, 2)}
+              </pre>
+            </details>
+          </div>
         </div>
       </details>
     </div>
@@ -83,20 +99,30 @@ const DebugInfo = ({ enabled, jointInfo, jointValues }) => {
 };
 
 /**
- * Scan for available robots
+ * Scan for available robots using unified RobotService
  * @returns {string[]} List of available robot names
  */
 function scanForRobots() {
-    const robotDirectories = ['ur5', 'ur10', 'kr3r540']; // Default list as fallback
-    
-    // You could implement dynamic scanning here by:
-    // 1. Having a server endpoint that lists directories in your public/robots folder
-    // 2. Using the browsers's fetch API to get that list
-    // 3. Populating the dropdown based on the response
-    
-    // For now, return the fallback list plus any registered robots
-    const registeredRobots = robotRegistry.getRegisteredRobots();
-    return [...new Set([...robotDirectories, ...registeredRobots])];
+    // Use unified robot service instead of old registry
+    try {
+      const availableRobots = robotService.getAvailableRobots();
+      const registeredIds = robotService.getRegisteredRobotIds();
+      
+      // Combine both lists and remove duplicates
+      const allRobots = [...new Set([
+        ...availableRobots.map(r => r.id),
+        ...registeredIds,
+        // Keep fallback robots for backward compatibility
+        'ur5', 'ur10', 'kr3r540'
+      ])];
+      
+      console.log('Available robots from RobotService:', allRobots);
+      return allRobots;
+    } catch (error) {
+      console.warn('Error scanning robots from RobotService:', error);
+      // Fallback to basic list
+      return ['ur5', 'ur10', 'kr3r540'];
+    }
 }
 
 /**
@@ -137,9 +163,23 @@ const Controls = ({
   // Reference for the IK solver
   const ikSolverRef = useRef(null);
   
-  // Populate the robot list when component mounts
+  // Populate the robot list when component mounts using RobotService
   useEffect(() => {
-    setAvailableRobots(scanForRobots());
+    const loadAvailableRobots = async () => {
+      try {
+        // Wait for robot service to initialize
+        await robotService.discoverRobots();
+        const robots = scanForRobots();
+        setAvailableRobots(robots);
+        console.log('Loaded available robots:', robots);
+      } catch (error) {
+        console.warn('Error loading robots:', error);
+        // Use fallback
+        setAvailableRobots(['ur5', 'ur10', 'kr3r540']);
+      }
+    };
+    
+    loadAvailableRobots();
   }, []);
   
   // Set up joint info and subscribe to joint updates
@@ -585,12 +625,24 @@ const Controls = ({
   };
   
   /**
-   * Load a robot
+   * Load a robot using RobotService
    */
-  const handleLoadRobot = () => {
+  const handleLoadRobot = async () => {
     if (!viewerRef?.current) return;
     
-    viewerRef.current.loadRobot(robotName, robotPath);
+    try {
+      // Use RobotService to get robot config
+      const robotConfig = robotService.getRobotConfig(robotName);
+      if (robotConfig) {
+        console.log('Loading robot with config:', robotConfig);
+        await viewerRef.current.loadRobot(robotName, robotConfig.urdfPath);
+      } else {
+        // Fallback to basic path
+        await viewerRef.current.loadRobot(robotName, robotPath);
+      }
+    } catch (error) {
+      console.error('Error loading robot:', error);
+    }
   };
   
   /**
@@ -717,13 +769,15 @@ const Controls = ({
           availableRobots={availableRobots}
           onRobotNameChange={(selectedRobot) => {
             setRobotName(selectedRobot);
-            setRobotPath(`/robots/${selectedRobot}/${selectedRobot}.urdf`);
-          }}
-          onLoadRobot={() => {
-            if (viewerRef?.current) {
-              viewerRef.current.loadRobot(robotName, `/robots/${robotName}/${robotName}.urdf`);
+            // Try to get robot config from service
+            const robotConfig = robotService.getRobotConfig(selectedRobot);
+            if (robotConfig) {
+              setRobotPath(robotConfig.urdfPath);
+            } else {
+              setRobotPath(`/robots/${selectedRobot}/${selectedRobot}.urdf`);
             }
           }}
+          onLoadRobot={handleLoadRobot}
         />
       )}
       

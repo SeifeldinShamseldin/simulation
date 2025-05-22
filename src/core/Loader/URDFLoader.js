@@ -3,7 +3,7 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
 import { URDFRobot, URDFJoint, URDFLink, URDFCollider, URDFVisual, URDFMimicJoint } from './URDFClasses.js';
 import { LOADER_EVENTS, Logger } from '../../utils/GlobalVariables.js';
-import { robotRegistry } from '../../core/Config/RobotConfigRegistry.js';
+import robotService from '../services/RobotService.js';
 import MeshLoader from './MeshLoader.js';
 
 // Temporary variables for calculations
@@ -39,6 +39,7 @@ function applyRotation(obj, rpy, additive = false) {
 
 /**
  * Class for loading and parsing URDF files
+ * Now integrates with unified RobotService for mesh resolution
  */
 class URDFLoader {
     /**
@@ -59,36 +60,48 @@ class URDFLoader {
         this.onError = null;
         this.onLoad = null;
 
-        // Correct URL modifier
+        // Enhanced URL modifier using RobotService
         this.manager.setURLModifier(url => {
-            Logger.info('Original URL:', url);
+            Logger.debug('URDFLoader URL modifier - Original URL:', url);
             
             if (url.startsWith('package://')) {
-                // Extract only the filename from the package URL
+                // Use RobotService for mesh path resolution if we have a current robot
+                if (this.currentRobotName) {
+                    const resolvedUrl = robotService.resolveMeshPath(this.currentRobotName, url);
+                    Logger.debug('URDFLoader URL modifier - Resolved via RobotService:', url, '->', resolvedUrl);
+                    return resolvedUrl;
+                }
+                
+                // Fallback to basic resolution
                 const file = url.split('/').pop();
                 const newUrl = `${this.packages.replace(/\/?$/, '/')}${file}`;
-                
-                Logger.info('Transformed URL (filename only):', url, '->', newUrl);
+                Logger.debug('URDFLoader URL modifier - Basic resolution:', url, '->', newUrl);
                 return newUrl;
             }
             
             return url;
         });
 
-        // Fixed mesh callback
+        // Enhanced mesh callback using RobotService
         this.loadMeshCb = (url, manager, done, urdfMaterial) => {
-            Logger.info('Loading mesh from:', url);
+            Logger.debug('URDFLoader loading mesh from:', url);
             
-            // Extract just the filename (ignoring directory paths)
-            const file = url.split('/').pop().toLowerCase();
-            const packagePath = this.packages;
+            let resolvedPath = url;
             
-            // Create a direct path to the file in the package directory
-            const basePath = `${packagePath.replace(/\/?$/, '/')}${file}`;
-            Logger.info('Looking for file at:', basePath);
+            // Use RobotService for mesh resolution if we have a current robot
+            if (this.currentRobotName) {
+                resolvedPath = robotService.resolveMeshPath(this.currentRobotName, url);
+                Logger.debug('URDFLoader mesh resolved via RobotService:', url, '->', resolvedPath);
+            } else {
+                // Fallback to extracting filename
+                const file = url.split('/').pop().toLowerCase();
+                const packagePath = this.packages;
+                resolvedPath = `${packagePath.replace(/\/?$/, '/')}${file}`;
+                Logger.debug('URDFLoader mesh basic resolution:', url, '->', resolvedPath);
+            }
             
             // Use the enhanced MeshLoader with better error handling
-            MeshLoader.load(basePath, manager, done, urdfMaterial);
+            MeshLoader.load(resolvedPath, manager, done, urdfMaterial);
         };
     }
 
@@ -125,9 +138,17 @@ class URDFLoader {
      * @param {Function} [onError] - Callback for loading errors
      */
     load(urdf, onComplete, onProgress, onError) {
-        // Extract robot name from path
-        const robotName = urdf.split('/').pop().replace('.urdf', '');
-        this.currentRobotName = robotName;
+        // Extract robot name from path if not already set
+        if (!this.currentRobotName) {
+            this.currentRobotName = urdf.split('/').pop().replace('.urdf', '');
+        }
+        
+        // Get robot configuration from service for enhanced loading
+        const robotConfig = robotService.getRobotConfig(this.currentRobotName);
+        if (robotConfig) {
+            Logger.info(`URDFLoader using config for ${this.currentRobotName}:`, robotConfig);
+            this.packages = robotConfig.packagePath;
+        }
         
         // Check if a full URI is specified before prepending the package info
         const manager = this.manager;
@@ -201,6 +222,7 @@ class URDFLoader {
         const parseVisual = this.parseVisual;
         const parseCollision = this.parseCollision;
         const manager = this.manager;
+        const currentRobotName = this.currentRobotName;
         
         // Maps to store links, joints, and materials by name
         const linkMap = {};
@@ -208,12 +230,17 @@ class URDFLoader {
         const materialMap = {};
         
         /**
-         * Resolve the path of a mesh file
+         * Resolve the path of a mesh file using RobotService
          * @param {string} path - The path from the URDF file
          * @returns {string} The resolved path
          */
         function resolvePath(path) {
-            // If not a package URL, just append to working path
+            // Use RobotService for resolution if we have a current robot
+            if (currentRobotName) {
+                return robotService.resolveMeshPath(currentRobotName, path);
+            }
+            
+            // Fallback to original logic
             if (!/^package:\/\//.test(path)) {
                 return workingPath ? workingPath + path : path;
             }
@@ -223,19 +250,14 @@ class URDFLoader {
             
             // Handle different package formats
             if (typeof packages === 'string') {
-                // If packages is a string, check if it's the target package
                 if (packages.endsWith(targetPkg)) {
-                    // Direct package match
                     return packages + '/' + relPath;
                 } else {
-                    // Assume package directory contains target package
                     return packages + '/' + targetPkg + '/' + relPath;
                 }
             } else if (packages instanceof Function) {
-                // If packages is a function, call it with the target package
                 return packages(targetPkg) + '/' + relPath;
             } else if (typeof packages === 'object') {
-                // If packages is a map, look up the target package
                 if (targetPkg in packages) {
                     return packages[targetPkg] + '/' + relPath;
                 } else {
@@ -645,14 +667,21 @@ class URDFLoader {
     }
     
     /**
-     * Default mesh loading function
+     * Default mesh loading function using RobotService
      * @param {string} path - The path to the mesh file
      * @param {THREE.LoadingManager} manager - The Three.js loading manager
      * @param {Function} done - Callback when mesh is loaded
      */
     defaultMeshLoader(path, manager, done) {
-        Logger.info('Using default mesh loader for:', path);
-        MeshLoader.load(path, manager, done);
+        Logger.debug('URDFLoader using default mesh loader for:', path);
+        
+        // Use RobotService for path resolution if possible
+        if (this.currentRobotName) {
+            const resolvedPath = robotService.resolveMeshPath(this.currentRobotName, path);
+            MeshLoader.load(resolvedPath, manager, done);
+        } else {
+            MeshLoader.load(path, manager, done);
+        }
     }
 }
 

@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import URDFLoader from '@/core/Loader/URDFLoader';
-import { ROBOT_EVENTS, GLOBAL_CONFIG, Logger } from '@/utils/GlobalVariables';
-import { robotRegistry } from '@/core/Config/RobotConfigRegistry';
+import URDFLoader from '../../core/Loader/URDFLoader';
+import { ROBOT_EVENTS, GLOBAL_CONFIG, Logger } from '../../utils/GlobalVariables';
+import robotService from '../../core/services/RobotService';
 
 /**
  * Class for managing URDF robot models
+ * Now uses unified RobotService for configuration management
  */
 class RobotManager {
     /**
@@ -36,7 +37,7 @@ class RobotManager {
     }
     
     /**
-     * Load a URDF model
+     * Load a URDF model using unified RobotService
      * @param {string} robotName - The name of the robot
      * @param {string} urdfPath - The path to the URDF file
      * @returns {Promise<Object>} A promise that resolves to the loaded robot
@@ -51,13 +52,34 @@ class RobotManager {
         this.clearRobot();
         
         try {
+            // Get robot configuration from unified service
+            const robotConfig = robotService.getRobotConfig(robotName);
+            
+            if (robotConfig) {
+                Logger.info(`Using robot config from service: ${robotName}`);
+                Logger.info(`Package path: ${robotConfig.packagePath}`);
+                
+                // Use config from service for mesh resolution
+                this.loader.packages = robotConfig.packagePath;
+                
+                // Set up mesh resolution using the service
+                this.loader.loadMeshCb = (url, manager, done, urdfMaterial) => {
+                    const resolvedPath = robotService.resolveMeshPath(robotName, url);
+                    Logger.info(`Resolved mesh path: ${url} -> ${resolvedPath}`);
+                    
+                    // Use the original mesh loading logic with resolved path
+                    this._loadMeshWithFallback(resolvedPath, manager, done, urdfMaterial);
+                };
+            } else {
+                Logger.warn(`No config found for robot ${robotName}, using basic path resolution`);
+                
+                // Fallback to basic path resolution
+                const urdfDir = urdfPath.substring(0, urdfPath.lastIndexOf('/') + 1);
+                this.loader.packages = urdfDir;
+            }
+            
             // Set the current robot name in the loader
             this.loader.currentRobotName = robotName;
-            
-            // Set packages path to the URDF's directory (not just /robots/robotName)
-            // This ensures meshes are found even for multi-level paths
-            const urdfDir = urdfPath.substring(0, urdfPath.lastIndexOf('/') + 1);
-            this.loader.packages = urdfDir;
             
             // Load the URDF model
             const robot = await this.loader.loadAsync(urdfPath);
@@ -77,7 +99,9 @@ class RobotManager {
                 ROBOT_EVENTS.onLoadComplete(robotName, robot);
             }
             
+            Logger.info(`Successfully loaded robot: ${robotName}`);
             return robot;
+            
         } catch (error) {
             Logger.error(`Error loading robot ${robotName}:`, error);
             
@@ -91,12 +115,44 @@ class RobotManager {
     }
     
     /**
+     * Load mesh with fallback handling
+     * @private
+     * @param {string} path - Resolved mesh path
+     * @param {THREE.LoadingManager} manager - Loading manager
+     * @param {Function} done - Completion callback
+     * @param {THREE.Material} urdfMaterial - URDF material
+     */
+    _loadMeshWithFallback(path, manager, done, urdfMaterial) {
+        // Import MeshLoader here to avoid circular dependencies
+        import('../../core/Loader/MeshLoader').then(({ default: MeshLoader }) => {
+            MeshLoader.load(path, manager, done, urdfMaterial);
+        }).catch(error => {
+            Logger.error('Error importing MeshLoader:', error);
+            this._createFallbackGeometry(done, urdfMaterial);
+        });
+    }
+    
+    /**
+     * Create fallback geometry when mesh loading fails
+     * @private
+     */
+    _createFallbackGeometry(done, material) {
+        const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+        const mesh = new THREE.Mesh(
+            geometry,
+            material || new THREE.MeshPhongMaterial({ color: 0xFA8072 })
+        );
+        mesh.castShadow = mesh.receiveShadow = true;
+        done(mesh);
+    }
+    
+    /**
      * Update the scene for a specific robot
      * @param {Object} robot - The robot to update the scene for
      */
     updateSceneForRobot(robot) {
-        console.log("Robot geometry:", robot);
-        console.log("Robot children:", robot.children);
+        Logger.info("Updating scene for robot:", robot.robotName);
+        
         // Set up the coordinate system
         this.sceneSetup.setUpAxis(GLOBAL_CONFIG.upAxis);
         
@@ -126,7 +182,7 @@ class RobotManager {
      */
     switchRobot(robotName) {
         if (!this.robotMap.has(robotName)) {
-            console.warn(`Robot '${robotName}' not loaded`);
+            Logger.warn(`Robot '${robotName}' not loaded`);
             return false;
         }
         
@@ -186,7 +242,7 @@ class RobotManager {
         // Make sure value is a number
         value = parseFloat(value);
         
-        Logger.info(`Setting joint ${jointName} to value: ${value}`);
+        Logger.debug(`Setting joint ${jointName} to value: ${value}`);
         
         // Set joint value and get whether it changed
         const changed = this.currentRobot.setJointValue(jointName, value);
@@ -215,7 +271,7 @@ class RobotManager {
      */
     setJointValues(jointValues) {
         if (!this.currentRobot) {
-            console.warn('No robot loaded');
+            Logger.warn('No robot loaded');
             return false;
         }
         
@@ -305,6 +361,15 @@ class RobotManager {
         });
         
         this.currentRobot.setJointValues(resetValues);
+    }
+    
+    /**
+     * Get robot configuration from service
+     * @param {string} robotName - Robot name
+     * @returns {Object|null} Robot configuration
+     */
+    getRobotConfig(robotName) {
+        return robotService.getRobotConfig(robotName);
     }
     
     /**

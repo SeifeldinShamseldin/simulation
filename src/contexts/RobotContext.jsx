@@ -1,6 +1,6 @@
 // src/contexts/RobotContext.jsx
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import RobotAPI from './services/RobotAPI';
+import robotService from '../core/services/RobotService';
 
 // Create context
 const RobotContext = createContext(null);
@@ -13,18 +13,35 @@ export const RobotProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const viewerRef = useRef(null);
   
-  // Initialize - load available robots
+  // Initialize - load available robots using unified service
   useEffect(() => {
     const loadRobots = async () => {
       try {
         setIsLoading(true);
-        const { robots, categories } = await RobotAPI.discoverRobots();
+        setError(null);
+        
+        // Use unified robot service for discovery
+        const { robots, categories } = await robotService.discoverRobots();
+        
         setAvailableRobots(robots);
         setCategories(categories);
-        setIsLoading(false);
+        
+        console.log(`RobotContext: Loaded ${robots.length} robots in ${categories.length} categories`);
+        
       } catch (err) {
-        console.error("Failed to load robots:", err);
-        setError("Failed to discover robots");
+        console.error("Failed to discover robots:", err);
+        setError(`Failed to discover robots: ${err.message}`);
+        
+        // Try to get any cached data
+        const fallbackRobots = robotService.getAvailableRobots();
+        const fallbackCategories = robotService.getCategories();
+        
+        if (fallbackRobots.length > 0) {
+          setAvailableRobots(fallbackRobots);
+          setCategories(fallbackCategories);
+          console.log("Using cached robot data");
+        }
+      } finally {
         setIsLoading(false);
       }
     };
@@ -32,7 +49,7 @@ export const RobotProvider = ({ children }) => {
     loadRobots();
   }, []);
   
-  // Load a robot model
+  // Load a robot model using unified service
   const loadRobot = async (robotId, category) => {
     try {
       setIsLoading(true);
@@ -42,15 +59,22 @@ export const RobotProvider = ({ children }) => {
         throw new Error("Viewer not initialized");
       }
       
-      const robot = await RobotAPI.loadRobot(robotId, category, viewerRef.current);
+      console.log(`Loading robot: ${robotId} (category: ${category})`);
+      
+      // Use unified robot service for loading
+      const robot = await robotService.loadRobot(robotId, category, viewerRef.current);
+      
       setCurrentRobot(robot);
-      setIsLoading(false);
+      console.log(`Successfully loaded robot: ${robotId}`);
+      
       return robot;
+      
     } catch (err) {
       console.error(`Failed to load robot ${robotId}:`, err);
       setError(`Failed to load robot: ${err.message}`);
-      setIsLoading(false);
       throw err;
+    } finally {
+      setIsLoading(false);
     }
   };
   
@@ -59,65 +83,132 @@ export const RobotProvider = ({ children }) => {
     viewerRef.current = ref;
   };
   
-  // Add new methods to the context value:
+  // Add new robot using unified service
   const addRobot = async (robotData, onProgress) => {
     try {
       setIsLoading(true);
       setError(null);
       
-      const result = await RobotAPI.addRobot(robotData);
+      const result = await robotService.addRobot(robotData, onProgress);
+      
       if (result.success) {
-        // Refresh available robots
-        const { robots, categories } = await RobotAPI.discoverRobots();
+        // Refresh available robots after adding
+        const { robots, categories } = await robotService.discoverRobots();
         setAvailableRobots(robots);
         setCategories(categories);
-        setIsLoading(false);
+        
+        console.log(`Successfully added robot: ${result.robot.id}`);
         return result;
       } else {
         throw new Error(result.error);
       }
     } catch (err) {
-      setError(`Failed to add robot: ${err.message}`);
-      setIsLoading(false);
+      const errorMessage = `Failed to add robot: ${err.message}`;
+      setError(errorMessage);
+      console.error(errorMessage, err);
       throw err;
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  // Remove robot using unified service
   const removeRobot = async (robotId, category) => {
     try {
       setIsLoading(true);
       setError(null);
       
-      const result = await RobotAPI.removeRobot(robotId, category);
+      const result = await robotService.removeRobot(robotId, category);
+      
       if (result.success) {
-        // Refresh available robots
-        const { robots, categories } = await RobotAPI.discoverRobots();
+        // Refresh available robots after removal
+        const { robots, categories } = await robotService.discoverRobots();
         setAvailableRobots(robots);
         setCategories(categories);
-        setIsLoading(false);
+        
+        // Clear current robot if it was the one removed
+        if (currentRobot && currentRobot.robotName === robotId) {
+          setCurrentRobot(null);
+        }
+        
+        console.log(`Successfully removed robot: ${robotId}`);
         return result;
       } else {
         throw new Error(result.error);
       }
     } catch (err) {
-      setError(`Failed to remove robot: ${err.message}`);
-      setIsLoading(false);
+      const errorMessage = `Failed to remove robot: ${err.message}`;
+      setError(errorMessage);
+      console.error(errorMessage, err);
       throw err;
+    } finally {
+      setIsLoading(false);
     }
+  };
+  
+  // Get robots by category using unified service
+  const getRobotsByCategory = (categoryId) => {
+    return robotService.getRobotsByCategory(categoryId);
+  };
+  
+  // Get robot configuration using unified service
+  const getRobotConfig = (robotId) => {
+    return robotService.getRobotConfig(robotId);
+  };
+  
+  // Refresh robot data using unified service
+  const refresh = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const { robots, categories } = await robotService.refresh();
+      setAvailableRobots(robots);
+      setCategories(categories);
+      
+      console.log(`Refreshed robot data: ${robots.length} robots found`);
+      
+    } catch (err) {
+      console.error("Failed to refresh robot data:", err);
+      setError(`Failed to refresh: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Get service status
+  const getServiceStatus = () => {
+    return robotService.getStatus();
   };
   
   // Value provided by context
   const value = {
+    // Data
     availableRobots,
     categories,
     currentRobot,
     isLoading,
     error,
+    
+    // Refs
     viewerRef,
+    
+    // Core functions
     setViewer,
     loadRobot,
+    
+    // CRUD operations
     addRobot,
-    removeRobot
+    removeRobot,
+    
+    // Utility functions
+    getRobotsByCategory,
+    getRobotConfig,
+    refresh,
+    getServiceStatus,
+    
+    // Direct access to service (for advanced usage)
+    robotService
   };
   
   return (
