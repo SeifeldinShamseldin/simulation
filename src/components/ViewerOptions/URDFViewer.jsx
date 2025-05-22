@@ -316,6 +316,22 @@ const URDFViewer = ({
           const robot = robotManagerRef.current.getCurrentRobot();
           // Apply custom focusing with reduced padding
           sceneRef.current.focusOnObject(robot, 0.8);
+          
+          // Hide any fallback geometries (red cubes)
+          if (robot) {
+            robot.traverse((child) => {
+              if (child.isMesh && child.material) {
+                // Check if this is likely a fallback geometry
+                if (child.geometry instanceof THREE.BoxGeometry) {
+                  const size = child.geometry.parameters;
+                  if (size.width === 0.1 && size.height === 0.1 && size.depth === 0.1) {
+                    child.visible = false;
+                    Logger.debug('Hidden fallback geometry');
+                  }
+                }
+              }
+            });
+          }
         }
       }, 100);
     } catch (err) {

@@ -374,15 +374,18 @@ class RobotService {
     // Handle package:// URLs
     if (meshPath.startsWith('package://')) {
       const pathParts = meshPath.replace('package://', '').split('/');
-      const filename = pathParts[pathParts.length - 1];
+      const packageName = pathParts[0];
+      const filename = pathParts[pathParts.length - 1].toLowerCase(); // Convert to lowercase
       
-      // For TechManRoboter robots with specific path structure
-      if (robotId.toLowerCase().includes('tm')) {
-        // Extract just the filename without trying to preserve subdirectories
-        return `${config.packagePath}/${filename}`;
-      }
+      // Log for debugging
+      Logger.debug(`Resolving package URL: ${meshPath}`);
+      Logger.debug(`Package: ${packageName}, File: ${filename}`);
       
-      return `${config.packagePath}/${filename}`;
+      // Return the resolved path
+      const resolvedPath = `${config.packagePath}/${filename}`;
+      Logger.debug(`Resolved to: ${resolvedPath}`);
+      
+      return resolvedPath;
     }
     
     // Handle absolute paths
@@ -390,8 +393,8 @@ class RobotService {
       return meshPath;
     }
     
-    // Handle relative paths - just get the filename
-    const filename = meshPath.split('/').pop();
+    // Handle relative paths - convert to lowercase for consistency
+    const filename = meshPath.split('/').pop().toLowerCase();
     return `${config.packagePath}/${filename}`;
   }
   

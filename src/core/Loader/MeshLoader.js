@@ -153,12 +153,21 @@ class MeshLoader {
      * @private
      */
     static createFallbackGeometry(done, material) {
-        const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+        // Instead of creating a visible red cube, create a tiny invisible placeholder
+        const geometry = new THREE.BoxGeometry(0.001, 0.001, 0.001); // Much smaller
         const mesh = new THREE.Mesh(
             geometry,
-            material || new THREE.MeshPhongMaterial({ color: 0xFA8072 })
+            material || new THREE.MeshPhongMaterial({ 
+                color: 0x808080,  // Gray instead of red
+                opacity: 0.1,     // Nearly transparent
+                transparent: true 
+            })
         );
-        mesh.castShadow = mesh.receiveShadow = true;
+        mesh.castShadow = false;  // Don't cast shadows
+        mesh.receiveShadow = false;
+        mesh.visible = false;     // Make it invisible by default
+        
+        Logger.warn('Using invisible fallback geometry for missing mesh');
         done(mesh);
     }
 }

@@ -110,12 +110,20 @@ class URDFLoader {
      * @private
      */
     _createFallbackGeometry(done, material) {
-        const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+        const geometry = new THREE.BoxGeometry(0.001, 0.001, 0.001);
         const mesh = new THREE.Mesh(
             geometry,
-            material || new THREE.MeshPhongMaterial({ color: 0xFA8072 })
+            material || new THREE.MeshPhongMaterial({ 
+                color: 0x808080,
+                opacity: 0.1,
+                transparent: true
+            })
         );
-        mesh.castShadow = mesh.receiveShadow = true;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+        mesh.visible = false;
+        
+        Logger.warn('Created invisible fallback geometry for missing mesh');
         done(mesh);
     }
 
@@ -599,28 +607,29 @@ class URDFLoader {
                                 Logger.debug(`Applied scale: [${scale.join(', ')}]`);
                             }
                             
-                            // Load the mesh
+                            // Load the mesh with better error handling
                             loadMeshCb(filePath, manager, (obj, err) => {
                                 if (err) {
-                                    Logger.error('URDFLoader: Error loading mesh.', err);
-                                    this._createFallbackGeometry(done, material);
+                                    Logger.error(`Failed to load mesh: ${filename}`, err);
+                                    Logger.error(`Attempted path: ${filePath}`);
+                                    // Don't add fallback geometry - just skip this mesh
+                                    return;
                                 } else if (obj) {
                                     // Apply material to the mesh
                                     if (obj instanceof THREE.Mesh) {
                                         obj.material = material;
-                                        Logger.debug('Applied material to mesh');
+                                        Logger.debug('Successfully loaded mesh:', filename);
                                     }
                                     
                                     // Reset position and orientation
                                     obj.position.set(0, 0, 0);
                                     obj.quaternion.identity();
                                     group.add(obj);
-                                    Logger.debug('Added mesh to group');
                                 }
-                            });
+                            }, material);
                         } else {
-                            Logger.warn(`Invalid mesh path for ${filename}`);
-                            this._createFallbackGeometry(done, material);
+                            Logger.error(`Cannot resolve mesh path for: ${filename}`);
+                            // Don't create fallback geometry
                         }
                     } else if (geoType === 'box') {
                         // Create box primitive
