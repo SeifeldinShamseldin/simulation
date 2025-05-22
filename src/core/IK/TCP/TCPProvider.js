@@ -40,6 +40,7 @@ class TCPProvider {
     this.tcps.set(this.defaultTcpId, {
       id: this.defaultTcpId,
       name: 'Default TCP',
+      stlPath: null,
       settings: {
         visible: true,
         size: 0.03,
@@ -65,6 +66,7 @@ class TCPProvider {
     const tcpData = {
       id,
       name: tcpConfig.name || `TCP ${id}`,
+      stlPath: tcpConfig.stlPath || null,
       settings: {
         visible: tcpConfig.visible !== undefined ? tcpConfig.visible : true,
         size: tcpConfig.size || 0.03,
@@ -136,6 +138,11 @@ class TCPProvider {
         ...(settings.offset || {})
       }
     };
+
+    // Update STL path if provided
+    if (settings.stlPath !== undefined) {
+      tcp.stlPath = settings.stlPath;
+    }
 
     tcp.lastUpdated = Date.now();
 

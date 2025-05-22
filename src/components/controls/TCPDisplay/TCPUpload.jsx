@@ -2,6 +2,30 @@
 import React, { useState } from 'react';
 import './TCPManager.css';
 
+const PREDEFINED_TCPS = {
+  er20: {
+    name: 'ER20 Collet',
+    stlPath: '/tcp/er20.stl',
+    category: 'tool',
+    color: '#c0c0c0',
+    dimensions: { width: 0.04, height: 0.08, depth: 0.04 }
+  },
+  square_tcp: {
+    name: 'Square TCP',
+    stlPath: '/tcp/square_tcp.stl', 
+    category: 'custom',
+    color: '#ff0000',
+    dimensions: { width: 0.05, height: 0.05, depth: 0.05 }
+  },
+  gripper: {
+    name: 'Standard Gripper',
+    stlPath: '/tcp/gripper.stl',
+    category: 'gripper', 
+    color: '#333333',
+    dimensions: { width: 0.08, height: 0.12, depth: 0.06 }
+  }
+};
+
 const TCPUpload = ({ isOpen, onClose, onSuccess }) => {
   const [formData, setFormData] = useState({
     name: '',
@@ -17,6 +41,7 @@ const TCPUpload = ({ isOpen, onClose, onSuccess }) => {
   const [file, setFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState(null);
+  const [tcpType, setTcpType] = useState('custom');
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -48,9 +73,26 @@ const TCPUpload = ({ isOpen, onClose, onSuccess }) => {
     }
   };
 
+  const handleTcpTypeChange = (e) => {
+    const newType = e.target.value;
+    setTcpType(newType);
+    
+    if (newType !== 'custom') {
+      const predefined = PREDEFINED_TCPS[newType];
+      setFormData(prev => ({
+        ...prev,
+        name: predefined.name,
+        category: predefined.category,
+        color: predefined.color,
+        dimensions: predefined.dimensions
+      }));
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!file) {
+    
+    if (tcpType === 'custom' && !file) {
       setError('Please select an STL file');
       return;
     }
@@ -60,7 +102,14 @@ const TCPUpload = ({ isOpen, onClose, onSuccess }) => {
 
     try {
       const formDataToSend = new FormData();
-      formDataToSend.append('stlFile', file);
+      
+      if (tcpType === 'custom') {
+        formDataToSend.append('stlFile', file);
+      } else {
+        formDataToSend.append('stlPath', PREDEFINED_TCPS[tcpType].stlPath);
+        formDataToSend.append('tcpType', tcpType);
+      }
+      
       formDataToSend.append('name', formData.name);
       formDataToSend.append('description', formData.description);
       formDataToSend.append('category', formData.category);
@@ -90,6 +139,7 @@ const TCPUpload = ({ isOpen, onClose, onSuccess }) => {
           }
         });
         setFile(null);
+        setTcpType('custom');
       } else {
         setError(result.message || 'Upload failed');
       }
@@ -107,6 +157,20 @@ const TCPUpload = ({ isOpen, onClose, onSuccess }) => {
       <div className="tcp-upload-content">
         <h3>Upload TCP Tool</h3>
         <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label htmlFor="tcpType">TCP Type</label>
+            <select
+              id="tcpType"
+              value={tcpType}
+              onChange={handleTcpTypeChange}
+            >
+              <option value="custom">Custom Upload</option>
+              <option value="er20">ER20 Collet</option>
+              <option value="square_tcp">Square TCP</option>
+              <option value="gripper">Standard Gripper</option>
+            </select>
+          </div>
+
           <div className="form-group">
             <label htmlFor="name">Name *</label>
             <input
@@ -185,16 +249,22 @@ const TCPUpload = ({ isOpen, onClose, onSuccess }) => {
             </div>
           </div>
 
-          <div className="form-group">
-            <label htmlFor="stlFile">STL File *</label>
-            <input
-              type="file"
-              id="stlFile"
-              accept=".stl"
-              onChange={handleFileChange}
-              required
-            />
-          </div>
+          {tcpType === 'custom' ? (
+            <div className="form-group">
+              <label htmlFor="stlFile">STL File *</label>
+              <input
+                type="file"
+                id="stlFile"
+                accept=".stl"
+                onChange={handleFileChange}
+                required
+              />
+            </div>
+          ) : (
+            <div className="form-group">
+              <p>Using predefined STL: {PREDEFINED_TCPS[tcpType].stlPath}</p>
+            </div>
+          )}
 
           {error && <div className="error-message">{error}</div>}
 

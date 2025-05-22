@@ -22,6 +22,24 @@
       ]
     },
     {
+      "id": "techmanroboter",
+      "name": "techmanroboter",
+      "robots": [
+        {
+          "id": "tm12",
+          "name": "Tm12",
+          "urdfPath": "/robots/techmanroboter/tm12/tm12.urdf",
+          "packagePath": "/robots/techmanroboter/tm12",
+          "meshFiles": [
+            "tm12-arm1.stl",
+            "tm12-arm2.stl",
+            "tm12-base.stl",
+            "tmr_750w_01.stl"
+          ]
+        }
+      ]
+    },
+    {
       "id": "universalrobot",
       "name": "universalrobot",
       "robots": [

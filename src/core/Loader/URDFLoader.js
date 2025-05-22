@@ -586,6 +586,9 @@ class URDFLoader {
                         const filename = n.children[0].getAttribute('filename');
                         const filePath = resolvePath(filename);
                         
+                        Logger.info(`URDF mesh reference: ${filename}`);
+                        Logger.info(`Resolved mesh path: ${filePath}`);
+                        
                         // Load the mesh if path is valid
                         if (filePath !== null) {
                             // Apply scale if provided
@@ -593,24 +596,31 @@ class URDFLoader {
                             if (scaleAttr) {
                                 const scale = processTuple(scaleAttr);
                                 group.scale.set(scale[0], scale[1], scale[2]);
+                                Logger.debug(`Applied scale: [${scale.join(', ')}]`);
                             }
                             
                             // Load the mesh
                             loadMeshCb(filePath, manager, (obj, err) => {
                                 if (err) {
-                                    console.error('URDFLoader: Error loading mesh.', err);
+                                    Logger.error('URDFLoader: Error loading mesh.', err);
+                                    this._createFallbackGeometry(done, material);
                                 } else if (obj) {
                                     // Apply material to the mesh
                                     if (obj instanceof THREE.Mesh) {
                                         obj.material = material;
+                                        Logger.debug('Applied material to mesh');
                                     }
                                     
                                     // Reset position and orientation
                                     obj.position.set(0, 0, 0);
                                     obj.quaternion.identity();
                                     group.add(obj);
+                                    Logger.debug('Added mesh to group');
                                 }
                             });
+                        } else {
+                            Logger.warn(`Invalid mesh path for ${filename}`);
+                            this._createFallbackGeometry(done, material);
                         }
                     } else if (geoType === 'box') {
                         // Create box primitive

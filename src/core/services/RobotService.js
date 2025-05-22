@@ -373,7 +373,15 @@ class RobotService {
     
     // Handle package:// URLs
     if (meshPath.startsWith('package://')) {
-      const filename = meshPath.split('/').pop();
+      const pathParts = meshPath.replace('package://', '').split('/');
+      const filename = pathParts[pathParts.length - 1];
+      
+      // For TechManRoboter robots with specific path structure
+      if (robotId.toLowerCase().includes('tm')) {
+        // Extract just the filename without trying to preserve subdirectories
+        return `${config.packagePath}/${filename}`;
+      }
+      
       return `${config.packagePath}/${filename}`;
     }
     
@@ -382,8 +390,9 @@ class RobotService {
       return meshPath;
     }
     
-    // Handle relative paths
-    return `${config.packagePath}/${meshPath}`;
+    // Handle relative paths - just get the filename
+    const filename = meshPath.split('/').pop();
+    return `${config.packagePath}/${filename}`;
   }
   
   /**

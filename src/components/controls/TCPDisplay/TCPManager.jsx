@@ -1,6 +1,7 @@
 // src/components/controls/TCPDisplay/TCPManager.jsx - MERGED WITH DISPLAY FUNCTIONALITY
 import React, { useState, useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import tcpProvider from '../../../core/IK/TCP/TCPProvider';
 import EventBus from '../../../utils/EventBus';
 import TCPUpload from './TCPUpload';
@@ -21,8 +22,11 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
   // State for management
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingTcp, setEditingTcp] = useState(null);
+  const [tcpType, setTcpType] = useState('custom');
+  const [showFileUpload, setShowFileUpload] = useState(false);
   const [newTcpForm, setNewTcpForm] = useState({
     name: '',
+    stlPath: null,
     visible: true,
     size: 0.03,
     color: '#ff0000',
@@ -40,6 +44,34 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
   const [tcpObjects, setTcpObjects] = useState(new Map());
   const tcpObjectsRef = useRef(new Map());
   const animationRef = useRef(null);
+
+  // Define predefined TCP types
+  const PREDEFINED_TCPS = {
+    er20: {
+      name: 'ER20 Collet',
+      stlPath: '/tcp/er20.stl',
+      category: 'tool',
+      color: '#c0c0c0',
+      size: 0.04,
+      offset: { x: 0, y: 0, z: 0.02 }
+    },
+    square_tcp: {
+      name: 'Square TCP',
+      stlPath: '/tcp/square_tcp.stl',
+      category: 'custom',
+      color: '#ff0000',
+      size: 0.05,
+      offset: { x: 0, y: 0, z: 0 }
+    },
+    gripper: {
+      name: 'Standard Gripper',
+      stlPath: '/tcp/gripper.stl',
+      category: 'gripper',
+      color: '#333333',
+      size: 0.08,
+      offset: { x: 0, y: 0, z: 0.05 }
+    }
+  };
 
   // Load initial data and set up EventBus listeners
   useEffect(() => {
@@ -249,8 +281,15 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
       return;
     }
 
+    // Get STL path for predefined TCPs
+    let stlPath = null;
+    if (tcpType !== 'custom' && PREDEFINED_TCPS[tcpType]) {
+      stlPath = PREDEFINED_TCPS[tcpType].stlPath;
+    }
+
     const tcpId = tcpProvider.addTCP({
       name: newTcpForm.name.trim(),
+      stlPath: stlPath, // Include STL path
       visible: newTcpForm.visible,
       size: parseFloat(newTcpForm.size) || 0.03,
       color: newTcpForm.color,
@@ -264,11 +303,13 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     // Reset form and close modal
     setNewTcpForm({
       name: '',
+      stlPath: null,
       visible: true,
       size: 0.03,
       color: '#ff0000',
       offset: { x: 0, y: 0, z: 0 }
     });
+    setTcpType('custom'); // Reset TCP type
     setIsAddModalOpen(false);
 
     // Activate the new TCP
@@ -298,6 +339,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     setEditingTcp(tcp.id);
     setNewTcpForm({
       name: tcp.name,
+      stlPath: tcp.stlPath || null,
       visible: tcp.settings.visible,
       size: tcp.settings.size,
       color: tcp.settings.color,
@@ -312,6 +354,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     if (!editingTcp) return;
 
     tcpProvider.updateTCPSettings(editingTcp, {
+      stlPath: newTcpForm.stlPath,
       visible: newTcpForm.visible,
       size: parseFloat(newTcpForm.size) || 0.03,
       color: newTcpForm.color,
@@ -332,6 +375,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     setEditingTcp(null);
     setNewTcpForm({
       name: '',
+      stlPath: null,
       visible: true,
       size: 0.03,
       color: '#ff0000',
@@ -346,6 +390,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     setEditingTcp(null);
     setNewTcpForm({
       name: '',
+      stlPath: null,
       visible: true,
       size: 0.03,
       color: '#ff0000',
@@ -361,19 +406,94 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
   };
 
   /**
-   * Create TCP 3D visualization
+   * Create TCP visualization in the scene
    */
-  const createTCPVisualization = (scene, tcpData) => {
+  const createTCPVisualization = async (scene, tcpData) => {
     cleanupTCPVisualization(scene);
 
     if (!tcpData.settings.visible) return;
 
-    // Create TCP group
     const tcpGroup = new THREE.Group();
     tcpGroup.name = `TCP_${tcpData.id}`;
     tcpGroup.userData = { isTCP: true, tcpId: tcpData.id };
 
-    // Create cube
+    // Check if TCP has an STL path
+    if (tcpData.stlPath) {
+      // Load STL file
+      const loader = new STLLoader();
+      
+      try {
+        const geometry = await new Promise((resolve, reject) => {
+          loader.load(
+            tcpData.stlPath,
+            (geometry) => resolve(geometry),
+            (progress) => console.log('Loading TCP STL:', progress),
+            (error) => reject(error)
+          );
+        });
+
+        // Create mesh from STL
+        const material = new THREE.MeshPhongMaterial({
+          color: new THREE.Color(tcpData.settings.color),
+          specular: 0x111111,
+          shininess: 200,
+          transparent: true,
+          opacity: 0.9
+        });
+        
+        const mesh = new THREE.Mesh(geometry, material);
+        
+        // Center and scale the geometry
+        geometry.center();
+        
+        // Calculate bounding box for proper scaling
+        const bbox = new THREE.Box3().setFromObject(mesh);
+        const size = bbox.getSize(new THREE.Vector3());
+        const maxDim = Math.max(size.x, size.y, size.z);
+        
+        // Scale to match TCP size setting
+        const targetSize = tcpData.settings.size || 0.05;
+        const scale = targetSize / maxDim;
+        mesh.scale.set(scale, scale, scale);
+        
+        // Add to group
+        tcpGroup.add(mesh);
+        
+        // Add subtle outline for better visibility
+        const edges = new THREE.EdgesGeometry(geometry);
+        const line = new THREE.LineSegments(
+          edges,
+          new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 1 })
+        );
+        line.scale.copy(mesh.scale);
+        tcpGroup.add(line);
+        
+      } catch (error) {
+        console.error('Error loading TCP STL:', error);
+        // Fallback to cube if STL fails
+        createDefaultTCPCube(tcpGroup, tcpData);
+      }
+    } else {
+      // Use default cube visualization
+      createDefaultTCPCube(tcpGroup, tcpData);
+    }
+
+    // Add coordinate axes (smaller for STL models)
+    const axesSize = tcpData.settings.size * 0.8;
+    const axesHelper = new THREE.AxesHelper(axesSize);
+    axesHelper.renderOrder = 100001;
+    axesHelper.material.depthTest = false;
+    tcpGroup.add(axesHelper);
+
+    // Add to scene
+    scene.add(tcpGroup);
+    tcpObjectsRef.current.set(tcpData.id, tcpGroup);
+  };
+
+  /**
+   * Create default TCP cube visualization
+   */
+  const createDefaultTCPCube = (tcpGroup, tcpData) => {
     const size = tcpData.settings.size;
     const cubeGeom = new THREE.BoxGeometry(size, size, size);
     const cubeMat = new THREE.MeshBasicMaterial({ 
@@ -383,7 +503,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
       depthTest: false
     });
     const cube = new THREE.Mesh(cubeGeom, cubeMat);
-    cube.name = 'TCP_Cube';
     cube.renderOrder = 99999;
     tcpGroup.add(cube);
 
@@ -398,16 +517,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     );
     wireframe.renderOrder = 100000;
     cube.add(wireframe);
-
-    // Add axes
-    const axesHelper = new THREE.AxesHelper(size * 1.5);
-    axesHelper.renderOrder = 100001;
-    axesHelper.material.depthTest = false;
-    tcpGroup.add(axesHelper);
-
-    // Add to scene
-    scene.add(tcpGroup);
-    tcpObjectsRef.current.set(tcpData.id, tcpGroup);
   };
 
   /**
@@ -840,6 +949,53 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
             </div>
 
             <div className="tcp-manager__modal-content">
+              {/* TCP Type Selector */}
+              <div className="tcp-manager__form-group">
+                <label>TCP Type:</label>
+                <select
+                  value={tcpType}
+                  onChange={(e) => {
+                    setTcpType(e.target.value);
+                    if (e.target.value !== 'custom') {
+                      const predefined = PREDEFINED_TCPS[e.target.value];
+                      setNewTcpForm(prev => ({
+                        ...prev,
+                        name: predefined.name,
+                        size: predefined.size,
+                        color: predefined.color,
+                        offset: predefined.offset
+                      }));
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    border: '1px solid #ced4da',
+                    borderRadius: '4px',
+                    fontSize: '1rem',
+                    marginBottom: '1rem'
+                  }}
+                >
+                  <option value="custom">Custom TCP</option>
+                  <option value="er20">ER20 Collet</option>
+                  <option value="square_tcp">Square TCP</option>
+                  <option value="gripper">Standard Gripper</option>
+                </select>
+              </div>
+
+              {/* Show STL preview for predefined TCPs */}
+              {tcpType !== 'custom' && (
+                <div className="tcp-manager__form-group" style={{
+                  padding: '0.75rem',
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: '4px',
+                  marginBottom: '1rem'
+                }}>
+                  <small>Using predefined STL: {PREDEFINED_TCPS[tcpType].stlPath}</small>
+                </div>
+              )}
+
+              {/* TCP Name */}
               <div className="tcp-manager__form-group">
                 <label>TCP Name:</label>
                 <input
@@ -850,6 +1006,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
                 />
               </div>
 
+              {/* Rest of the form */}
               <div className="tcp-manager__form-row">
                 <div className="tcp-manager__form-group">
                   <label>
