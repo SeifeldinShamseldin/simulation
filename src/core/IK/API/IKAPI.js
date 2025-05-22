@@ -49,10 +49,6 @@ class IKAPI {
 
     // Animation promises tracking
     this.animationPromises = new Map();
-
-    // EventBus for real-time TCP requests
-    this.pendingTCPRequests = new Map();
-    EventBus.on('tcp:realtime-result', this.handleTCPResult.bind(this));
     
     // TCP data cache
     this.tcpData = {
@@ -209,44 +205,6 @@ class IKAPI {
   }
   
   /**
-   * Handle TCP calculation results from TCPProvider via EventBus
-   */
-  handleTCPResult(data) {
-    const { requestId, position } = data;
-    const pendingRequest = this.pendingTCPRequests.get(requestId);
-    
-    if (pendingRequest) {
-      pendingRequest.resolve(position);
-      this.pendingTCPRequests.delete(requestId);
-    }
-  }
-  
-  /**
-   * Request real-time TCP position from TCPProvider via EventBus
-   * @param {Object} robot - Robot instance
-   * @returns {Promise<Object>} TCP position
-   */
-  async getRealTimeTCPPosition(robot) {
-    return new Promise((resolve) => {
-      const requestId = `tcp_${Date.now()}_${Math.random()}`;
-      
-      // Store the promise resolver
-      this.pendingTCPRequests.set(requestId, { resolve });
-      
-      // Request calculation from TCPProvider via EventBus
-      EventBus.emit('tcp:calculate-realtime', { robot, requestId });
-      
-      // Timeout after 100ms (fallback)
-      setTimeout(() => {
-        if (this.pendingTCPRequests.has(requestId)) {
-          this.pendingTCPRequests.delete(requestId);
-          resolve({ x: 0, y: 0, z: 0 });
-        }
-      }, 100);
-    });
-  }
-  
-  /**
    * Solve IK to find joint angles that reach the target - USES EVENTBUS FOR REAL-TIME
    * @param {Object} robot - Robot object
    * @param {Object|THREE.Vector3} targetPosition - Target position
@@ -287,7 +245,7 @@ class IKAPI {
     // Use CCD (Cyclic Coordinate Descent) algorithm with EventBus for real-time positions
     for (let iter = 0; iter < params.maxIterations; iter++) {
       // GET REAL-TIME TCP POSITION VIA EVENTBUS
-      const currentTCPPos = await this.getRealTimeTCPPosition(robot);
+      const currentTCPPos = await this.getCurrentTCPPosition();
       const currentPos = new THREE.Vector3(currentTCPPos.x, currentTCPPos.y, currentTCPPos.z);
       
       // Check convergence

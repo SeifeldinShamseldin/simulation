@@ -56,18 +56,14 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     const unsubscribeRemoved = EventBus.on('tcp:removed', handleTCPRemoved);
     const unsubscribeActivated = EventBus.on('tcp:activated', handleTCPActivated);
     const unsubscribeSettingsUpdated = EventBus.on('tcp:settings-updated', handleSettingsUpdated);
-    const unsubscribeActivePosition = EventBus.on('tcp:active-position-updated', handleActivePositionUpdated);
     const unsubscribeActiveSettings = EventBus.on('tcp:active-settings-updated', handleActiveSettingsUpdated);
-    const unsubscribePositionsUpdated = EventBus.on('tcp:positions-updated', handlePositionsUpdated);
 
     return () => {
       unsubscribeAdded();
       unsubscribeRemoved();
       unsubscribeActivated();
       unsubscribeSettingsUpdated();
-      unsubscribeActivePosition();
       unsubscribeActiveSettings();
-      unsubscribePositionsUpdated();
     };
   }, []);
 
@@ -153,9 +149,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
   const handleTCPActivated = (data) => {
     setActiveTcpId(data.id);
     setActiveTcp(data.tcp);
-    if (data.tcp && data.tcp.position) {
-      setPosition(data.tcp.position);
-    }
   };
 
   /**
@@ -171,29 +164,12 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
   };
 
   /**
-   * Handle active TCP position updates from EventBus
-   */
-  const handleActivePositionUpdated = (data) => {
-    setPosition(data.position);
-  };
-
-  /**
    * Handle active TCP settings updates from EventBus
    */
   const handleActiveSettingsUpdated = (data) => {
     const currentActiveTcp = tcpProvider.getActiveTCP();
     if (currentActiveTcp) {
       setActiveTcp({ ...currentActiveTcp });
-    }
-  };
-
-  /**
-   * Handle general positions updated from EventBus
-   */
-  const handlePositionsUpdated = (data) => {
-    const activeTcpData = data.tcps.find(tcp => tcp.id === data.activeTcpId);
-    if (activeTcpData) {
-      setPosition(activeTcpData.position);
     }
   };
 
@@ -392,66 +368,16 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
    * Update TCP 3D position
    */
   const updateTCPVisualization = () => {
-    if (!activeTcp || !viewerRef?.current) return;
+    if (!viewerRef?.current || !activeTcp) return;
+
+    const sceneSetup = viewerRef.current.getSceneSetup?.() || viewerRef.current.sceneRef?.current;
+    if (!sceneSetup?.scene) return;
 
     const tcpObject = tcpObjectsRef.current.get(activeTcp.id);
     if (!tcpObject) return;
 
-    try {
-      const robot = viewerRef.current.getCurrentRobot();
-      if (!robot) return;
-
-      const lastJoint = findLastJoint(robot);
-      if (!lastJoint) return;
-
-      lastJoint.updateMatrixWorld(true);
-
-      const jointWorldPos = new THREE.Vector3();
-      const jointWorldQuat = new THREE.Quaternion();
-      
-      lastJoint.getWorldPosition(jointWorldPos);
-      lastJoint.getWorldQuaternion(jointWorldQuat);
-
-      const offset = new THREE.Vector3(
-        activeTcp.settings.offset.x,
-        activeTcp.settings.offset.y,
-        activeTcp.settings.offset.z
-      );
-      offset.applyQuaternion(jointWorldQuat);
-      jointWorldPos.add(offset);
-
-      tcpObject.position.copy(jointWorldPos);
-      tcpObject.quaternion.copy(jointWorldQuat);
-      tcpObject.visible = activeTcp.settings.visible;
-
-    } catch (error) {
-      console.error('Error updating TCP visualization:', error);
-    }
-  };
-
-  /**
-   * Find last joint in robot
-   */
-  const findLastJoint = (robot) => {
-    if (!robot?.joints) return null;
-
-    const endJointNames = [
-      'joint_a6', 'a6', 'joint_6', 'tool0',
-      'wrist_3_joint', 'tool0',
-      'tool_joint', 'end_effector', 'tcp_joint', 'flange'
-    ];
-
-    for (const name of endJointNames) {
-      if (robot.joints[name]) {
-        return robot.joints[name];
-      }
-    }
-
-    const joints = Object.values(robot.joints).filter(
-      j => j.jointType !== 'fixed' && j.isURDFJoint
-    );
-
-    return joints.length > 0 ? joints[joints.length - 1] : null;
+    // Update visibility only
+    tcpObject.visible = activeTcp.settings.visible;
   };
 
   /**
@@ -568,28 +494,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
                 {activeTcp.isDefault && <span className="tcp-manager__badge">Default</span>}
               </div>
               <div className="tcp-manager__id">ID: {activeTcp.id}</div>
-            </div>
-
-            {/* Position Display */}
-            <div className="tcp-manager__position">
-              <h4>Current Position</h4>
-              <div className="tcp-manager__coordinates">
-                <div className="tcp-manager__coordinate">
-                  <label>X:</label>
-                  <span className="tcp-manager__value">{formatCoordinate(position.x)}</span>
-                  <span className="tcp-manager__unit">m</span>
-                </div>
-                <div className="tcp-manager__coordinate">
-                  <label>Y:</label>
-                  <span className="tcp-manager__value">{formatCoordinate(position.y)}</span>
-                  <span className="tcp-manager__unit">m</span>
-                </div>
-                <div className="tcp-manager__coordinate">
-                  <label>Z:</label>
-                  <span className="tcp-manager__value">{formatCoordinate(position.z)}</span>
-                  <span className="tcp-manager__unit">m</span>
-                </div>
-              </div>
             </div>
 
             {/* Settings Display */}
