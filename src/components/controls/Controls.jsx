@@ -476,48 +476,6 @@ const Controls = ({
   }, [viewerRef]);
   
   /**
-   * Update TCP position
-   */
-  const updateTCPPosition = () => {
-    if (!viewerRef?.current) return;
-    
-    const robot = viewerRef.current.getCurrentRobot();
-    if (!robot) return;
-    
-    // Find last joint and end effector
-    const joints = Object.values(robot.joints).filter(
-      j => j.jointType !== 'fixed' && j.limit && typeof j.limit.lower === 'number'
-    );
-    
-    if (joints.length === 0) return;
-    
-    const lastJoint = joints[joints.length - 1];
-    const endEffector = lastJoint.children[0];
-    
-    if (!endEffector) return;
-    
-    // Get position in world space
-    const position = new THREE.Vector3();
-    endEffector.getWorldPosition(position);
-    
-    // Update TCP position state
-    setTcpPosition({
-      x: position.x,
-      y: position.y,
-      z: position.z
-    });
-    
-    // Initialize target position if it's zeros
-    if (targetPosition.x === 0 && targetPosition.y === 0 && targetPosition.z === 0) {
-      setTargetPosition({
-        x: parseFloat(position.x.toFixed(3)),
-        y: parseFloat(position.y.toFixed(3)),
-        z: parseFloat(position.z.toFixed(3))
-      });
-    }
-  };
-  
-  /**
    * Handle joint value change
    * @param {string} name - The name of the joint
    * @param {number|string} value - The new value
@@ -592,7 +550,6 @@ const Controls = ({
     if (!viewerRef?.current) return;
     
     viewerRef.current.resetJoints();
-    updateTCPPosition();
   };
   
   /**
@@ -602,7 +559,6 @@ const Controls = ({
     if (!viewerRef?.current) return;
     
     viewerRef.current.undo();
-    updateTCPPosition();
   };
   
   /**
@@ -612,7 +568,6 @@ const Controls = ({
     if (!viewerRef?.current) return;
     
     viewerRef.current.redo();
-    updateTCPPosition();
   };
   
   /**

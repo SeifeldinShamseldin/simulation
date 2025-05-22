@@ -18,10 +18,6 @@ class TCPProvider {
     this.activeTcpId = null;
     this.defaultTcpId = 'default';
 
-    // Position update callbacks for IK API
-    this.positionSubscribers = new Set();
-    this.settingsSubscribers = new Set();
-
     // Robot reference for position calculation
     this.currentRobot = null;
     this.isCalculating = false;
@@ -29,7 +25,11 @@ class TCPProvider {
     // Initialize default TCP
     this.createDefaultTCP();
 
-    // Start update loop
+    // EventBus listeners
+    EventBus.on('tcp:calculate-realtime', this.handleRealTimeCalculation.bind(this));
+    EventBus.on('tcp:force-update', this.forceUpdate.bind(this));
+    
+    // Start update loop (will emit via EventBus)
     this.startUpdateLoop();
   }
 
@@ -118,9 +118,7 @@ class TCPProvider {
   }
 
   /**
-   * Update TCP settings
-   * @param {string} tcpId - TCP ID
-   * @param {Object} settings - New settings
+   * Update TCP settings - NOW EMITS VIA EVENTBUS
    */
   updateTCPSettings(tcpId, settings) {
     const tcp = this.tcps.get(tcpId);
@@ -141,29 +139,27 @@ class TCPProvider {
 
     tcp.lastUpdated = Date.now();
 
-    // Send updated settings to IK API
+    // EMIT settings update via EventBus
+    EventBus.emit('tcp:settings-updated', {
+      tcpId,
+      settings: tcp.settings,
+      tcp: tcp
+    });
+
+    // If this is the active TCP, emit active settings update
     if (tcpId === this.activeTcpId) {
-      this.sendDataToIKAPI();
+      EventBus.emit('tcp:active-settings-updated', {
+        settings: tcp.settings,
+        tcp: tcp
+      });
     }
 
-    // Notify subscribers
-    this.settingsSubscribers.forEach(callback => {
-      try {
-        callback(tcpId, tcp.settings);
-      } catch (error) {
-        console.error('Error notifying settings subscribers:', error);
-      }
-    });
-
-    EventBus.emit('tcp:settings_updated', {
-      tcpId,
-      settings: tcp.settings
-    });
+    // Force position recalculation
+    this.forceUpdate();
   }
 
   /**
-   * Set active TCP
-   * @param {string} tcpId - TCP ID to activate
+   * Set active TCP - NOW EMITS VIA EVENTBUS
    */
   setActiveTCP(tcpId) {
     if (!this.tcps.has(tcpId)) {
@@ -171,8 +167,29 @@ class TCPProvider {
       return;
     }
 
+    const oldActiveTcpId = this.activeTcpId;
     this.activeTcpId = tcpId;
-    EventBus.emit('tcp:activated', { id: tcpId });
+    
+    // EMIT activation via EventBus
+    EventBus.emit('tcp:activated', { 
+      id: tcpId, 
+      tcp: this.tcps.get(tcpId),
+      previousId: oldActiveTcpId
+    });
+
+    // Emit active position/settings immediately
+    const activeTcp = this.getActiveTCP();
+    if (activeTcp) {
+      EventBus.emit('tcp:active-position-updated', {
+        position: activeTcp.position,
+        tcp: activeTcp
+      });
+      
+      EventBus.emit('tcp:active-settings-updated', {
+        settings: activeTcp.settings,
+        tcp: activeTcp
+      });
+    }
   }
 
   /**
@@ -292,7 +309,7 @@ class TCPProvider {
   }
 
   /**
-   * Update all TCP positions
+   * Update all TCP positions - NOW EMITS VIA EVENTBUS
    */
   updatePositions() {
     if (this.isCalculating || !this.currentRobot) return;
@@ -307,7 +324,7 @@ class TCPProvider {
         if (newPosition) {
           const oldPosition = tcp.position;
           
-          // Check if position actually changed (avoid unnecessary updates)
+          // Check if position actually changed
           if (oldPosition.x !== newPosition.x || 
               oldPosition.y !== newPosition.y || 
               oldPosition.z !== newPosition.z) {
@@ -316,62 +333,34 @@ class TCPProvider {
             tcp.lastUpdated = Date.now();
             hasUpdates = true;
 
-            // Notify position subscribers (for IK API)
+            // EMIT position update via EventBus (for specific TCP)
+            EventBus.emit('tcp:position-updated', {
+              tcpId,
+              position: newPosition,
+              tcp: tcp
+            });
+
+            // If this is the active TCP, emit active position update
             if (tcpId === this.activeTcpId) {
-              this.positionSubscribers.forEach(callback => {
-                try {
-                  callback(newPosition);
-                } catch (error) {
-                  console.error('Error in position subscriber:', error);
-                }
+              EventBus.emit('tcp:active-position-updated', {
+                position: newPosition,
+                tcp: tcp
               });
             }
           }
         }
       });
 
-      // Send data to IK API when positions update
+      // Emit general positions updated event
       if (hasUpdates) {
-        this.sendDataToIKAPI();
-        
-        EventBus.emit('tcp:positions_updated', {
-          tcps: Array.from(this.tcps.values())
+        EventBus.emit('tcp:positions-updated', {
+          tcps: Array.from(this.tcps.values()),
+          activeTcpId: this.activeTcpId
         });
       }
     } finally {
       this.isCalculating = false;
     }
-  }
-
-  /**
-   * Subscribe to position updates (for IK API)
-   * @param {Function} callback - Callback function
-   * @returns {Function} Unsubscribe function
-   */
-  subscribeToPositionUpdates(callback) {
-    this.positionSubscribers.add(callback);
-    
-    // Send current position immediately
-    const activeTcp = this.getActiveTCP();
-    if (activeTcp && activeTcp.position) {
-      try {
-        callback(activeTcp.position);
-      } catch (error) {
-        console.error('Error in immediate position callback:', error);
-      }
-    }
-
-    return () => this.positionSubscribers.delete(callback);
-  }
-
-  /**
-   * Subscribe to settings updates
-   * @param {Function} callback - Callback function
-   * @returns {Function} Unsubscribe function
-   */
-  subscribeToSettingsUpdates(callback) {
-    this.settingsSubscribers.add(callback);
-    return () => this.settingsSubscribers.delete(callback);
   }
 
   /**
@@ -425,22 +414,98 @@ class TCPProvider {
     if (!activeTcp) return;
     
     // Send position update
-    this.positionSubscribers.forEach(callback => {
-      try {
-        callback(activeTcp.position);
-      } catch (error) {
-        console.error('Error sending position to IK API:', error);
-      }
+    EventBus.emit('tcp:position-updated', {
+      tcpId: activeTcp.id,
+      position: activeTcp.position,
+      tcp: activeTcp
     });
     
     // Send settings update
-    this.settingsSubscribers.forEach(callback => {
-      try {
-        callback(activeTcp.id, activeTcp.settings);
-      } catch (error) {
-        console.error('Error sending settings to IK API:', error);
-      }
+    EventBus.emit('tcp:settings-updated', {
+      tcpId: activeTcp.id,
+      settings: activeTcp.settings,
+      tcp: activeTcp
     });
+  }
+
+  /**
+   * Handle real-time calculation requests (from IK during solving)
+   * @param {Object} data - Request data with robot and requestId
+   */
+  handleRealTimeCalculation(data) {
+    const { robot, requestId } = data;
+    
+    if (!robot) {
+      EventBus.emit('tcp:realtime-result', { requestId, position: null });
+      return;
+    }
+
+    // Force matrix updates for accurate calculation
+    robot.updateMatrixWorld(true);
+    
+    // Calculate TCP position immediately
+    const position = this.calculateTCPPositionDirect(robot);
+    
+    // Send result back to IK immediately
+    EventBus.emit('tcp:realtime-result', { 
+      requestId, 
+      position,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Direct calculation without caching (for real-time requests)
+   * @param {Object} robot - Robot instance
+   * @returns {Object} Position {x, y, z}
+   */
+  calculateTCPPositionDirect(robot) {
+    if (!robot) return { x: 0, y: 0, z: 0 };
+
+    try {
+      const lastJoint = this.findLastJoint(robot);
+      if (!lastJoint) return { x: 0, y: 0, z: 0 };
+
+      const endEffector = lastJoint.children && lastJoint.children.length > 0 
+        ? lastJoint.children[0] 
+        : lastJoint;
+
+      // Get IMMEDIATE world position and rotation
+      const position = new THREE.Vector3();
+      const quaternion = new THREE.Quaternion();
+      
+      endEffector.getWorldPosition(position);
+      endEffector.getWorldQuaternion(quaternion);
+
+      // Apply TCP offset
+      const activeTcp = this.getActiveTCP();
+      if (activeTcp && activeTcp.settings.offset) {
+        const offset = new THREE.Vector3(
+          activeTcp.settings.offset.x,
+          activeTcp.settings.offset.y,
+          activeTcp.settings.offset.z
+        );
+        
+        offset.applyQuaternion(quaternion);
+        position.add(offset);
+      }
+
+      return {
+        x: parseFloat(position.x.toFixed(6)),
+        y: parseFloat(position.y.toFixed(6)),
+        z: parseFloat(position.z.toFixed(6))
+      };
+    } catch (error) {
+      console.error('Error in direct TCP calculation:', error);
+      return { x: 0, y: 0, z: 0 };
+    }
+  }
+
+  /**
+   * Force immediate update (called after IK completes)
+   */
+  forceUpdate() {
+    this.updatePositions();
   }
 }
 

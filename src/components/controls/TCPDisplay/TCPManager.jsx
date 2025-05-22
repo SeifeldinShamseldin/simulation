@@ -21,14 +21,14 @@ const TCPManager = ({ viewerRef }) => {
     offset: { x: 0, y: 0, z: 0 }
   });
 
-  // Load initial data and set up event listeners
+  // Load initial data and set up EventBus listeners
   useEffect(() => {
     loadTCPs();
     
     const unsubscribeAdded = EventBus.on('tcp:added', handleTCPAdded);
     const unsubscribeRemoved = EventBus.on('tcp:removed', handleTCPRemoved);
     const unsubscribeActivated = EventBus.on('tcp:activated', handleTCPActivated);
-    const unsubscribeSettingsUpdated = EventBus.on('tcp:settings_updated', handleSettingsUpdated);
+    const unsubscribeSettingsUpdated = EventBus.on('tcp:settings-updated', handleSettingsUpdated);
 
     return () => {
       unsubscribeAdded();
@@ -50,28 +50,28 @@ const TCPManager = ({ viewerRef }) => {
   };
 
   /**
-   * Handle TCP added event
+   * Handle TCP added event from EventBus
    */
   const handleTCPAdded = (data) => {
     loadTCPs();
   };
 
   /**
-   * Handle TCP removed event
+   * Handle TCP removed event from EventBus  
    */
   const handleTCPRemoved = (data) => {
     loadTCPs();
   };
 
   /**
-   * Handle TCP activated event
+   * Handle TCP activated event from EventBus
    */
   const handleTCPActivated = (data) => {
     setActiveTcpId(data.id);
   };
 
   /**
-   * Handle settings updated event
+   * Handle settings updated event from EventBus
    */
   const handleSettingsUpdated = (data) => {
     loadTCPs();

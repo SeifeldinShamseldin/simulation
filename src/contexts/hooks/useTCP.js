@@ -14,7 +14,7 @@ const useTCP = () => {
     offset: { x: 0.0, y: 0, z: 0 }
   });
   
-  // Subscribe to TCP Provider updates
+  // Subscribe to EventBus instead of direct TCP provider
   useEffect(() => {
     // Set up robot connection
     if (viewerRef?.current) {
@@ -24,25 +24,21 @@ const useTCP = () => {
       }
     }
 
-    // Subscribe to position updates from TCP Provider
-    const unsubscribePosition = tcpProvider.subscribeToPositionUpdates((position) => {
-      setTcpPosition(position);
+    // LISTEN TO EVENTBUS for position updates
+    const unsubscribePosition = EventBus.on('tcp:active-position-updated', (data) => {
+      setTcpPosition(data.position);
     });
     
-    // Subscribe to settings updates from TCP Provider
-    const unsubscribeSettings = tcpProvider.subscribeToSettingsUpdates((tcpId, settings) => {
-      const activeTcp = tcpProvider.getActiveTCP();
-      if (activeTcp && tcpId === activeTcp.id) {
-        setTcpSettings(settings);
-      }
+    // LISTEN TO EVENTBUS for settings updates
+    const unsubscribeSettings = EventBus.on('tcp:active-settings-updated', (data) => {
+      setTcpSettings(data.settings);
     });
     
-    // Subscribe to TCP activation events
-    const unsubscribeActivated = EventBus.on('tcp:activated', () => {
-      const activeTcp = tcpProvider.getActiveTCP();
-      if (activeTcp) {
-        setTcpPosition(activeTcp.position);
-        setTcpSettings(activeTcp.settings);
+    // LISTEN TO EVENTBUS for TCP activation
+    const unsubscribeActivated = EventBus.on('tcp:activated', (data) => {
+      if (data.tcp) {
+        setTcpPosition(data.tcp.position);
+        setTcpSettings(data.tcp.settings);
       }
     });
     

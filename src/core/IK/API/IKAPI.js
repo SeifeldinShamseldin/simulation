@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { Logger } from '../../../utils/GlobalVariables';
 import tcpProvider from '../TCP/TCPProvider';
+import EventBus from '../../../utils/EventBus';
 
 /**
  * Unified API for Inverse Kinematics functionality
@@ -22,13 +23,13 @@ class IKAPI {
       dampingFactor: 0.5
     };
     
-    // TCP integration - now uses TCP Provider
+    // TCP integration - now uses EventBus
     this.tcpProvider = tcpProvider;
     this.positionUpdateCallbacks = new Set();
     this.settingsUpdateCallbacks = new Set();
     
-    // Subscribe to TCP Provider updates
-    this.setupTCPIntegration();
+    // Subscribe to EventBus instead of direct TCP Provider
+    this.setupEventBusIntegration();
     
     // Temporary vectors for calculations (reused to reduce GC)
     this._worldEndPos = new THREE.Vector3();
@@ -49,39 +50,43 @@ class IKAPI {
     // Animation promises tracking
     this.animationPromises = new Map();
 
-    // TCP data from TCP Provider
+    // EventBus for real-time TCP requests
+    this.pendingTCPRequests = new Map();
+    EventBus.on('tcp:realtime-result', this.handleTCPResult.bind(this));
+    
+    // TCP data cache
     this.tcpData = {
       position: { x: 0, y: 0, z: 0 },
       offset: { x: 0, y: 0, z: 0 },
       settings: null
     };
     
-    // Subscribe to TCP Provider updates
+    // Subscribe to EventBus updates
     this.setupTCPDataReceiver();
   }
   
   /**
-   * Set up TCP Provider integration
+   * Set up EventBus integration (REPLACES setupTCPIntegration)
    */
-  setupTCPIntegration() {
-    // Subscribe to TCP position updates
-    this.tcpProvider.subscribeToPositionUpdates((position) => {
+  setupEventBusIntegration() {
+    // Subscribe to active TCP position updates from EventBus
+    EventBus.on('tcp:active-position-updated', (data) => {
       // Forward to existing callbacks for backward compatibility
       this.positionUpdateCallbacks.forEach(callback => {
         try {
-          callback(position);
+          callback(data.position);
         } catch (error) {
           console.error('Error in position update callback:', error);
         }
       });
     });
     
-    // Subscribe to TCP settings updates
-    this.tcpProvider.subscribeToSettingsUpdates((tcpId, settings) => {
+    // Subscribe to active TCP settings updates from EventBus
+    EventBus.on('tcp:active-settings-updated', (data) => {
       // Forward to existing callbacks for backward compatibility
       this.settingsUpdateCallbacks.forEach(callback => {
         try {
-          callback(settings);
+          callback(data.tcp.id, data.settings);
         } catch (error) {
           console.error('Error in settings update callback:', error);
         }
@@ -90,18 +95,18 @@ class IKAPI {
   }
   
   /**
-   * Set up TCP data receiver from TCP Provider
+   * Set up TCP data receiver from EventBus (REPLACES old TCP Provider subscriptions)
    */
   setupTCPDataReceiver() {
-    // Listen for TCP position updates
-    tcpProvider.subscribeToPositionUpdates((position) => {
-      this.tcpData.position = position;
+    // Listen for TCP position updates via EventBus
+    EventBus.on('tcp:active-position-updated', (data) => {
+      this.tcpData.position = data.position;
     });
     
-    // Listen for TCP settings updates  
-    tcpProvider.subscribeToSettingsUpdates((tcpId, settings) => {
-      this.tcpData.offset = settings.offset;
-      this.tcpData.settings = settings;
+    // Listen for TCP settings updates via EventBus
+    EventBus.on('tcp:active-settings-updated', (data) => {
+      this.tcpData.offset = data.settings.offset || { x: 0, y: 0, z: 0 };
+      this.tcpData.settings = data.settings;
     });
   }
   
@@ -231,12 +236,64 @@ class IKAPI {
   }
   
   /**
-   * Solve IK to find joint angles that reach the target
+   * Get current TCP position for IK calculations
+   */
+  getCurrentTCPPosition() {
+    return this.currentTCPPosition;
+  }
+  
+  /**
+   * Get current TCP offset for IK calculations
+   */
+  getCurrentTCPOffset() {
+    return this.tcpData.offset;
+  }
+  
+  /**
+   * Handle TCP calculation results from TCPProvider via EventBus
+   */
+  handleTCPResult(data) {
+    const { requestId, position } = data;
+    const pendingRequest = this.pendingTCPRequests.get(requestId);
+    
+    if (pendingRequest) {
+      pendingRequest.resolve(position);
+      this.pendingTCPRequests.delete(requestId);
+    }
+  }
+  
+  /**
+   * Request real-time TCP position from TCPProvider via EventBus
+   * @param {Object} robot - Robot instance
+   * @returns {Promise<Object>} TCP position
+   */
+  async getRealTimeTCPPosition(robot) {
+    return new Promise((resolve) => {
+      const requestId = `tcp_${Date.now()}_${Math.random()}`;
+      
+      // Store the promise resolver
+      this.pendingTCPRequests.set(requestId, { resolve });
+      
+      // Request calculation from TCPProvider via EventBus
+      EventBus.emit('tcp:calculate-realtime', { robot, requestId });
+      
+      // Timeout after 100ms (fallback)
+      setTimeout(() => {
+        if (this.pendingTCPRequests.has(requestId)) {
+          this.pendingTCPRequests.delete(requestId);
+          resolve({ x: 0, y: 0, z: 0 });
+        }
+      }, 100);
+    });
+  }
+  
+  /**
+   * Solve IK to find joint angles that reach the target - USES EVENTBUS FOR REAL-TIME
    * @param {Object} robot - Robot object
    * @param {Object|THREE.Vector3} targetPosition - Target position
    * @returns {Object} Map of joint names to goal angles
    */
-  solve(robot, targetPosition) {
+  async solve(robot, targetPosition) {
     if (!robot) return null;
     
     // Find end effector and joints
@@ -266,21 +323,14 @@ class IKAPI {
       console.warn('Target position may be unreachable, maximum reach is', params.maxReach);
     }
     
-    // Use CCD (Cyclic Coordinate Descent) algorithm with dynamic parameters
+    // Use CCD (Cyclic Coordinate Descent) algorithm with EventBus for real-time positions
     for (let iter = 0; iter < params.maxIterations; iter++) {
-      // Get current END EFFECTOR position (not TCP calculated position)
-      endEffector.getWorldPosition(this._worldEndPos);
-      
-      // Apply TCP offset to get actual TCP position
-      const tcpOffset = this.getCurrentTCPOffset();
-      const offsetVector = new THREE.Vector3(tcpOffset.x, tcpOffset.y, tcpOffset.z);
-      const quaternion = new THREE.Quaternion();
-      endEffector.getWorldQuaternion(quaternion);
-      offsetVector.applyQuaternion(quaternion);
-      this._worldEndPos.add(offsetVector);
+      // GET REAL-TIME TCP POSITION VIA EVENTBUS
+      const currentTCPPos = await this.getRealTimeTCPPosition(robot);
+      const currentPos = new THREE.Vector3(currentTCPPos.x, currentTCPPos.y, currentTCPPos.z);
       
       // Check convergence
-      const distanceToTarget = this._worldEndPos.distanceTo(targetPos);
+      const distanceToTarget = currentPos.distanceTo(targetPos);
       console.log(`Iteration ${iter}: distance = ${distanceToTarget.toFixed(4)}`);
       
       if (distanceToTarget < params.tolerance) {
@@ -305,7 +355,7 @@ class IKAPI {
           .normalize();
         
         // Vectors from joint to current TCP and target
-        this._toEnd.copy(this._worldEndPos).sub(this._jointPos);
+        this._toEnd.copy(currentPos).sub(this._jointPos);
         this._toTarget.copy(targetPos).sub(this._jointPos);
         
         // Only proceed if vectors are significant
@@ -341,6 +391,10 @@ class IKAPI {
         
         // Apply change
         robot.setJointValue(joint.name, newAngle);
+        
+        // Force matrix updates for next real-time calculation
+        joint.updateMatrixWorld(true);
+        endEffector.updateMatrixWorld(true);
       }
     }
     
@@ -362,71 +416,29 @@ class IKAPI {
   }
   
   /**
-   * Execute a complete IK solution and animation
-   * @param {Object} robot - Robot object
-   * @param {Object|THREE.Vector3} targetPosition - Target position
-   * @param {Object} options - Options for solving and animation
-   * @returns {Promise} Promise that resolves when animation completes
+   * Execute IK with EventBus communication
    */
   async executeIK(robot, targetPosition, options = {}) {
-    const defaultOptions = {
-      maxIterations: this.solverSettings.maxIterations,
-      tolerance: this.solverSettings.tolerance,
-      dampingFactor: this.solverSettings.dampingFactor,
-      duration: null,
-      animate: true,  // DEFAULT TO TRUE for smooth movement
-      onComplete: null
-    };
-    
-    const combinedOptions = { ...defaultOptions, ...options };
-    
-    // Update solver settings temporarily
-    const originalSettings = { ...this.solverSettings };
-    this.configureSolver(combinedOptions);
-    
     try {
-      // Solve IK
-      const solution = this.solve(robot, targetPosition);
+      // Solve using EventBus for real-time positions
+      const solution = await this.solve(robot, targetPosition);
       if (!solution) {
         throw new Error('Failed to solve IK');
       }
-      
-      // Calculate duration if not specified
-      const duration = combinedOptions.duration || this.calculateAnimationDuration(robot);
-      
-      // Generate a unique ID for this animation
-      const animationId = Date.now().toString();
-      
-      // Always use animation for smooth movement
-      const animationPromise = new Promise((resolve) => {
-        // Start animation with a callback that resolves the promise
-        this.animationPromises.set(animationId, { resolve });
-        
-        this.animate(robot, duration, () => {
-          // When animation completes, resolve the promise and remove it
-          const promiseData = this.animationPromises.get(animationId);
-          if (promiseData) {
-            promiseData.resolve();
-            this.animationPromises.delete(animationId);
-          }
-          
-          // Call the original onComplete callback if provided
-          if (combinedOptions.onComplete) {
-            combinedOptions.onComplete();
-          }
+
+      // Animate the movement
+      await new Promise((resolve) => {
+        this.animate(robot, options.duration || 1000, () => {
+          // After animation, tell TCPProvider to update its cache
+          EventBus.emit('tcp:force-update');
+          resolve();
         });
       });
       
-      // Wait for animation to complete
-      await animationPromise;
       return true;
-      
     } catch (error) {
       console.error("Error executing IK:", error);
       return false;
-    } finally {
-      // Restore original settings
-      this.configureSolver(originalSettings);
     }
   }
   
@@ -724,20 +736,6 @@ class IKAPI {
       maxReach: 2.0,
       dof: 6
     };
-  }
-
-  /**
-   * Get current TCP position for IK calculations
-   */
-  getCurrentTCPPosition() {
-    return this.tcpData.position;
-  }
-
-  /**
-   * Get current TCP offset for IK calculations
-   */
-  getCurrentTCPOffset() {
-    return this.tcpData.offset;
   }
 }
 

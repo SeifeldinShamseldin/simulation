@@ -1,4 +1,4 @@
-// src/components/controls/TCPDisplay/TCPDisplay.jsx
+// src/components/controls/TCPDisplay/TCPDisplay.jsx - COMPLETE EVENTBUS VERSION
 import React, { useState, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import tcpProvider from '../../../core/IK/TCP/TCPProvider';
@@ -8,6 +8,7 @@ import './TCPDisplay.css';
 /**
  * TCP Display Component - Shows current TCP position and basic info in UI
  * This component is read-only and displays the active TCP data
+ * NOW USES EVENTBUS FOR ALL COMMUNICATION
  */
 const TCPDisplay = ({ viewerRef, compact = false }) => {
   const [activeTcp, setActiveTcp] = useState(null);
@@ -19,7 +20,7 @@ const TCPDisplay = ({ viewerRef, compact = false }) => {
   const tcpObjectsRef = useRef(new Map());
   const animationRef = useRef(null);
 
-  // Set up robot connection and event listeners
+  // Set up robot connection and EventBus listeners
   useEffect(() => {
     // Connect TCP provider to robot
     if (viewerRef?.current) {
@@ -30,18 +31,21 @@ const TCPDisplay = ({ viewerRef, compact = false }) => {
       }
     }
 
-    // Subscribe to TCP events
+    // SUBSCRIBE TO EVENTBUS INSTEAD OF DIRECT SUBSCRIPTIONS
     const unsubscribeActivated = EventBus.on('tcp:activated', handleTCPActivated);
-    const unsubscribePositions = EventBus.on('tcp:positions_updated', handlePositionsUpdated);
-    const unsubscribeSettings = EventBus.on('tcp:settings_updated', handleSettingsUpdated);
+    const unsubscribeActivePosition = EventBus.on('tcp:active-position-updated', handleActivePositionUpdated);
+    const unsubscribeActiveSettings = EventBus.on('tcp:active-settings-updated', handleActiveSettingsUpdated);
+    const unsubscribePositionsUpdated = EventBus.on('tcp:positions-updated', handlePositionsUpdated);
 
     // Initial data load
     loadActiveTCP();
 
     return () => {
+      // Cleanup EventBus subscriptions
       unsubscribeActivated();
-      unsubscribePositions();
-      unsubscribeSettings();
+      unsubscribeActivePosition();
+      unsubscribeActiveSettings();
+      unsubscribePositionsUpdated();
     };
   }, [viewerRef]);
 
@@ -86,29 +90,45 @@ const TCPDisplay = ({ viewerRef, compact = false }) => {
   }, [activeTcp, viewerRef, isConnected]);
 
   /**
-   * Handle TCP activation events
+   * Handle TCP activation events from EventBus
    */
   const handleTCPActivated = (data) => {
-    loadActiveTCP();
-  };
-
-  /**
-   * Handle position updates
-   */
-  const handlePositionsUpdated = (data) => {
-    const currentActiveTcp = tcpProvider.getActiveTCP();
-    if (currentActiveTcp) {
-      setPosition(currentActiveTcp.position);
+    console.log('TCP activated via EventBus:', data);
+    setActiveTcp(data.tcp);
+    if (data.tcp && data.tcp.position) {
+      setPosition(data.tcp.position);
     }
   };
 
   /**
-   * Handle settings updates
+   * Handle active TCP position updates from EventBus
    */
-  const handleSettingsUpdated = (data) => {
+  const handleActivePositionUpdated = (data) => {
+    console.log('Active TCP position updated via EventBus:', data);
+    setPosition(data.position);
+  };
+
+  /**
+   * Handle active TCP settings updates from EventBus
+   */
+  const handleActiveSettingsUpdated = (data) => {
+    console.log('Active TCP settings updated via EventBus:', data);
+    // Reload the active TCP to get updated settings
     const currentActiveTcp = tcpProvider.getActiveTCP();
-    if (currentActiveTcp && data.id === currentActiveTcp.id) {
+    if (currentActiveTcp) {
       setActiveTcp({ ...currentActiveTcp });
+    }
+  };
+
+  /**
+   * Handle general positions updated from EventBus
+   */
+  const handlePositionsUpdated = (data) => {
+    console.log('TCP positions updated via EventBus:', data);
+    // Update active TCP if it's in the updated list
+    const activeTcpData = data.tcps.find(tcp => tcp.id === data.activeTcpId);
+    if (activeTcpData) {
+      setPosition(activeTcpData.position);
     }
   };
 
@@ -117,6 +137,7 @@ const TCPDisplay = ({ viewerRef, compact = false }) => {
    */
   const loadActiveTCP = () => {
     const tcp = tcpProvider.getActiveTCP();
+    console.log('Loading active TCP:', tcp);
     setActiveTcp(tcp);
     if (tcp) {
       setPosition(tcp.position);
