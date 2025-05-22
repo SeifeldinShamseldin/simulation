@@ -1,0 +1,95 @@
+/* components/controls/Reposition/Reposition.css */
+.reposition-container {
+    margin-bottom: 1rem;
+  }
+  
+  .reposition-description {
+    margin-bottom: 1rem;
+    color: #555;
+  }
+  
+  .position-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 1rem;
+  }
+  
+  .position-input-group {
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .position-input-group label {
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+  
+  .position-input-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .position-input-row input {
+    flex: 1;
+    padding: 6px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+  }
+  
+  .position-buttons {
+    display: flex;
+    gap: 4px;
+  }
+  
+  .position-buttons button {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #f0f0f0;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  
+  .position-buttons button:hover {
+    background-color: #e0e0e0;
+  }
+  
+  .reposition-actions {
+    display: flex;
+    gap: 10px;
+  }
+  
+  .apply-button {
+    flex: 2;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  
+  .reset-button {
+    flex: 1;
+    background-color: #f39c12;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  
+  .apply-button:hover {
+    background-color: #2980b9;
+  }
+  
+  .reset-button:hover {
+    background-color: #e67e22;
+  }

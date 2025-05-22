@@ -1,0 +1,210 @@
+/* IKController.css - Styles for the Inverse Kinematics controller */
+
+.ik-controller {
+    margin-bottom: 1rem;
+  }
+  
+  .ik-controller h3 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    color: #333;
+    font-size: 1.2rem;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 0.5rem;
+  }
+  
+  /* Current position display */
+  .ik-current-position {
+    margin-bottom: 1rem;
+  }
+  
+  .ik-current-position p {
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+  }
+  
+  .ik-position-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    text-align: center;
+    margin-bottom: 0.5rem;
+  }
+  
+  .ik-position-value {
+    font-weight: bold;
+    background-color: #f8f9fa;
+    padding: 4px;
+    border-radius: 4px;
+  }
+  
+  /* Target position controls */
+  .ik-target-container {
+    margin-bottom: 1rem;
+    padding: 12px;
+    background-color: #f0f8ff;
+    border-radius: 8px;
+    border: 2px solid #3498db;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  }
+  
+  .ik-target-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  
+  .ik-target-header h4 {
+    margin: 0;
+    color: #2c3e50;
+    font-size: 1rem;
+  }
+  
+  .ik-use-current-btn {
+    padding: 4px 8px;
+    background-color: #2ecc71;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
+  }
+  
+  .ik-use-current-btn:hover {
+    background-color: #27ae60;
+  }
+  
+  .ik-coordinates-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  
+  .ik-coordinate-control label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: bold;
+    color: #2c3e50;
+  }
+  
+  .ik-coordinate-input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #3498db;
+    border-radius: 4px;
+    font-size: 1rem;
+    margin-bottom: 4px;
+  }
+  
+  .ik-coordinate-input:focus {
+    outline: none;
+    border-color: #2980b9;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.3);
+  }
+  
+  .ik-increment-controls {
+    display: flex;
+    justify-content: space-between;
+  }
+  
+  .ik-increment-btn {
+    padding: 2px 8px;
+    background-color: #ddd;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    flex: 1;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
+  }
+  
+  .ik-increment-btn:first-child {
+    margin-right: 4px;
+  }
+  
+  .ik-increment-btn:hover {
+    background-color: #ccc;
+  }
+  
+  .ik-move-btn {
+    width: 100%;
+    padding: 12px;
+    background-color: #3498db;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    transition: background-color 0.2s;
+  }
+  
+  .ik-move-btn:hover:not(:disabled) {
+    background-color: #2980b9;
+  }
+  
+  .ik-move-btn:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+  }
+  
+  .ik-stop-btn {
+    width: 100%;
+    padding: 8px;
+    margin-top: 8px;
+    background-color: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+  }
+  
+  .ik-stop-btn:hover {
+    background-color: #c0392b;
+  }
+  
+  /* Status display */
+  .ik-status {
+    margin-bottom: 1rem;
+    padding: 8px 12px;
+    background-color: #f5f5f5;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+  }
+  
+  .ik-status p {
+    margin: 0;
+  }
+  
+  /* Reset button */
+  .ik-reset-btn {
+    width: 100%;
+    padding: 8px;
+    background-color: #f39c12;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+  }
+  
+  .ik-reset-btn:hover {
+    background-color: #e67e22;
+  }
+  
+  /* Responsive adjustments */
+  @media (max-width: 768px) {
+    .ik-coordinates-grid {
+      grid-template-columns: 1fr;
+    }
+    
+    .ik-position-grid {
+      grid-template-columns: 1fr;
+    }
+  }

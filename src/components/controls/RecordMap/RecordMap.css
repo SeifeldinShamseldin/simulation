@@ -1,0 +1,188 @@
+/* components/controls/RecordMap/ExternalTrajectoryGraph.css */
+.external-graph-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.external-graph-container {
+  background-color: white;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  width: 90%;
+  height: 90%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.external-graph-header {
+  padding: 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.external-graph-header h2 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 1.8rem;
+  cursor: pointer;
+  color: #666;
+}
+
+.close-button:hover {
+  color: #000;
+}
+
+.external-graph-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.external-graph-controls {
+  padding: 10px 15px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  border-bottom: 1px solid #e0e0e0;
+  background-color: #f5f5f5;
+}
+
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.control-group select {
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+.control-group button {
+  padding: 6px 10px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.control-group button:hover {
+  background-color: #0069d9;
+}
+
+.control-group input[type="color"] {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 0;
+}
+
+.external-graph-view {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.graph-container {
+  width: 100%;
+  height: 100%;
+}
+
+.loading-indicator,
+.no-data-message {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #666;
+  font-style: italic;
+}
+
+.external-graph-stats {
+  padding: 15px;
+  border-top: 1px solid #e0e0e0;
+  background-color: #f5f5f5;
+}
+
+.external-graph-stats h3 {
+  margin-top: 0;
+  margin-bottom: 10px;
+  font-size: 1.1rem;
+}
+
+.stats-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  font-size: 0.9rem;
+}
+
+.stats-nested {
+  grid-column: 1 / -1;
+  padding-left: 15px;
+  border-left: 2px solid #ddd;
+  margin-top: 5px;
+  font-size: 0.85rem;
+}
+
+@media (min-width: 1200px) {
+  .external-graph-content {
+    flex-direction: row;
+  }
+  
+  .external-graph-controls {
+    width: 250px;
+    flex-direction: column;
+    border-right: 1px solid #e0e0e0;
+    border-bottom: none;
+  }
+  
+  .external-graph-stats {
+    width: 250px;
+    border-left: 1px solid #e0e0e0;
+    border-top: none;
+  }
+}
+
+.external-view-button-container {
+  text-align: center;
+  margin-top: 10px;
+}
+
+.external-view-button {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.external-view-button:hover {
+  background-color: #0069d9;
+}

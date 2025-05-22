@@ -1,0 +1,99 @@
+/* components/controls/TrajectoryControl/TrajectoryControl.css */
+.trajectory-control {
+    margin-bottom: 1rem;
+  }
+  
+  .trajectory-recording {
+    margin-bottom: 1rem;
+    padding: 0.5rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+  }
+  
+  .trajectory-name-input {
+    margin-bottom: 0.5rem;
+  }
+  
+  .trajectory-name-input input {
+    width: 100%;
+    padding: 0.5rem;
+    font-size: 0.9rem;
+  }
+  
+  .trajectory-buttons {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.5rem;
+  }
+  
+  .record-btn {
+    background-color: #dc3545;
+    color: white;
+  }
+  
+  .stop-btn {
+    background-color: #6c757d;
+    color: white;
+  }
+  
+  .trajectory-list {
+    margin-top: 1rem;
+  }
+  
+  .trajectory-list ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  
+  .trajectory-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    border-bottom: 1px solid #dee2e6;
+  }
+  
+  .trajectory-name {
+    font-weight: 500;
+  }
+  
+  .trajectory-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  
+  .trajectory-actions button {
+    padding: 4px 8px;
+    font-size: 0.8rem;
+  }
+  
+  .no-trajectories {
+    padding: 1rem;
+    text-align: center;
+    color: #6c757d;
+  }
+  
+  .playback-controls {
+    margin-top: 1rem;
+    text-align: center;
+  }
+  
+  .stop-playback-btn {
+    background-color: #dc3545;
+    color: white;
+  }
+  
+  .playback-progress {
+    margin-top: 0.5rem;
+    height: 4px;
+    background-color: #e9ecef;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  
+  .playback-progress-bar {
+    height: 100%;
+    background-color: #28a745;
+    transition: width 0.1s linear;
+  }
