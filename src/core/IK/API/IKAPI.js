@@ -198,7 +198,7 @@ class IKAPI {
    * Get current TCP position for IK calculations
    */
   getCurrentTCPPosition() {
-    return this.currentTCPPosition;
+    return this.tcpProvider.getCurrentPosition();
   }
   
   /**

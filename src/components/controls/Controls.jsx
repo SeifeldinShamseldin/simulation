@@ -9,7 +9,6 @@ import ControlJoints from './ControlJoints/ControlJoints';
 import RobotLoader from './RobotLoader/RobotLoader';
 import ActionButtons from './ActionButtons/ActionButtons';
 import Reposition from './Reposition/Reposition';
-import TCPDisplay from '../controls/TCPDisplay/TCPDisplay';
 import TCPManager from '../controls/TCPDisplay/TCPManager';
 import IKController from './IKController/IKController';
 import TrajectoryViewer from './RecordMap/TrajectoryViewer';
@@ -750,12 +749,8 @@ const Controls = ({
       
       {showIKControls && (
         <>
-          {/* TCP Display - Shows current TCP position */}
-          <TCPDisplay viewerRef={viewerRef} compact={false} />
-          
           {/* TCP Manager - Add/Edit/Remove TCPs */}
           <TCPManager viewerRef={viewerRef} />
-          
           {/* IK Controller */}
           <IKController
             viewerRef={viewerRef}
