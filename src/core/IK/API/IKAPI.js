@@ -195,47 +195,6 @@ class IKAPI {
   }
   
   /**
-   * Find the end effector and all controllable joints in a robot
-   * @param {Object} robot - The robot URDF model
-   * @returns {Object} Contains endEffector and joints
-   */
-  findEndEffectorAndJoints(robot) {
-    try {
-      if (!robot) {
-        console.warn('No robot provided to findEndEffectorAndJoints');
-        return { endEffector: null, joints: [] };
-      }
-      
-      // Find all non-fixed joints with limits
-      const joints = Object.values(robot.joints).filter(
-        j => j.jointType !== 'fixed' && j.limit && typeof j.limit.lower === 'number'
-      );
-      
-      if (joints.length === 0) {
-        console.warn('No suitable joints found in robot');
-        return { endEffector: null, joints: [] };
-      }
-      
-      // Last joint is typically the one closest to end effector
-      const lastJoint = joints[joints.length - 1];
-      
-      // End effector is typically the first child of the last joint
-      const endEffector = lastJoint.children[0];
-      
-      if (!endEffector) {
-        console.warn('Could not find end effector for last joint:', lastJoint.name);
-        return { endEffector: null, joints };
-      }
-      
-      console.log(`Found end effector for joint ${lastJoint.name}`);
-      return { endEffector, joints };
-    } catch (error) {
-      console.error('Error finding end effector:', error);
-      return { endEffector: null, joints: [] };
-    }
-  }
-  
-  /**
    * Get current TCP position for IK calculations
    */
   getCurrentTCPPosition() {
@@ -296,9 +255,11 @@ class IKAPI {
   async solve(robot, targetPosition) {
     if (!robot) return null;
     
-    // Find end effector and joints
-    const { endEffector, joints } = this.findEndEffectorAndJoints(robot);
-    if (!endEffector || joints.length === 0) return null;
+    // Get joints from robot directly since TCPProvider doesn't have getJoints method
+    const joints = Object.values(robot.joints).filter(
+      j => j.jointType !== 'fixed' && j.limit && typeof j.limit.lower === 'number'
+    );
+    if (!joints || joints.length === 0) return null;
     
     // Analyze robot and get dynamically optimized parameters
     const params = this.analyzeRobotStructure(robot);
@@ -394,7 +355,6 @@ class IKAPI {
         
         // Force matrix updates for next real-time calculation
         joint.updateMatrixWorld(true);
-        endEffector.updateMatrixWorld(true);
       }
     }
     
@@ -491,7 +451,7 @@ class IKAPI {
     if (!robot) return false;
     
     try {
-      const { joints } = this.findEndEffectorAndJoints(robot);
+      const { joints } = this.tcpProvider.getJoints(robot);
       if (joints.length === 0) return false;
       
       // Calculate max reach
@@ -680,7 +640,10 @@ class IKAPI {
   analyzeRobotStructure(robot) {
     if (!robot) return this.getDefaultParameters();
     
-    const { joints } = this.findEndEffectorAndJoints(robot);
+    // Get joints directly from robot
+    const joints = Object.values(robot.joints).filter(
+      j => j.jointType !== 'fixed' && j.limit && typeof j.limit.lower === 'number'
+    );
     if (!joints || joints.length === 0) return this.getDefaultParameters();
     
     // Count the number of degrees of freedom (movable joints)
