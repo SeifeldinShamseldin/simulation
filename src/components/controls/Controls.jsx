@@ -23,20 +23,22 @@ const DebugInfo = ({ enabled, jointInfo, jointValues }) => {
   if (!enabled) return null;
   
   return (
-    <div className="urdf-controls-section" style={{ 
+    <div style={{ 
       backgroundColor: '#f8f9fa', 
       border: '1px solid #dee2e6',
       marginBottom: '1rem',
       padding: '0.5rem',
       fontSize: '0.8rem',
-      fontFamily: 'monospace'
+      fontFamily: 'monospace',
+      borderRadius: '4px'
     }}>
       <details>
         <summary style={{ 
           fontWeight: 'bold', 
           cursor: 'pointer',
           padding: '0.25rem',
-          backgroundColor: '#e9ecef'
+          backgroundColor: '#e9ecef',
+          borderRadius: '4px'
         }}>
           Debug Information
         </summary>
@@ -53,7 +55,10 @@ const DebugInfo = ({ enabled, jointInfo, jointValues }) => {
                 color: '#f8f9fa',
                 padding: '0.5rem',
                 fontSize: '0.7rem',
-                marginTop: '0.5rem'
+                marginTop: '0.5rem',
+                borderRadius: '4px',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all'
               }}>
                 {JSON.stringify(jointInfo, null, 2)}
               </pre>
@@ -69,7 +74,10 @@ const DebugInfo = ({ enabled, jointInfo, jointValues }) => {
                 color: '#f8f9fa',
                 padding: '0.5rem',
                 fontSize: '0.7rem',
-                marginTop: '0.5rem'
+                marginTop: '0.5rem',
+                borderRadius: '4px',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all'
               }}>
                 {JSON.stringify(jointValues, null, 2)}
               </pre>
@@ -85,7 +93,10 @@ const DebugInfo = ({ enabled, jointInfo, jointValues }) => {
                 color: '#f8f9fa',
                 padding: '0.5rem',
                 fontSize: '0.7rem',
-                marginTop: '0.5rem'
+                marginTop: '0.5rem',
+                borderRadius: '4px',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all'
               }}>
                 {JSON.stringify(robotService.getStatus(), null, 2)}
               </pre>
@@ -710,7 +721,12 @@ const Controls = ({
   };
 
   return (
-    <div className="urdf-controls">
+    <div className="urdf-controls" style={{ 
+      padding: '0.5rem',
+      height: '100%',
+      overflowY: 'auto',
+      backgroundColor: '#f8f8f8'
+    }}>
       <DebugInfo 
         enabled={debugMode}
         jointInfo={jointInfo}
@@ -723,7 +739,6 @@ const Controls = ({
           availableRobots={availableRobots}
           onRobotNameChange={(selectedRobot) => {
             setRobotName(selectedRobot);
-            // Try to get robot config from service
             const robotConfig = robotService.getRobotConfig(selectedRobot);
             if (robotConfig) {
               setRobotPath(robotConfig.urdfPath);
@@ -749,9 +764,7 @@ const Controls = ({
       
       {showIKControls && (
         <>
-          {/* TCP Manager - Add/Edit/Remove TCPs */}
           <TCPManager viewerRef={viewerRef} />
-          {/* IK Controller */}
           <IKController
             viewerRef={viewerRef}
             tcpPosition={tcpPosition}
@@ -782,7 +795,8 @@ const Controls = ({
             borderRadius: '4px',
             padding: '0.25rem 0.5rem',
             fontSize: '0.8rem',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            transition: 'background-color 0.2s'
           }}
         >
           {debugMode ? 'Disable Debug' : 'Enable Debug'}

@@ -1,0 +1,119 @@
+{
+  "categories": [
+    {
+      "id": "kuka",
+      "name": "kuka",
+      "robots": [
+        {
+          "id": "kr3r540",
+          "name": "Kr3r540",
+          "urdfPath": "/robots/kuka/kr3r540/kr3r540.urdf",
+          "packagePath": "/robots/kuka/kr3r540",
+          "meshFiles": [
+            "base_link.stl",
+            "link_1.stl",
+            "link_2.stl",
+            "link_3.stl",
+            "link_4.stl",
+            "link_5.stl",
+            "link_6.stl"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "universalrobot",
+      "name": "universalrobot",
+      "robots": [
+        {
+          "id": "ur10",
+          "name": "Ur10",
+          "urdfPath": "/robots/universalrobot/ur10/ur10.urdf",
+          "packagePath": "/robots/universalrobot/ur10",
+          "meshFiles": [
+            "base.dae",
+            "base.stl",
+            "forearm.dae",
+            "forearm.stl",
+            "shoulder.dae",
+            "shoulder.stl",
+            "upperarm.dae",
+            "upperarm.stl",
+            "wrist1.dae",
+            "wrist1.stl",
+            "wrist2.dae",
+            "wrist2.stl",
+            "wrist3.dae",
+            "wrist3.stl"
+          ]
+        },
+        {
+          "id": "ur10e",
+          "name": "Ur10e",
+          "urdfPath": "/robots/universalrobot/ur10e/ur10e.urdf",
+          "packagePath": "/robots/universalrobot/ur10e",
+          "meshFiles": [
+            "base.dae",
+            "base.stl",
+            "forearm.dae",
+            "forearm.stl",
+            "shoulder.dae",
+            "shoulder.stl",
+            "upperarm.dae",
+            "upperarm.stl",
+            "wrist1.dae",
+            "wrist1.stl",
+            "wrist2.dae",
+            "wrist2.stl",
+            "wrist3.dae",
+            "wrist3.stl"
+          ]
+        },
+        {
+          "id": "ur5",
+          "name": "Ur5",
+          "urdfPath": "/robots/universalrobot/ur5/ur5.urdf",
+          "packagePath": "/robots/universalrobot/ur5",
+          "meshFiles": [
+            "base.dae",
+            "base.stl",
+            "forearm.dae",
+            "forearm.stl",
+            "shoulder.dae",
+            "shoulder.stl",
+            "upperarm.dae",
+            "upperarm.stl",
+            "wrist1.dae",
+            "wrist1.stl",
+            "wrist2.dae",
+            "wrist2.stl",
+            "wrist3.dae",
+            "wrist3.stl"
+          ]
+        },
+        {
+          "id": "ur5e",
+          "name": "Ur5e",
+          "urdfPath": "/robots/universalrobot/ur5e/ur5e.urdf",
+          "packagePath": "/robots/universalrobot/ur5e",
+          "meshFiles": [
+            "base.dae",
+            "base.stl",
+            "forearm.dae",
+            "forearm.stl",
+            "shoulder.dae",
+            "shoulder.stl",
+            "upperarm.dae",
+            "upperarm.stl",
+            "wrist1.dae",
+            "wrist1.stl",
+            "wrist2.dae",
+            "wrist2.stl",
+            "wrist3.dae",
+            "wrist3.stl"
+          ]
+        }
+      ]
+    }
+  ]
+}

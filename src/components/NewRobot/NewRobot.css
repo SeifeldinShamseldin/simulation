@@ -44,6 +44,11 @@
     color: #666;
     cursor: pointer;
     padding: 0;
+    transition: color 0.2s;
+  }
+  
+  .close-button:hover {
+    color: #333;
   }
   
   .new-robot-progress {
@@ -59,6 +64,7 @@
     position: relative;
     font-weight: 500;
     color: #999;
+    transition: color 0.3s;
   }
   
   .progress-step.active {
@@ -93,6 +99,11 @@
     padding: 1rem;
     border: 1px solid #e0e0e0;
     border-radius: 4px;
+    transition: border-color 0.2s;
+  }
+  
+  .option-selector:hover {
+    border-color: #3498db;
   }
   
   .option-selector label {
@@ -100,6 +111,7 @@
     align-items: center;
     margin-bottom: 0.5rem;
     font-weight: 500;
+    cursor: pointer;
   }
   
   .option-selector input[type="radio"] {
@@ -114,6 +126,14 @@
     margin-top: 0.5rem;
     border: 1px solid #ccc;
     border-radius: 4px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  
+  .option-selector select:focus,
+  .option-selector input[type="text"]:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
   }
   
   .form-group {
@@ -124,6 +144,22 @@
     display: block;
     margin-bottom: 0.5rem;
     font-weight: 500;
+  }
+  
+  .form-group input[type="text"],
+  .form-group input[type="file"] {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  
+  .form-group input[type="text"]:focus,
+  .form-group input[type="file"]:focus {
+    outline: none;
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
   }
   
   .help-text {
@@ -180,6 +216,7 @@
     color: #c62828;
     border-radius: 4px;
     font-size: 0.9rem;
+    border-left: 4px solid #c62828;
   }
   
   .new-robot-actions {
@@ -198,7 +235,7 @@
     border-radius: 4px;
     font-weight: 500;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: background-color 0.2s, transform 0.1s;
   }
   
   .back-button {
@@ -226,4 +263,20 @@
   .submit-button:disabled {
     background-color: #b3d7ff;
     cursor: not-allowed;
+  }
+  
+  /* Responsive adjustments */
+  @media (max-width: 768px) {
+    .new-robot-modal {
+      width: 95%;
+      max-height: 95vh;
+    }
+  
+    .new-robot-progress {
+      font-size: 0.9rem;
+    }
+  
+    .progress-step {
+      padding: 0.6rem 0;
+    }
   }

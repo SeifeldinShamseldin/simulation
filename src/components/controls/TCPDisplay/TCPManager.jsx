@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import tcpProvider from '../../../core/IK/TCP/TCPProvider';
 import EventBus from '../../../utils/EventBus';
+import TCPUpload from './TCPUpload';
 import './TCPManager.css';
 
 /**
@@ -31,6 +32,10 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
   // State for display mode
   const [displayMode, setDisplayMode] = useState('display'); // 'display' or 'manage'
   
+  // TCP Library state
+  const [showUpload, setShowUpload] = useState(false);
+  const [tcpLibrary, setTcpLibrary] = useState([]);
+
   // 3D visualization state
   const [tcpObjects, setTcpObjects] = useState(new Map());
   const tcpObjectsRef = useRef(new Map());
@@ -50,6 +55,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     // Load initial data
     loadTCPs();
     loadActiveTCP();
+    loadTCPLibrary();
     
     // Set up EventBus listeners
     const unsubscribeAdded = EventBus.on('tcp:added', handleTCPAdded);
@@ -130,6 +136,22 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     setActiveTcp(tcp);
     if (tcp) {
       setPosition(tcp.position);
+    }
+  };
+
+  /**
+   * Load TCP library from server
+   */
+  const loadTCPLibrary = async () => {
+    try {
+      const response = await fetch('/api/tcp/list');
+      const result = await response.json();
+      
+      if (result.success) {
+        setTcpLibrary(result.tcps);
+      }
+    } catch (error) {
+      console.error('Error loading TCP library:', error);
     }
   };
 
@@ -499,6 +521,22 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     tcpObjectsRef.current.clear();
   };
 
+  /**
+   * Handle TCP upload success
+   */
+  const handleTCPUploaded = (newTcp) => {
+    loadTCPLibrary(); // Refresh library
+    console.log('New TCP uploaded:', newTcp);
+  };
+
+  /**
+   * Load TCP from library
+   */
+  const loadTCPFromLibrary = (tcp) => {
+    // TODO: Implement loading TCP from library
+    console.log('Loading TCP from library:', tcp);
+  };
+
   // If no active TCP, show error state
   if (!activeTcp) {
     return (
@@ -553,6 +591,16 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
             >
               + Add TCP
             </button>
+          )}
+          {showManagement && (
+            <>
+              <button 
+                className="tcp-manager__upload-btn"
+                onClick={() => setShowUpload(true)}
+              >
+                📁 Upload TCP Tool
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -736,6 +784,42 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
             )}
           </div>
         )}
+
+        {/* TCP Library Section */}
+        {displayMode === 'manage' && tcpLibrary.length > 0 && (
+          <div className="tcp-manager__library">
+            <h4>TCP Tool Library</h4>
+            <div className="tcp-library-grid">
+              {tcpLibrary.map(tcp => (
+                <div key={tcp.id} className="tcp-library-item">
+                  <div className="tcp-library-preview">
+                    <div 
+                      className="tcp-library-color"
+                      style={{ backgroundColor: tcp.color }}
+                    />
+                    <span className="tcp-library-category">{tcp.category}</span>
+                  </div>
+                  <div className="tcp-library-info">
+                    <div className="tcp-library-name">{tcp.name}</div>
+                    {tcp.dimensions && (
+                      <div className="tcp-library-dimensions">
+                        {tcp.dimensions.width.toFixed(2)} × {tcp.dimensions.height.toFixed(2)} × {tcp.dimensions.depth.toFixed(2)}m
+                      </div>
+                    )}
+                  </div>
+                  <div className="tcp-library-actions">
+                    <button 
+                      onClick={() => loadTCPFromLibrary(tcp)}
+                      className="tcp-library-btn tcp-library-btn--load"
+                    >
+                      Load
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add/Edit Modal */}
@@ -852,6 +936,13 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
           </div>
         </div>
       )}
+
+      {/* Upload Modal */}
+      <TCPUpload 
+        isOpen={showUpload}
+        onClose={() => setShowUpload(false)}
+        onSuccess={handleTCPUploaded}
+      />
     </div>
   );
 };

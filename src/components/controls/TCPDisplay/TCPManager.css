@@ -33,9 +33,7 @@
   
   .tcp-manager__header-controls {
     display: flex;
-    align-items: center;
-    gap: 1rem;
-    flex-wrap: wrap;
+    gap: 0.5rem;
   }
   
   /* Status indicator */
@@ -701,5 +699,275 @@
   
     .tcp-manager__modal-actions {
       flex-direction: column;
+    }
+  }
+
+  /* TCP Upload Modal */
+  .tcp-upload-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+  }
+
+  .tcp-upload-content {
+    background-color: white;
+    padding: 2rem;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .tcp-upload-content h3 {
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    color: #333;
+  }
+
+  .form-group {
+    margin-bottom: 1rem;
+  }
+
+  .form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #666;
+    font-weight: 500;
+  }
+
+  .form-group input[type="text"],
+  .form-group input[type="number"],
+  .form-group textarea,
+  .form-group select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+  }
+
+  .form-group textarea {
+    min-height: 80px;
+    resize: vertical;
+  }
+
+  .dimensions-inputs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+  }
+
+  .error-message {
+    color: #dc3545;
+    margin: 1rem 0;
+    padding: 0.5rem;
+    background-color: #f8d7da;
+    border-radius: 4px;
+  }
+
+  .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-top: 1.5rem;
+  }
+
+  .form-actions button {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .form-actions button[type="button"] {
+    background-color: #6c757d;
+    color: white;
+  }
+
+  .form-actions button[type="submit"] {
+    background-color: #007bff;
+    color: white;
+  }
+
+  .form-actions button:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
+
+  /* TCP Library */
+  .tcp-manager__library {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #e0e0e0;
+  }
+
+  .tcp-manager__library h4 {
+    margin: 0 0 1rem 0;
+    color: #495057;
+    font-size: 1.1rem;
+  }
+
+  .tcp-library-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 1rem;
+  }
+
+  .tcp-library-item {
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    padding: 1rem;
+    background-color: #ffffff;
+    transition: all 0.2s;
+  }
+
+  .tcp-library-item:hover {
+    border-color: #007bff;
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.1);
+  }
+
+  .tcp-library-preview {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+
+  .tcp-library-color {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid white;
+    box-shadow: 0 0 0 1px #ddd;
+  }
+
+  .tcp-library-category {
+    background-color: #f8f9fa;
+    color: #495057;
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    text-transform: capitalize;
+  }
+
+  .tcp-library-info {
+    margin-bottom: 1rem;
+  }
+
+  .tcp-library-name {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 0.25rem;
+  }
+
+  .tcp-library-dimensions {
+    font-size: 0.85rem;
+    color: #6c757d;
+    font-family: monospace;
+  }
+
+  .tcp-library-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .tcp-library-btn {
+    padding: 0.375rem 0.75rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .tcp-library-btn--load {
+    background-color: #28a745;
+    color: white;
+  }
+
+  .tcp-library-btn--load:hover {
+    background-color: #218838;
+  }
+
+  /* TCP Manager Header Controls */
+  .tcp-manager__header-controls {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .tcp-manager__upload-btn {
+    background-color: #17a2b8;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .tcp-manager__upload-btn:hover {
+    background-color: #138496;
+  }
+
+  /* Controls Panel */
+  .controls-panel {
+    width: 450px;
+    min-width: 450px;
+    max-width: 450px;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-right: 1px solid #ccc;
+    padding: 0 15px;
+    box-sizing: border-box;
+    background-color: #f8f8f8;
+    flex-shrink: 0;
+  }
+
+  /* Mobile Responsive */
+  @media (max-width: 1024px) {
+    main {
+      grid-template-columns: 1fr;
+    }
+    
+    .settings-panel {
+      margin-top: 20px;
+    }
+    
+    header h1 {
+      font-size: 2rem;
+    }
+    
+    .app-container {
+      flex-direction: column; /* Stack controls and viewer on small screens */
+    }
+    
+    .controls-panel {
+      width: 100% !important;
+      max-width: 100% !important;
+      min-width: unset !important;
+      height: 50% !important; /* Take 50% height on small screens */
+      border-right: none !important;
+      border-bottom: 1px solid #ccc;
+    }
+    
+    .viewer-panel {
+      height: 50% !important; /* Take 50% height on small screens */
     }
   }

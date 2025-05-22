@@ -1,6 +1,6 @@
 // src/contexts/RobotContext.jsx
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import robotService from '../core/services/RobotService';
+import robotService from '../core/services/RobotService'; // Fixed path and default import
 
 // Create context
 const RobotContext = createContext(null);
@@ -89,7 +89,24 @@ export const RobotProvider = ({ children }) => {
       setIsLoading(true);
       setError(null);
       
-      const result = await robotService.addRobot(robotData, onProgress);
+      console.log('RobotContext: Starting robot upload...');
+      
+      // Make request to the correct endpoint
+      const response = await fetch('/api/robots/add', {
+        method: 'POST',
+        body: robotData // FormData object
+      });
+      
+      console.log('RobotContext: Upload response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('RobotContext: Upload failed:', errorText);
+        throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      console.log('RobotContext: Upload result:', result);
       
       if (result.success) {
         // Refresh available robots after adding
@@ -98,15 +115,15 @@ export const RobotProvider = ({ children }) => {
         setCategories(categories);
         
         console.log(`Successfully added robot: ${result.robot.id}`);
-        return result;
+        return { success: true, robot: result.robot };
       } else {
-        throw new Error(result.error);
+        throw new Error(result.message || 'Failed to add robot');
       }
     } catch (err) {
       const errorMessage = `Failed to add robot: ${err.message}`;
       setError(errorMessage);
-      console.error(errorMessage, err);
-      throw err;
+      console.error('RobotContext:', errorMessage, err);
+      return { success: false, error: err.message };
     } finally {
       setIsLoading(false);
     }

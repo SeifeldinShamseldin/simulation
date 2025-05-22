@@ -1,10 +1,10 @@
-// components/controls/NewRobot/NewRobot.jsx
+// src/components/NewRobot/NewRobot.jsx
 import React, { useState, useEffect } from 'react';
-import { useRobot } from '../../../contexts/RobotContext';
+import { useRobot } from '../../contexts/RobotContext';
 import './NewRobot.css';
 
 const NewRobot = ({ isOpen, onClose }) => {
-  const { categories, addManufacturer, addRobotModel } = useRobot();
+  const { categories, addRobot } = useRobot();
   const [step, setStep] = useState(1); // 1: Manufacturer, 2: Robot Model, 3: Files
   const [isNewManufacturer, setIsNewManufacturer] = useState(false);
   const [selectedManufacturer, setSelectedManufacturer] = useState('');
@@ -96,14 +96,9 @@ const NewRobot = ({ isOpen, onClose }) => {
         return;
       }
 
-      // Determine manufacturer
-      const manufacturer = isNewManufacturer 
-        ? await addManufacturer(newManufacturerName)
-        : selectedManufacturer;
-      
       // Create form data for upload
       const formData = new FormData();
-      formData.append('manufacturer', manufacturer);
+      formData.append('manufacturer', isNewManufacturer ? newManufacturerName : selectedManufacturer);
       formData.append('model', newRobotName);
       formData.append('urdf', files.urdf);
       
@@ -112,7 +107,7 @@ const NewRobot = ({ isOpen, onClose }) => {
       });
 
       // Upload files with progress tracking
-      const response = await addRobotModel(formData, (progress) => {
+      const response = await addRobot(formData, (progress) => {
         setUploadProgress(progress);
       });
 
