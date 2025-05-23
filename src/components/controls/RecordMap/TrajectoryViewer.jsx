@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
 import RecordMap from './RecordMap';
+import LiveTrajectoryGraph from './LiveTrajectoryGraph';
 import './RecordMap.css';
 
 /**
@@ -15,6 +16,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
   const [newTrajectoryName, setNewTrajectoryName] = useState('');
   const [recordInterval, setRecordInterval] = useState(100); // ms
   const [playbackProgress, setPlaybackProgress] = useState(0);
+  const [showLiveGraph, setShowLiveGraph] = useState(false);
   const [playbackOptions, setPlaybackOptions] = useState({
     speed: 1.0,
     loop: false
@@ -218,6 +220,32 @@ const TrajectoryViewer = ({ viewerRef }) => {
             </button>
           )}
         </div>
+
+        <button 
+          className="graph-button"
+          onClick={() => setShowLiveGraph(true)}
+          style={{
+            backgroundColor: '#1976d2',
+            color: 'white',
+            padding: '10px 20px',
+            borderRadius: '4px',
+            border: 'none',
+            cursor: 'pointer',
+            marginTop: '1rem',
+            width: '100%',
+            fontSize: '1rem',
+            fontWeight: '500'
+          }}
+        >
+          📊 View 3D Trajectory Graph
+        </button>
+
+        {showLiveGraph && (
+          <LiveTrajectoryGraph 
+            isOpen={showLiveGraph}
+            onClose={() => setShowLiveGraph(false)}
+          />
+        )}
       </div>
       
       {/* Playback controls */}

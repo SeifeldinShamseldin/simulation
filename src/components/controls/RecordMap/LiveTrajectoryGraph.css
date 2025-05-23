@@ -1,0 +1,294 @@
+/* src/components/controls/RecordMap/LiveTrajectoryGraph.css */
+.trajectory-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+  }
+  
+  .trajectory-modal {
+    width: 90%;
+    max-width: 1200px;
+    height: 85vh;
+    background-color: #fff;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  }
+  
+  .trajectory-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid #e0e0e0;
+  }
+  
+  .trajectory-modal-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #333;
+  }
+  
+  .close-button {
+    background: none;
+    border: none;
+    font-size: 2rem;
+    color: #999;
+    cursor: pointer;
+    padding: 0;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s;
+  }
+  
+  .close-button:hover {
+    background-color: #f5f5f5;
+    color: #333;
+  }
+  
+  .trajectory-modal-steps {
+    display: flex;
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid #e0e0e0;
+    background-color: #f8f9fa;
+  }
+  
+  .step {
+    display: flex;
+    align-items: center;
+    color: #999;
+    margin-right: 3rem;
+  }
+  
+  .step.active {
+    color: #1976d2;
+  }
+  
+  .step-number {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background-color: #e0e0e0;
+    color: #999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    margin-right: 0.5rem;
+  }
+  
+  .step.active .step-number {
+    background-color: #1976d2;
+    color: #fff;
+  }
+  
+  .step-label {
+    font-weight: 500;
+  }
+  
+  .trajectory-modal-content {
+    flex: 1;
+    padding: 2rem;
+    overflow-y: auto;
+  }
+  
+  .trajectory-selection h3 {
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+    color: #333;
+  }
+  
+  .selection-option {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+    transition: all 0.2s;
+  }
+  
+  .selection-option:hover {
+    border-color: #1976d2;
+  }
+  
+  .selection-option input[type="radio"] {
+    display: none;
+  }
+  
+  .selection-option label {
+    display: block;
+    padding: 1.5rem;
+    cursor: pointer;
+  }
+  
+  .selection-option input[type="radio"]:checked + label {
+    background-color: #e3f2fd;
+    border-color: #1976d2;
+  }
+  
+  .option-content strong {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #333;
+  }
+  
+  .option-content p {
+    margin: 0;
+    color: #666;
+    font-size: 0.9rem;
+  }
+  
+  .trajectory-dropdown {
+    margin: 0 0 1.5rem 2rem;
+  }
+  
+  .trajectory-dropdown select {
+    width: 100%;
+    max-width: 400px;
+    padding: 0.75rem;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    font-size: 1rem;
+    background-color: #fff;
+  }
+  
+  .trajectory-display {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  
+  .display-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+  }
+  
+  .display-header h3 {
+    margin: 0;
+    color: #333;
+  }
+  
+  .display-controls {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+  
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #666;
+  }
+  
+  .export-button {
+    padding: 0.5rem 1rem;
+    background-color: #f5f5f5;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .export-button:hover {
+    background-color: #e0e0e0;
+  }
+  
+  .trajectory-stats {
+    display: flex;
+    gap: 2rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    margin-bottom: 1rem;
+  }
+  
+  .stat-item {
+    display: flex;
+    gap: 0.5rem;
+  }
+  
+  .stat-item label {
+    font-weight: 600;
+    color: #666;
+  }
+  
+  .stat-item span {
+    color: #333;
+  }
+  
+  .graph-container {
+    flex: 1;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    background-color: #fafafa;
+    margin-bottom: 1rem;
+  }
+  
+  .bounds-info {
+    padding: 0.75rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    color: #666;
+  }
+  
+  .bounds-info strong {
+    margin-right: 0.5rem;
+  }
+  
+  .trajectory-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding: 1.5rem 2rem;
+    border-top: 1px solid #e0e0e0;
+  }
+  
+  .back-button,
+  .next-button {
+    padding: 0.75rem 2rem;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .back-button {
+    background-color: #f5f5f5;
+    color: #666;
+  }
+  
+  .back-button:hover {
+    background-color: #e0e0e0;
+  }
+  
+  .next-button {
+    background-color: #1976d2;
+    color: #fff;
+  }
+  
+  .next-button:hover {
+    background-color: #1565c0;
+  }
+  
+  .next-button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+  }
