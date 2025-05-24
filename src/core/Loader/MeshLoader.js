@@ -97,10 +97,20 @@ class MeshLoader {
                         throw new Error('Invalid STL geometry');
                     }
                     
-                    const mesh = new THREE.Mesh(
-                        geometry,
-                        material ? material.clone() : new THREE.MeshStandardMaterial()
-                    );
+                    // Use the provided material or create a default one
+                    let meshMaterial = material;
+                    if (!meshMaterial) {
+                        meshMaterial = new THREE.MeshPhongMaterial({
+                            color: 0xaaaaaa,
+                            shininess: 100,
+                            specular: 0x111111
+                        });
+                    } else if (material.clone) {
+                        // Clone the material to avoid sharing between meshes
+                        meshMaterial = material.clone();
+                    }
+                    
+                    const mesh = new THREE.Mesh(geometry, meshMaterial);
                     mesh.castShadow = mesh.receiveShadow = true;
                     done(mesh);
                 } catch (error) {
@@ -131,7 +141,9 @@ class MeshLoader {
                     model.traverse(n => {
                         if (n.isMesh) {
                             n.castShadow = n.receiveShadow = true;
-                            if (material) n.material = material.clone();
+                            if (material && (!n.material || n.material.isMeshBasicMaterial || n.material.name === '' || n.material.name === 'default')) {
+                                n.material = material.clone();
+                            }
                         }
                     });
                     done(model);

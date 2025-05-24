@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
 import ExternalTrajectoryGraph from './ExternalTrajectoryGraph';
 import './RecordMap.css';
+import { createStandardGrids } from '../../../utils/threeHelpers';
 
 /**
  * Component for visualizing end effector trajectories in 3D
@@ -115,11 +116,8 @@ const RecordMap = ({ trajectoryName }) => {
     directionalLight.position.set(1, 2, 1);
     scene.add(directionalLight);
     
-    // Add coordinate axes
-    addCoordinateAxes();
-    
-    // Add grid
-    addGrid();
+    // Use utility for grid and axes
+    const { grid, axes } = createStandardGrids(scene, { gridSize: 2, gridDivisions: 20, addAxes: true, axesSize: 1 });
     
     // Start animation loop
     animate();
@@ -161,27 +159,6 @@ const RecordMap = ({ trajectoryName }) => {
     
     // Update renderer size
     rendererRef.current.setSize(width, height);
-  };
-  
-  /**
-   * Add coordinate axes to scene
-   */
-  const addCoordinateAxes = () => {
-    const axesHelper = new THREE.AxesHelper(1);
-    sceneRef.current.add(axesHelper);
-    axesRef.current = axesHelper;
-  };
-  
-  /**
-   * Add grid to scene
-   */
-  const addGrid = () => {
-    const gridHelper = new THREE.GridHelper(2, 20, 0x888888, 0xcccccc);
-    gridHelper.position.y = 0;
-    gridHelper.visible = showGrid;
-    sceneRef.current.add(gridHelper);
-    
-    return gridHelper;
   };
   
   /**

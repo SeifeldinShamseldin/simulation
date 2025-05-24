@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
 import './TrajectoryControl.css';
+import * as THREE from 'three';
 
 /**
  * Component for trajectory recording and playback
@@ -18,6 +19,9 @@ const TrajectoryControl = ({ viewerRef }) => {
     speed: 1.0,
     loop: false
   });
+  
+  const tcpMarkerRef = useRef(null);
+  const trajLineRef = useRef(null);
   
   // Initialize and load trajectories
   useEffect(() => {
@@ -76,6 +80,42 @@ const TrajectoryControl = ({ viewerRef }) => {
       return;
     }
     
+    // Remove previous marker if any
+    if (tcpMarkerRef.current && viewerRef.current.scene) {
+      viewerRef.current.scene.remove(tcpMarkerRef.current);
+      tcpMarkerRef.current = null;
+    }
+    
+    // Remove previous trajectory line if any
+    if (trajLineRef.current && viewerRef.current.scene) {
+      viewerRef.current.scene.remove(trajLineRef.current);
+      trajLineRef.current.geometry.dispose();
+      trajLineRef.current.material.dispose();
+      trajLineRef.current = null;
+    }
+    
+    // Get trajectory data and add marker at start
+    const traj = trajectoryAPI.getTrajectory(name);
+    if (traj && traj.endEffectorPath && traj.endEffectorPath.length > 0) {
+      const start = traj.endEffectorPath[0].position;
+      const geometry = new THREE.SphereGeometry(0.025, 16, 16);
+      const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+      const marker = new THREE.Mesh(geometry, material);
+      marker.position.set(start.x, start.y, start.z);
+      viewerRef.current.scene.add(marker);
+      tcpMarkerRef.current = marker;
+    }
+    
+    // Draw trajectory line
+    if (traj && traj.endEffectorPath && traj.endEffectorPath.length > 1) {
+      const points = traj.endEffectorPath.map(p => new THREE.Vector3(p.position.x, p.position.y, p.position.z));
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = new THREE.LineBasicMaterial({ color: 0x00aaff, linewidth: 3 });
+      const line = new THREE.Line(geometry, material);
+      viewerRef.current.scene.add(line);
+      trajLineRef.current = line;
+    }
+    
     setPlaying(true);
     setCurrentTrajectory(name);
     
@@ -84,6 +124,18 @@ const TrajectoryControl = ({ viewerRef }) => {
       onComplete: () => {
         setPlaying(false);
         setPlaybackProgress(0);
+        // Remove marker when done
+        if (tcpMarkerRef.current && viewerRef.current.scene) {
+          viewerRef.current.scene.remove(tcpMarkerRef.current);
+          tcpMarkerRef.current = null;
+        }
+        // Remove trajectory line when stopped
+        if (trajLineRef.current && viewerRef.current.scene) {
+          viewerRef.current.scene.remove(trajLineRef.current);
+          trajLineRef.current.geometry.dispose();
+          trajLineRef.current.material.dispose();
+          trajLineRef.current = null;
+        }
       }
     });
   };
@@ -92,6 +144,11 @@ const TrajectoryControl = ({ viewerRef }) => {
     trajectoryAPI.stopPlayback();
     setPlaying(false);
     setPlaybackProgress(0);
+    // Remove marker when stopped
+    if (tcpMarkerRef.current && viewerRef.current.scene) {
+      viewerRef.current.scene.remove(tcpMarkerRef.current);
+      tcpMarkerRef.current = null;
+    }
   };
   
   const handleDeleteTrajectory = (name) => {

@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
 import EventBus from '../../../utils/EventBus';
 import './LiveTrajectoryGraph.css';
+import { createStandardGrids } from '../../../utils/threeHelpers';
 
 const LiveTrajectoryGraph = ({ isOpen, onClose }) => {
   const containerRef = useRef(null);
@@ -70,7 +71,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose }) => {
       }
     });
 
-    const unsubscribePlayback = trajectoryAPI.registerPlaybackUpdateCallback((info) => {
+    trajectoryAPI.registerPlaybackUpdateCallback((info) => {
       if (info.endEffectorPosition) {
         setCurrentPosition(info.endEffectorPosition);
         updateCurrentMarker(info.endEffectorPosition);
@@ -79,7 +80,6 @@ const LiveTrajectoryGraph = ({ isOpen, onClose }) => {
 
     return () => {
       unsubscribeTCP();
-      unsubscribePlayback();
     };
   }, [isLive, step]);
 
@@ -120,7 +120,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose }) => {
     scene.add(dirLight);
 
     // Add coordinate system
-    addCoordinateSystem(scene);
+    const { grid, axes } = createStandardGrids(scene, { gridSize: 4, gridDivisions: 40, addAxes: true, axesSize: 2 });
 
     // Animation loop
     const animate = () => {
@@ -138,59 +138,6 @@ const LiveTrajectoryGraph = ({ isOpen, onClose }) => {
       renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
     };
     window.addEventListener('resize', handleResize);
-  };
-
-  const addCoordinateSystem = (scene) => {
-    // Grid helpers for each plane
-    const gridSize = 4;
-    const gridDivisions = 40;
-
-    // XY plane (blue)
-    const xyGrid = new THREE.GridHelper(gridSize, gridDivisions, 0x0088ff, 0xcccccc);
-    xyGrid.rotation.x = Math.PI / 2;
-    xyGrid.material.opacity = 0.3;
-    xyGrid.material.transparent = true;
-    scene.add(xyGrid);
-
-    // XZ plane (green) - default orientation
-    const xzGrid = new THREE.GridHelper(gridSize, gridDivisions, 0x00ff00, 0xcccccc);
-    xzGrid.material.opacity = 0.3;
-    xzGrid.material.transparent = true;
-    scene.add(xzGrid);
-
-    // YZ plane (red)
-    const yzGrid = new THREE.GridHelper(gridSize, gridDivisions, 0xff0000, 0xcccccc);
-    yzGrid.rotation.z = Math.PI / 2;
-    yzGrid.material.opacity = 0.3;
-    yzGrid.material.transparent = true;
-    scene.add(yzGrid);
-
-    // Axis arrows
-    const axesHelper = new THREE.AxesHelper(2);
-    scene.add(axesHelper);
-
-    // Axis labels
-    const addLabel = (text, position, color) => {
-      const canvas = document.createElement('canvas');
-      canvas.width = 128;
-      canvas.height = 64;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = color;
-      ctx.font = 'Bold 48px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(text, 64, 48);
-
-      const texture = new THREE.CanvasTexture(canvas);
-      const material = new THREE.SpriteMaterial({ map: texture });
-      const sprite = new THREE.Sprite(material);
-      sprite.position.copy(position);
-      sprite.scale.set(0.3, 0.15, 1);
-      scene.add(sprite);
-    };
-
-    addLabel('X', new THREE.Vector3(2.2, 0, 0), '#ff0000');
-    addLabel('Y', new THREE.Vector3(0, 2.2, 0), '#00ff00');
-    addLabel('Z', new THREE.Vector3(0, 0, 2.2), '#0000ff');
   };
 
   const loadTrajectory = (trajectoryName) => {

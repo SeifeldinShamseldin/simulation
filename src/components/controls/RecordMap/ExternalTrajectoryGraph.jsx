@@ -3,6 +3,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
+import { createStandardGrids } from '../../../utils/threeHelpers';
 import './ExternalTrajectoryGraph.css';
 
 const ExternalTrajectoryGraph = ({ trajectoryName, onClose }) => {
@@ -99,7 +100,7 @@ const ExternalTrajectoryGraph = ({ trajectoryName, onClose }) => {
     scene.add(directionalLight);
     
     // Add coordinate axes
-    addCoordinateAxes();
+    const { grid, axes } = createStandardGrids(scene, { gridSize: 3, gridDivisions: 30, addAxes: true, axesSize: 1.5 });
     
     // Add grid
     addGrid();
@@ -144,70 +145,6 @@ const ExternalTrajectoryGraph = ({ trajectoryName, onClose }) => {
     
     // Update renderer size
     rendererRef.current.setSize(width, height);
-  };
-  
-  /**
-   * Add coordinate axes to scene
-   */
-  const addCoordinateAxes = () => {
-    // Larger axes for better visibility
-    const axesHelper = new THREE.AxesHelper(1.5);
-    sceneRef.current.add(axesHelper);
-    axesRef.current = axesHelper;
-    
-    // Add labels for axes
-    const addAxisLabel = (text, position, color) => {
-      const canvas = document.createElement('canvas');
-      canvas.width = 64;
-      canvas.height = 32;
-      
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = color;
-      ctx.font = 'Bold 24px Arial';
-      ctx.fillText(text, 4, 24);
-      
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.needsUpdate = true;
-      
-      const material = new THREE.SpriteMaterial({ map: texture });
-      const sprite = new THREE.Sprite(material);
-      sprite.position.copy(position);
-      sprite.scale.set(0.2, 0.1, 1);
-      
-      sceneRef.current.add(sprite);
-      return sprite;
-    };
-    
-    addAxisLabel('X', new THREE.Vector3(1.6, 0, 0), '#ff0000');
-    addAxisLabel('Y', new THREE.Vector3(0, 1.6, 0), '#00ff00');
-    addAxisLabel('Z', new THREE.Vector3(0, 0, 1.6), '#0000ff');
-  };
-  
-  /**
-   * Add grid to scene
-   */
-  const addGrid = () => {
-    // XZ grid (horizontal)
-    const gridXZ = new THREE.GridHelper(3, 30, 0x888888, 0xcccccc);
-    gridXZ.position.y = 0;
-    gridXZ.visible = showGrid;
-    sceneRef.current.add(gridXZ);
-    
-    // XY grid (vertical)
-    const gridXY = new THREE.GridHelper(3, 30, 0x888888, 0xcccccc);
-    gridXY.rotation.x = Math.PI / 2;
-    gridXY.position.z = 0;
-    gridXY.visible = showGrid;
-    sceneRef.current.add(gridXY);
-    
-    // YZ grid (vertical)
-    const gridYZ = new THREE.GridHelper(3, 30, 0x888888, 0xcccccc);
-    gridYZ.rotation.z = Math.PI / 2;
-    gridYZ.position.x = 0;
-    gridYZ.visible = showGrid;
-    sceneRef.current.add(gridYZ);
-    
-    return { gridXZ, gridXY, gridYZ };
   };
   
   /**

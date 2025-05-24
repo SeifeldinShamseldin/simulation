@@ -83,25 +83,59 @@ class URDFLoader {
         });
 
         // Enhanced mesh callback using RobotService
-        this.loadMeshCb = (url, manager, done, urdfMaterial) => {
-            Logger.debug('URDFLoader loading mesh from:', url);
+        this.loadMeshCb = (path, manager, done, material) => {
+            Logger.debug('URDFLoader loading mesh from:', path);
             
-            let resolvedPath = url;
+            let resolvedPath = path;
             
             // Use RobotService for mesh resolution if we have a current robot
             if (this.currentRobotName) {
-                resolvedPath = robotService.resolveMeshPath(this.currentRobotName, url);
-                Logger.debug('URDFLoader mesh resolved via RobotService:', url, '->', resolvedPath);
+                resolvedPath = robotService.resolveMeshPath(this.currentRobotName, path);
+                Logger.debug('URDFLoader mesh resolved via RobotService:', path, '->', resolvedPath);
             } else {
                 // Fallback to extracting filename
-                const file = url.split('/').pop().toLowerCase();
+                const file = path.split('/').pop().toLowerCase();
                 const packagePath = this.packages;
                 resolvedPath = `${packagePath.replace(/\/?$/, '/')}${file}`;
-                Logger.debug('URDFLoader mesh basic resolution:', url, '->', resolvedPath);
+                Logger.debug('URDFLoader mesh basic resolution:', path, '->', resolvedPath);
             }
             
             // Use the enhanced MeshLoader with better error handling
-            MeshLoader.load(resolvedPath, manager, done, urdfMaterial);
+            MeshLoader.load(resolvedPath, manager, (obj, err) => {
+                if (err) {
+                    Logger.error('URDFLoader: Error loading mesh.', err);
+                    done(null, err);
+                    return;
+                }
+                
+                if (obj) {
+                    // Only apply URDF material if mesh has no material or has a default material
+                    if (!obj.material || obj.material.isMeshBasicMaterial || obj.material.name === '' || obj.material.name === 'default') {
+                        obj.material = material;
+                        Logger.debug('Applied URDF material to single mesh:', path);
+                    } else {
+                        Logger.debug('Preserved original mesh material for:', path);
+                    }
+                    
+                    // Reset position and orientation
+                    obj.position.set(0, 0, 0);
+                    obj.quaternion.identity();
+                    
+                    // Enable shadows for all meshes
+                    obj.traverse(child => {
+                        if (child instanceof THREE.Mesh) {
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                        }
+                    });
+                    
+                    Logger.debug('Successfully loaded and processed mesh:', path);
+                    done(obj);
+                } else {
+                    Logger.warn('URDFLoader: No mesh object returned from loader');
+                    done(null, new Error('No mesh object returned'));
+                }
+            }, material);
         };
     }
 
@@ -615,16 +649,19 @@ class URDFLoader {
                                     // Don't add fallback geometry - just skip this mesh
                                     return;
                                 } else if (obj) {
-                                    // Apply material to the mesh
-                                    if (obj instanceof THREE.Mesh) {
+                                    // Only apply URDF material if mesh has no material or has a default material
+                                    if (!obj.material || obj.material.isMeshBasicMaterial || obj.material.name === '' || obj.material.name === 'default') {
                                         obj.material = material;
-                                        Logger.debug('Successfully loaded mesh:', filename);
+                                        Logger.debug('Applied URDF material to single mesh:', filePath);
+                                    } else {
+                                        Logger.debug('Preserved original mesh material for:', filePath);
                                     }
                                     
                                     // Reset position and orientation
                                     obj.position.set(0, 0, 0);
                                     obj.quaternion.identity();
                                     group.add(obj);
+                                    Logger.debug('Successfully loaded and added mesh:', filename);
                                 }
                             }, material);
                         } else {
@@ -690,17 +727,61 @@ class URDFLoader {
      * @param {string} path - The path to the mesh file
      * @param {THREE.LoadingManager} manager - The Three.js loading manager
      * @param {Function} done - Callback when mesh is loaded
+     * @param {THREE.Material} [material] - Optional material to apply to the mesh
      */
-    defaultMeshLoader(path, manager, done) {
-        Logger.debug('URDFLoader using default mesh loader for:', path);
+    loadMeshCb(path, manager, done, material) {
+        Logger.debug('URDFLoader loading mesh from:', path);
         
-        // Use RobotService for path resolution if possible
+        let resolvedPath = path;
+        
+        // Use RobotService for mesh resolution if we have a current robot
         if (this.currentRobotName) {
-            const resolvedPath = robotService.resolveMeshPath(this.currentRobotName, path);
-            MeshLoader.load(resolvedPath, manager, done);
+            resolvedPath = robotService.resolveMeshPath(this.currentRobotName, path);
+            Logger.debug('URDFLoader mesh resolved via RobotService:', path, '->', resolvedPath);
         } else {
-            MeshLoader.load(path, manager, done);
+            // Fallback to extracting filename
+            const file = path.split('/').pop().toLowerCase();
+            const packagePath = this.packages;
+            resolvedPath = `${packagePath.replace(/\/?$/, '/')}${file}`;
+            Logger.debug('URDFLoader mesh basic resolution:', path, '->', resolvedPath);
         }
+        
+        // Use the enhanced MeshLoader with better error handling
+        MeshLoader.load(resolvedPath, manager, (obj, err) => {
+            if (err) {
+                Logger.error('URDFLoader: Error loading mesh.', err);
+                done(null, err);
+                return;
+            }
+            
+            if (obj) {
+                // Only apply URDF material if mesh has no material or has a default material
+                if (!obj.material || obj.material.isMeshBasicMaterial || obj.material.name === '' || obj.material.name === 'default') {
+                    obj.material = material;
+                    Logger.debug('Applied URDF material to single mesh:', path);
+                } else {
+                    Logger.debug('Preserved original mesh material for:', path);
+                }
+                
+                // Reset position and orientation
+                obj.position.set(0, 0, 0);
+                obj.quaternion.identity();
+                
+                // Enable shadows for all meshes
+                obj.traverse(child => {
+                    if (child instanceof THREE.Mesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+                
+                Logger.debug('Successfully loaded and processed mesh:', path);
+                done(obj);
+            } else {
+                Logger.warn('URDFLoader: No mesh object returned from loader');
+                done(null, new Error('No mesh object returned'));
+            }
+        }, material);
     }
 }
 

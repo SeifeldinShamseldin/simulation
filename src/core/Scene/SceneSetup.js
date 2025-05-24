@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLOBAL_CONFIG } from '../../utils/GlobalVariables';
+import { createStandardGrids } from '../../utils/threeHelpers';
 
 /**
  * Class for setting up and managing a Three.js scene for URDF viewing
@@ -46,17 +47,13 @@ class SceneSetup {
     initScene() {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.backgroundColor || '#f0f0f0');
-        
-        // Add a subtle fog for depth perception
         this.scene.fog = new THREE.FogExp2(this.backgroundColor || '#f0f0f0', 0.02);
-        
-        // Create a root object for the robot
         this.robotRoot = new THREE.Object3D();
         this.scene.add(this.robotRoot);
-        
-        // Add grid helper immediately to ensure it's visible
-        this.gridHelper = new THREE.GridHelper(10, 20, 0x888888, 0xcccccc);
-        this.scene.add(this.gridHelper);
+        // Use utility for grid and axes
+        const { grid, axes } = createStandardGrids(this.scene, { gridSize: 10, gridDivisions: 20, addAxes: true, axesSize: 1 });
+        this.gridHelper = grid;
+        this.axesHelper = axes;
     }
     
     /**
@@ -99,18 +96,18 @@ class SceneSetup {
      * Initialize lights
      */
     initLights() {
-        // Ambient light
+        // Ambient light - balanced intensity
         this.ambientLight = new THREE.HemisphereLight(
-            this.ambientColor,     // Sky color
-            '#000',                // Ground color
-            0.5                    // Intensity
+            this.ambientColor || '#ffffff',     // Sky color
+            '#000000',                          // Ground color  
+            0.6                                 // Moderate intensity
         );
         this.ambientLight.groundColor.lerp(this.ambientLight.color, 0.5);
         this.ambientLight.position.set(0, 1, 0);
         this.scene.add(this.ambientLight);
         
-        // Directional light (sun)
-        this.directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        // Directional light (sun) - balanced intensity
+        this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
         this.directionalLight.position.set(4, 10, 4);
         
         if (this.enableShadows) {
@@ -132,6 +129,11 @@ class SceneSetup {
         // Create a target for the directional light
         this.directionalLight.target = new THREE.Object3D();
         this.scene.add(this.directionalLight.target);
+
+        // Add a fill light from the opposite direction
+        this.fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        this.fillLight.position.set(-4, 5, -4);
+        this.scene.add(this.fillLight);
     }
     
     /**
@@ -255,42 +257,68 @@ class SceneSetup {
      * @param {THREE.Object3D} object - The object to focus on
      * @param {number} [padding] - Extra padding around the object
      */
-    focusOnObject(object, padding = 0.5) { // Very small padding to make robot much larger in view
+    focusOnObject(object, padding = 1.2) { // Adjusted default padding
         if (!object) return;
         
         // Create a bounding box
-        const bbox = new THREE.Box3().setFromObject(object);
+        const bbox = new THREE.Box3();
+        bbox.makeEmpty();
+        
+        // Only include visual elements in the bounding box
+        object.traverse(c => {
+            if (c.isURDFVisual && c.children.length > 0) {
+                bbox.expandByObject(c);
+            }
+        });
         
         // Check if bounding box is valid
         const size = bbox.getSize(new THREE.Vector3());
-        if (size.length() < 0.001) return;
+        if (size.length() < 0.001) {
+            console.warn('Object has no visible geometry');
+            return;
+        }
         
         const center = bbox.getCenter(new THREE.Vector3());
         
         // Set controls target to center of object
         this.controls.target.copy(center);
         
-        // Calculate camera position to make robot fill most of the screen
+        // Calculate camera position to frame the object nicely
         const maxDim = Math.max(size.x, size.y, size.z);
         const fov = this.camera.fov * (Math.PI / 180);
         
-        // Calculate minimal camera distance
+        // Calculate camera distance
         let cameraDistance = (maxDim / 2) / Math.tan(fov / 2);
         cameraDistance *= padding;
         
-        // Use a better camera angle to show robot structure
-        // More from front-side and slightly above
-        const direction = new THREE.Vector3(1.0, 0.6, 0.8).normalize();
+        // Use a better camera angle
+        const direction = new THREE.Vector3(0.5, 0.3, 1).normalize();
         this.camera.position.copy(center).add(direction.multiplyScalar(cameraDistance));
         
         // Update controls
         this.controls.update();
         
         // Update directional light to match camera position
+        const sphere = bbox.getBoundingSphere(new THREE.Sphere());
+        const lightDistance = sphere.radius * 2;
         this.directionalLight.position.copy(center).add(
-            new THREE.Vector3(1, 2, 1).normalize().multiplyScalar(cameraDistance * 1.5)
+            new THREE.Vector3(1, 2, 1).normalize().multiplyScalar(lightDistance)
         );
         this.directionalLight.target.position.copy(center);
+        
+        // Update shadow camera
+        if (this.enableShadows) {
+            const shadowCam = this.directionalLight.shadow.camera;
+            const shadowSize = sphere.radius * 1.5;
+            shadowCam.left = shadowCam.bottom = -shadowSize;
+            shadowCam.right = shadowCam.top = shadowSize;
+            shadowCam.updateProjectionMatrix();
+        }
+        
+        // Update ground position
+        if (this.ground) {
+            this.ground.position.y = bbox.min.y - 0.001;
+        }
         
         // Force rendering to update immediately
         this.renderer.render(this.scene, this.camera);
