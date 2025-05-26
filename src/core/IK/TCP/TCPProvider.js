@@ -4,7 +4,7 @@ import EventBus from '../../../utils/EventBus';
 
 /**
  * Core TCP Provider - Manages TCP data and communicates with IK API
- * This is the single source of truth for all TCP operations
+ * Enhanced to find TCP based on visual elements
  */
 class TCPProvider {
   constructor() {
@@ -14,13 +14,16 @@ class TCPProvider {
     TCPProvider.instance = this;
 
     // TCP storage
-    this.tcps = new Map(); // Map of TCP ID to TCP data
+    this.tcps = new Map();
     this.activeTcpId = null;
     this.defaultTcpId = 'default';
 
     // Robot reference for position calculation
     this.currentRobot = null;
     this.isCalculating = false;
+
+    // Cache for last visual element
+    this.lastVisualCache = new WeakMap();
 
     // Initialize default TCP
     this.createDefaultTCP();
@@ -29,7 +32,7 @@ class TCPProvider {
     EventBus.on('tcp:calculate-realtime', this.handleRealTimeCalculation.bind(this));
     EventBus.on('tcp:force-update', this.forceUpdate.bind(this));
     
-    // Start update loop (will emit via EventBus)
+    // Start update loop
     this.startUpdateLoop();
   }
 
@@ -55,6 +58,298 @@ class TCPProvider {
     this.activeTcpId = this.defaultTcpId;
   }
 
+  /**
+   * Find the last visual element in the robot hierarchy
+   * This is more reliable than looking for specific joint names
+   * @param {Object} robot - Robot instance
+   * @returns {Object|null} Last visual element and its metadata
+   */
+  findLastVisualElement(robot) {
+    if (!robot) return null;
+
+    // Check cache first
+    if (this.lastVisualCache.has(robot)) {
+      const cached = this.lastVisualCache.get(robot);
+      // Validate cache is still valid
+      if (cached && cached.element && cached.element.parent) {
+        return cached;
+      }
+    }
+
+    let furthestVisual = null;
+    let furthestDistance = -Infinity;
+    let furthestJoint = null;
+    
+    // First, collect all visual elements and their positions
+    const visualElements = [];
+    
+    robot.traverse((child) => {
+      // Look for visual elements that have actual geometry
+      if (child.isURDFVisual && child.children.length > 0) {
+        // Check if this visual has actual rendered geometry
+        let hasGeometry = false;
+        child.traverse((grandChild) => {
+          if (grandChild.isMesh && grandChild.geometry && grandChild.visible !== false) {
+            hasGeometry = true;
+          }
+        });
+        
+        if (hasGeometry) {
+          // Find the parent joint of this visual
+          let parentJoint = child.parent;
+          while (parentJoint && !parentJoint.isURDFJoint) {
+            parentJoint = parentJoint.parent;
+          }
+          
+          visualElements.push({
+            visual: child,
+            joint: parentJoint,
+            hasGeometry: hasGeometry
+          });
+        }
+      }
+    });
+
+    // If we have visual elements, find the one that's furthest along the kinematic chain
+    if (visualElements.length > 0) {
+      // Calculate the "distance" along the kinematic chain for each visual
+      visualElements.forEach(({ visual, joint }) => {
+        let distance = 0;
+        let current = visual;
+        
+        // Count the number of joints from root to this visual
+        while (current && current !== robot) {
+          if (current.isURDFJoint) {
+            distance++;
+          }
+          current = current.parent;
+        }
+        
+        // Also consider the world position as a tiebreaker
+        const worldPos = new THREE.Vector3();
+        visual.getWorldPosition(worldPos);
+        const positionBonus = worldPos.length() * 0.01; // Small bonus for elements further from origin
+        
+        const totalDistance = distance + positionBonus;
+        
+        if (totalDistance > furthestDistance) {
+          furthestDistance = totalDistance;
+          furthestVisual = visual;
+          furthestJoint = joint;
+        }
+      });
+    }
+
+    // If no visual elements found, fall back to finding the last joint with children
+    if (!furthestVisual && robot.joints) {
+      const joints = Object.values(robot.joints).filter(
+        j => j.jointType !== 'fixed' && j.isURDFJoint && j.children.length > 0
+      );
+      
+      if (joints.length > 0) {
+        // Sort joints by their depth in the hierarchy
+        joints.sort((a, b) => {
+          let depthA = 0, depthB = 0;
+          let current = a;
+          while (current && current !== robot) {
+            depthA++;
+            current = current.parent;
+          }
+          current = b;
+          while (current && current !== robot) {
+            depthB++;
+            current = current.parent;
+          }
+          return depthB - depthA;
+        });
+        
+        furthestJoint = joints[0];
+        // Use the joint's first child as the visual reference
+        if (furthestJoint.children.length > 0) {
+          furthestVisual = furthestJoint.children[0];
+        }
+      }
+    }
+
+    const result = furthestVisual ? {
+      element: furthestVisual,
+      joint: furthestJoint,
+      type: furthestVisual.isURDFVisual ? 'visual' : 'link'
+    } : null;
+
+    // Cache the result
+    if (result && robot) {
+      this.lastVisualCache.set(robot, result);
+    }
+
+    return result;
+  }
+
+  /**
+   * Calculate TCP position based on the last visual element
+   * @param {string} tcpId - TCP ID (optional, uses active if not provided)
+   * @returns {Object|null} Position {x, y, z} or null
+   */
+  calculateTCPPosition(tcpId = null) {
+    const targetTcpId = tcpId || this.activeTcpId;
+    const tcp = this.tcps.get(targetTcpId);
+    
+    if (!tcp || !this.currentRobot) {
+      return null;
+    }
+
+    try {
+      // Find the last visual element
+      const lastVisualData = this.findLastVisualElement(this.currentRobot);
+      
+      if (!lastVisualData || !lastVisualData.element) {
+        console.warn('No visual element found for TCP calculation');
+        return { x: 0, y: 0, z: 0 };
+      }
+
+      const { element, joint, type } = lastVisualData;
+      
+      // Get the bounding box of the visual element to find its tip
+      const bbox = new THREE.Box3();
+      bbox.makeEmpty();
+      
+      // Calculate bounding box in world space
+      element.traverse((child) => {
+        if (child.isMesh && child.geometry) {
+          const geometry = child.geometry;
+          geometry.computeBoundingBox();
+          const childBbox = geometry.boundingBox.clone();
+          childBbox.applyMatrix4(child.matrixWorld);
+          bbox.union(childBbox);
+        }
+      });
+      
+      // If we got a valid bounding box, use its furthest point
+      let position = new THREE.Vector3();
+      let quaternion = new THREE.Quaternion();
+      
+      if (!bbox.isEmpty()) {
+        // Get the direction from the joint to the end of the visual
+        if (joint) {
+          const jointPos = new THREE.Vector3();
+          joint.getWorldPosition(jointPos);
+          
+          // Find which end of the bounding box is furthest from the joint
+          const corners = [
+            new THREE.Vector3(bbox.min.x, bbox.min.y, bbox.min.z),
+            new THREE.Vector3(bbox.max.x, bbox.min.y, bbox.min.z),
+            new THREE.Vector3(bbox.min.x, bbox.max.y, bbox.min.z),
+            new THREE.Vector3(bbox.max.x, bbox.max.y, bbox.min.z),
+            new THREE.Vector3(bbox.min.x, bbox.min.y, bbox.max.z),
+            new THREE.Vector3(bbox.max.x, bbox.min.y, bbox.max.z),
+            new THREE.Vector3(bbox.min.x, bbox.max.y, bbox.max.z),
+            new THREE.Vector3(bbox.max.x, bbox.max.y, bbox.max.z)
+          ];
+          
+          let maxDist = -Infinity;
+          corners.forEach(corner => {
+            const dist = corner.distanceTo(jointPos);
+            if (dist > maxDist) {
+              maxDist = dist;
+              position.copy(corner);
+            }
+          });
+        } else {
+          // No joint reference, use the center of the far end
+          position.copy(bbox.max);
+        }
+        
+        // Get orientation from the element
+        element.getWorldQuaternion(quaternion);
+      } else {
+        // Fallback to element's world position
+        element.getWorldPosition(position);
+        element.getWorldQuaternion(quaternion);
+      }
+
+      // Apply TCP offset
+      const offset = new THREE.Vector3(
+        tcp.settings.offset.x,
+        tcp.settings.offset.y,
+        tcp.settings.offset.z
+      );
+      
+      // Transform offset by element's rotation
+      offset.applyQuaternion(quaternion);
+      position.add(offset);
+
+      return {
+        x: parseFloat(position.x.toFixed(6)),
+        y: parseFloat(position.y.toFixed(6)),
+        z: parseFloat(position.z.toFixed(6))
+      };
+    } catch (error) {
+      console.error('Error calculating TCP position:', error);
+      return { x: 0, y: 0, z: 0 };
+    }
+  }
+
+  /**
+   * Set current robot for position calculations
+   * @param {Object} robot - Robot instance
+   */
+  setRobot(robot) {
+    this.currentRobot = robot;
+    // Clear cache when robot changes
+    this.lastVisualCache.delete(robot);
+  }
+
+  /**
+   * Direct calculation for real-time requests
+   * @param {Object} robot - Robot instance
+   * @returns {Object} Position {x, y, z}
+   */
+  calculateTCPPositionDirect(robot) {
+    if (!robot) return { x: 0, y: 0, z: 0 };
+
+    try {
+      // Find the last visual element
+      const lastVisualData = this.findLastVisualElement(robot);
+      
+      if (!lastVisualData || !lastVisualData.element) {
+        return { x: 0, y: 0, z: 0 };
+      }
+
+      const { element } = lastVisualData;
+      
+      // Get immediate world position
+      const position = new THREE.Vector3();
+      const quaternion = new THREE.Quaternion();
+      
+      element.getWorldPosition(position);
+      element.getWorldQuaternion(quaternion);
+
+      // Apply TCP offset
+      const activeTcp = this.getActiveTCP();
+      if (activeTcp && activeTcp.settings.offset) {
+        const offset = new THREE.Vector3(
+          activeTcp.settings.offset.x,
+          activeTcp.settings.offset.y,
+          activeTcp.settings.offset.z
+        );
+        
+        offset.applyQuaternion(quaternion);
+        position.add(offset);
+      }
+
+      return {
+        x: parseFloat(position.x.toFixed(6)),
+        y: parseFloat(position.y.toFixed(6)),
+        z: parseFloat(position.z.toFixed(6))
+      };
+    } catch (error) {
+      console.error('Error in direct TCP calculation:', error);
+      return { x: 0, y: 0, z: 0 };
+    }
+  }
+
+  // ... rest of the methods remain the same ...
+  
   /**
    * Add a new TCP
    * @param {Object} tcpConfig - TCP configuration
@@ -84,8 +379,6 @@ class TCPProvider {
     };
 
     this.tcps.set(id, tcpData);
-    
-    // Emit event for UI updates
     EventBus.emit('tcp:added', { id, tcpData });
     
     return id;
@@ -109,7 +402,6 @@ class TCPProvider {
 
     this.tcps.delete(tcpId);
 
-    // Switch to default if this was active
     if (this.activeTcpId === tcpId) {
       this.activeTcpId = this.defaultTcpId;
       EventBus.emit('tcp:activated', { id: this.defaultTcpId });
@@ -120,7 +412,7 @@ class TCPProvider {
   }
 
   /**
-   * Update TCP settings - NOW EMITS VIA EVENTBUS
+   * Update TCP settings
    */
   updateTCPSettings(tcpId, settings) {
     const tcp = this.tcps.get(tcpId);
@@ -129,7 +421,6 @@ class TCPProvider {
       return;
     }
 
-    // Deep merge settings
     tcp.settings = {
       ...tcp.settings,
       ...settings,
@@ -139,21 +430,18 @@ class TCPProvider {
       }
     };
 
-    // Update STL path if provided
     if (settings.stlPath !== undefined) {
       tcp.stlPath = settings.stlPath;
     }
 
     tcp.lastUpdated = Date.now();
 
-    // EMIT settings update via EventBus
     EventBus.emit('tcp:settings-updated', {
       tcpId,
       settings: tcp.settings,
       tcp: tcp
     });
 
-    // If this is the active TCP, emit active settings update
     if (tcpId === this.activeTcpId) {
       EventBus.emit('tcp:active-settings-updated', {
         settings: tcp.settings,
@@ -161,12 +449,11 @@ class TCPProvider {
       });
     }
 
-    // Force position recalculation
     this.forceUpdate();
   }
 
   /**
-   * Set active TCP - NOW EMITS VIA EVENTBUS
+   * Set active TCP
    */
   setActiveTCP(tcpId) {
     if (!this.tcps.has(tcpId)) {
@@ -177,14 +464,12 @@ class TCPProvider {
     const oldActiveTcpId = this.activeTcpId;
     this.activeTcpId = tcpId;
     
-    // EMIT activation via EventBus
     EventBus.emit('tcp:activated', { 
       id: tcpId, 
       tcp: this.tcps.get(tcpId),
       previousId: oldActiveTcpId
     });
 
-    // Emit active position/settings immediately
     const activeTcp = this.getActiveTCP();
     if (activeTcp) {
       EventBus.emit('tcp:active-position-updated', {
@@ -225,98 +510,7 @@ class TCPProvider {
   }
 
   /**
-   * Set current robot for position calculations
-   * @param {Object} robot - Robot instance
-   */
-  setRobot(robot) {
-    this.currentRobot = robot;
-  }
-
-  /**
-   * Calculate TCP position based on robot state
-   * @param {string} tcpId - TCP ID (optional, uses active if not provided)
-   * @returns {Object|null} Position {x, y, z} or null
-   */
-  calculateTCPPosition(tcpId = null) {
-    const targetTcpId = tcpId || this.activeTcpId;
-    const tcp = this.tcps.get(targetTcpId);
-    
-    if (!tcp || !this.currentRobot) {
-      return null;
-    }
-
-    try {
-      // Find the EXACT same joint that IK uses
-      const lastJoint = this.findLastJoint(this.currentRobot);
-      if (!lastJoint) {
-        return null;
-      }
-
-      // Get the END EFFECTOR (joint's child), not the joint itself
-      const endEffector = lastJoint.children && lastJoint.children.length > 0 
-        ? lastJoint.children[0] 
-        : lastJoint;
-
-      // Get world position of the END EFFECTOR
-      const position = new THREE.Vector3();
-      const quaternion = new THREE.Quaternion();
-      
-      endEffector.getWorldPosition(position);
-      endEffector.getWorldQuaternion(quaternion);
-
-      // Apply TCP offset from END EFFECTOR position
-      const offset = new THREE.Vector3(
-        tcp.settings.offset.x,
-        tcp.settings.offset.y,
-        tcp.settings.offset.z
-      );
-      
-      // Transform offset by end effector rotation
-      offset.applyQuaternion(quaternion);
-      position.add(offset);
-
-      return {
-        x: parseFloat(position.x.toFixed(6)),
-        y: parseFloat(position.y.toFixed(6)),
-        z: parseFloat(position.z.toFixed(6))
-      };
-    } catch (error) {
-      console.error('Error calculating TCP position:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Find the last joint in the robot
-   * @param {Object} robot - Robot instance
-   * @returns {Object|null} Last joint
-   */
-  findLastJoint(robot) {
-    if (!robot || !robot.joints) return null;
-
-    // Try common end joint names first
-    const endJointNames = [
-      'joint_a6', 'a6', 'joint_6', 'tool0',  // KUKA
-      'wrist_3_joint', 'tool0',              // UR
-      'tool_joint', 'end_effector', 'tcp_joint', 'flange'
-    ];
-
-    for (const name of endJointNames) {
-      if (robot.joints[name]) {
-        return robot.joints[name];
-      }
-    }
-
-    // Fall back to last movable joint
-    const joints = Object.values(robot.joints).filter(
-      j => j.jointType !== 'fixed' && j.isURDFJoint
-    );
-
-    return joints.length > 0 ? joints[joints.length - 1] : null;
-  }
-
-  /**
-   * Update all TCP positions - NOW EMITS VIA EVENTBUS
+   * Update all TCP positions
    */
   updatePositions() {
     if (this.isCalculating || !this.currentRobot) return;
@@ -331,7 +525,6 @@ class TCPProvider {
         if (newPosition) {
           const oldPosition = tcp.position;
           
-          // Check if position actually changed
           if (oldPosition.x !== newPosition.x || 
               oldPosition.y !== newPosition.y || 
               oldPosition.z !== newPosition.z) {
@@ -340,14 +533,12 @@ class TCPProvider {
             tcp.lastUpdated = Date.now();
             hasUpdates = true;
 
-            // EMIT position update via EventBus (for specific TCP)
             EventBus.emit('tcp:position-updated', {
               tcpId,
               position: newPosition,
               tcp: tcp
             });
 
-            // If this is the active TCP, emit active position update
             if (tcpId === this.activeTcpId) {
               EventBus.emit('tcp:active-position-updated', {
                 position: newPosition,
@@ -358,7 +549,6 @@ class TCPProvider {
         }
       });
 
-      // Emit general positions updated event
       if (hasUpdates) {
         EventBus.emit('tcp:positions-updated', {
           tcps: Array.from(this.tcps.values()),
@@ -379,7 +569,6 @@ class TCPProvider {
     const frameInterval = 1000 / targetFPS;
     
     const updateLoop = (currentTime) => {
-      // Throttle updates to 60fps
       if (currentTime - lastUpdateTime >= frameInterval) {
         this.updatePositions();
         lastUpdateTime = currentTime;
@@ -391,7 +580,7 @@ class TCPProvider {
   }
 
   /**
-   * Get current active TCP position (for IK API compatibility)
+   * Get current active TCP position
    * @returns {Object} Position {x, y, z}
    */
   getCurrentPosition() {
@@ -400,7 +589,7 @@ class TCPProvider {
   }
 
   /**
-   * Get current active TCP settings (for IK API compatibility)
+   * Get current active TCP settings
    * @returns {Object} Settings object
    */
   getCurrentSettings() {
@@ -414,29 +603,7 @@ class TCPProvider {
   }
 
   /**
-   * Send current TCP data to IK API
-   */
-  sendDataToIKAPI() {
-    const activeTcp = this.getActiveTCP();
-    if (!activeTcp) return;
-    
-    // Send position update
-    EventBus.emit('tcp:position-updated', {
-      tcpId: activeTcp.id,
-      position: activeTcp.position,
-      tcp: activeTcp
-    });
-    
-    // Send settings update
-    EventBus.emit('tcp:settings-updated', {
-      tcpId: activeTcp.id,
-      settings: activeTcp.settings,
-      tcp: activeTcp
-    });
-  }
-
-  /**
-   * Handle real-time calculation requests (from IK during solving)
+   * Handle real-time calculation requests
    * @param {Object} data - Request data with robot and requestId
    */
   handleRealTimeCalculation(data) {
@@ -447,13 +614,9 @@ class TCPProvider {
       return;
     }
 
-    // Force matrix updates for accurate calculation
     robot.updateMatrixWorld(true);
-    
-    // Calculate TCP position immediately
     const position = this.calculateTCPPositionDirect(robot);
     
-    // Send result back to IK immediately
     EventBus.emit('tcp:realtime-result', { 
       requestId, 
       position,
@@ -462,54 +625,7 @@ class TCPProvider {
   }
 
   /**
-   * Direct calculation without caching (for real-time requests)
-   * @param {Object} robot - Robot instance
-   * @returns {Object} Position {x, y, z}
-   */
-  calculateTCPPositionDirect(robot) {
-    if (!robot) return { x: 0, y: 0, z: 0 };
-
-    try {
-      const lastJoint = this.findLastJoint(robot);
-      if (!lastJoint) return { x: 0, y: 0, z: 0 };
-
-      const endEffector = lastJoint.children && lastJoint.children.length > 0 
-        ? lastJoint.children[0] 
-        : lastJoint;
-
-      // Get IMMEDIATE world position and rotation
-      const position = new THREE.Vector3();
-      const quaternion = new THREE.Quaternion();
-      
-      endEffector.getWorldPosition(position);
-      endEffector.getWorldQuaternion(quaternion);
-
-      // Apply TCP offset
-      const activeTcp = this.getActiveTCP();
-      if (activeTcp && activeTcp.settings.offset) {
-        const offset = new THREE.Vector3(
-          activeTcp.settings.offset.x,
-          activeTcp.settings.offset.y,
-          activeTcp.settings.offset.z
-        );
-        
-        offset.applyQuaternion(quaternion);
-        position.add(offset);
-      }
-
-      return {
-        x: parseFloat(position.x.toFixed(6)),
-        y: parseFloat(position.y.toFixed(6)),
-        z: parseFloat(position.z.toFixed(6))
-      };
-    } catch (error) {
-      console.error('Error in direct TCP calculation:', error);
-      return { x: 0, y: 0, z: 0 };
-    }
-  }
-
-  /**
-   * Force immediate update (called after IK completes)
+   * Force immediate update
    */
   forceUpdate() {
     this.updatePositions();
