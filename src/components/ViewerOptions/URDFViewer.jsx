@@ -36,6 +36,10 @@ const URDFViewer = ({
   const [loadedRobot, setLoadedRobot] = useState(null);
   const [jointValues, setJointValues] = useState({});
   
+  // Table-related state
+  const [tableLoaded, setTableLoaded] = useState(false);
+  const [tableVisible, setTableVisible] = useState(false);
+  
   // Initialize scene and robot manager
   useEffect(() => {
     if (!containerRef.current) return;
@@ -392,6 +396,35 @@ const URDFViewer = ({
     return robotStateRef.current.getRobotInfo();
   };
   
+  /**
+   * Load table into the scene
+   * @returns {Promise<boolean>} Whether the table was loaded successfully
+   */
+  const loadTable = async () => {
+    if (!sceneRef.current) return false;
+    
+    try {
+      await sceneRef.current.loadTable();
+      setTableLoaded(true);
+      setTableVisible(true);
+      return true;
+    } catch (error) {
+      console.error('Error loading table:', error);
+      return false;
+    }
+  };
+
+  /**
+   * Toggle table visibility
+   * @param {boolean} visible - Whether to show the table
+   */
+  const toggleTable = (visible) => {
+    if (!sceneRef.current || !tableLoaded) return;
+    
+    sceneRef.current.setTableVisible(visible);
+    setTableVisible(visible);
+  };
+  
   // Expose methods to parent component
   React.useImperativeHandle(
     ref,
@@ -406,8 +439,14 @@ const URDFViewer = ({
       focusOnRobot: () => sceneRef.current?.focusOnRobot(),
       getCurrentRobot: () => robotManagerRef.current?.getCurrentRobot(),
       getSceneSetup: () => sceneRef.current,
+      
+      // Table-related methods
+      loadTable,
+      toggleTable,
+      isTableLoaded: () => tableLoaded,
+      isTableVisible: () => tableVisible,
     }),
-    [jointValues]
+    [jointValues, tableLoaded, tableVisible]
   );
   
   const handleOptionChange = (name, value) => {

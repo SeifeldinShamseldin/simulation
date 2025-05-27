@@ -15,7 +15,6 @@ import TrajectoryViewer from './RecordMap/TrajectoryViewer';
 import ikAPI from '../../core/IK/API/IKAPI';
 import useTCP from '../../contexts/hooks/useTCP';
 import * as THREE from 'three';
-import Table from './Table'; // Import the Table component
 
 /**
  * Debug information component for displaying joint data and values
@@ -150,41 +149,9 @@ const TableSection = ({ showTable, onToggle }) => {
             transition: 'background-color 0.2s'
           }}
         >
-          {showTable ? 'Hide' : 'Show'}
+          {showTable ? 'Hide Table' : 'Show Table'}
         </button>
       </div>
-      
-      {showTable && (
-        <div style={{ 
-          padding: '1rem',
-          backgroundColor: '#f8f9fa'
-        }}>
-          <div style={{
-            width: '100%',
-            height: '400px',
-            backgroundColor: '#fff',
-            borderRadius: '4px',
-            overflow: 'hidden',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-          }}>
-            <Table 
-              width={document.querySelector('.urdf-controls')?.offsetWidth - 32 || 400} 
-              height={400}
-              backgroundColor={0xf0f0f0}
-              onLoad={(model) => console.log('Table loaded successfully')}
-              onError={(error) => console.error('Error loading table:', error)}
-            />
-          </div>
-          <div style={{
-            marginTop: '0.5rem',
-            fontSize: '0.875rem',
-            color: '#6c757d',
-            textAlign: 'center'
-          }}>
-            Use mouse to rotate • Scroll to zoom
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -225,7 +192,7 @@ const Controls = ({
   showJointControls = true,
   showLoadOptions = false,
   showIKControls = true,
-  showTableVisualization = true, // New prop for table visualization
+  showTableVisualization = true,
   defaultRobotPath = '/robots/ur5/ur5.urdf',
   defaultRobotName = 'ur5'
 }) => {
@@ -242,7 +209,7 @@ const Controls = ({
   const [availableRobots, setAvailableRobots] = useState([]);
   const [currentRobotName, setCurrentRobotName] = useState('');
   const [debugMode, setDebugMode] = useState(GLOBAL_CONFIG.debug);
-  const [showTable, setShowTable] = useState(false); // State for table visibility
+  const [showTable, setShowTable] = useState(false);
   
   // Use the TCP hook for TCP-related state and functions
   const { tcpPosition, tcpSettings, handleTcpChange } = useTCP();
@@ -806,8 +773,21 @@ const Controls = ({
   /**
    * Toggle table visibility
    */
-  const toggleTable = () => {
-    setShowTable(!showTable);
+  const toggleTable = async () => {
+    if (!viewerRef?.current) return;
+    
+    if (!viewerRef.current.isTableLoaded()) {
+      // Load table for the first time
+      const success = await viewerRef.current.loadTable();
+      if (success) {
+        setShowTable(true);
+      }
+    } else {
+      // Toggle visibility
+      const newVisibility = !showTable;
+      viewerRef.current.toggleTable(newVisibility);
+      setShowTable(newVisibility);
+    }
   };
 
   return (

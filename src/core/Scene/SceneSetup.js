@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
 import { GLOBAL_CONFIG } from '../../utils/GlobalVariables';
 import { createStandardGrids } from '../../utils/threeHelpers';
 
@@ -21,6 +22,7 @@ class SceneSetup {
         this.enableShadows = options.enableShadows !== undefined ? options.enableShadows : 
                             (GLOBAL_CONFIG.enableShadows !== undefined ? GLOBAL_CONFIG.enableShadows : true);
         this.ambientColor = options.ambientColor || GLOBAL_CONFIG.ambientColor || '#8ea0a8';
+        this.tableObject = null;
         
         // Initialize scene components
         this.initScene();
@@ -404,6 +406,79 @@ class SceneSetup {
         // Remove renderer from DOM
         if (this.renderer.domElement && this.renderer.domElement.parentNode) {
             this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+        }
+    }
+
+    /**
+     * Load and add table to the scene
+     * @param {string} modelPath - Path to the table model
+     * @returns {Promise<THREE.Object3D>} The loaded table object
+     */
+    async loadTable(modelPath = '/objects/table/complete_table.dae') {
+        return new Promise((resolve, reject) => {
+            // Remove existing table if any
+            if (this.tableObject) {
+                this.scene.remove(this.tableObject);
+                this.tableObject = null;
+            }
+            
+            const loader = new ColladaLoader();
+            loader.load(
+                modelPath,
+                (collada) => {
+                    const model = collada.scene;
+                    
+                    // Apply gray material from URDF
+                    const grayMaterial = new THREE.MeshPhongMaterial({
+                        color: new THREE.Color(0.56, 0.67, 0.67),
+                        shininess: 100,
+                        specular: 0x222222
+                    });
+                    
+                    // Apply material and shadows
+                    model.traverse((child) => {
+                        if (child instanceof THREE.Mesh) {
+                            child.material = grayMaterial;
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                        }
+                    });
+                    
+                    // Position table at ground level
+                    model.position.set(0, 0, 0);
+                    model.scale.set(1, 1, 1);
+                    
+                    this.tableObject = model;
+                    this.scene.add(model);
+                    
+                    resolve(model);
+                },
+                undefined,
+                (error) => {
+                    console.error('Error loading table:', error);
+                    reject(error);
+                }
+            );
+        });
+    }
+
+    /**
+     * Show or hide the table
+     * @param {boolean} visible - Whether to show the table
+     */
+    setTableVisible(visible) {
+        if (this.tableObject) {
+            this.tableObject.visible = visible;
+        }
+    }
+
+    /**
+     * Remove table from scene
+     */
+    removeTable() {
+        if (this.tableObject) {
+            this.scene.remove(this.tableObject);
+            this.tableObject = null;
         }
     }
 }
