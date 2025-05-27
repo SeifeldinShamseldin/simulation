@@ -776,17 +776,33 @@ const Controls = ({
   const toggleTable = async () => {
     if (!viewerRef?.current) return;
     
-    if (!viewerRef.current.isTableLoaded()) {
-      // Load table for the first time
-      const success = await viewerRef.current.loadTable();
-      if (success) {
+    const sceneSetup = viewerRef.current.getSceneSetup();
+    if (!sceneSetup) return;
+    
+    if (!showTable) {
+      // Load table using the new dynamic system
+      try {
+        await sceneSetup.loadEnvironmentObject({
+          path: '/objects/table/complete_table.dae',
+          id: 'workshop_table',
+          position: { x: 0, y: 0, z: 0 },
+          material: {
+            type: 'phong',
+            color: 0x8e9fa3,
+            shininess: 100,
+            specular: 0x222222
+          },
+          castShadow: true,
+          receiveShadow: true
+        });
         setShowTable(true);
+      } catch (error) {
+        console.error('Failed to load table:', error);
       }
     } else {
-      // Toggle visibility
-      const newVisibility = !showTable;
-      viewerRef.current.toggleTable(newVisibility);
-      setShowTable(newVisibility);
+      // Remove table
+      sceneSetup.removeEnvironmentObject('workshop_table');
+      setShowTable(false);
     }
   };
 

@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import { GLOBAL_CONFIG } from '../../utils/GlobalVariables';
 import { createStandardGrids } from '../../utils/threeHelpers';
 
@@ -22,7 +27,15 @@ class SceneSetup {
         this.enableShadows = options.enableShadows !== undefined ? options.enableShadows : 
                             (GLOBAL_CONFIG.enableShadows !== undefined ? GLOBAL_CONFIG.enableShadows : true);
         this.ambientColor = options.ambientColor || GLOBAL_CONFIG.ambientColor || '#8ea0a8';
-        this.tableObject = null;
+        
+        // Dynamic environment system
+        this.environmentObjects = new Map(); // Store all dynamic objects
+        this.objectLoaders = this.initializeLoaders();
+        this.defaultMaterial = new THREE.MeshPhongMaterial({
+            color: 0x888888,
+            shininess: 100,
+            specular: 0x222222
+        });
         
         // Initialize scene components
         this.initScene();
@@ -420,55 +433,309 @@ class SceneSetup {
     }
 
     /**
+     * Initialize all supported loaders
+     */
+    initializeLoaders() {
+        return {
+            'dae': new ColladaLoader(),
+            'stl': new STLLoader(),
+            'obj': new OBJLoader(),
+            'fbx': new FBXLoader(),
+            'gltf': new GLTFLoader(),
+            'glb': new GLTFLoader(),
+            'ply': new PLYLoader()
+        };
+    }
+
+    /**
+     * Dynamically load any 3D object into the environment
+     * @param {Object} config - Configuration for the object
+     * @param {string} config.path - Path to the 3D file
+     * @param {string} [config.id] - Unique identifier for the object
+     * @param {Object} [config.position] - Position {x, y, z}
+     * @param {Object} [config.rotation] - Rotation {x, y, z} in radians
+     * @param {Object} [config.scale] - Scale {x, y, z}
+     * @param {Object} [config.material] - Custom material settings
+     * @param {boolean} [config.castShadow] - Whether object casts shadows
+     * @param {boolean} [config.receiveShadow] - Whether object receives shadows
+     * @returns {Promise<THREE.Object3D>} The loaded object
+     */
+    async loadEnvironmentObject(config) {
+        const {
+            path,
+            id = `env_object_${Date.now()}`,
+            position = { x: 0, y: 0, z: 0 },
+            rotation = { x: 0, y: 0, z: 0 },
+            scale = { x: 1, y: 1, z: 1 },
+            material = null,
+            castShadow = true,
+            receiveShadow = true
+        } = config;
+        
+        // Determine file type
+        const extension = path.split('.').pop().toLowerCase();
+        const loader = this.objectLoaders[extension];
+        
+        if (!loader) {
+            throw new Error(`Unsupported file format: ${extension}`);
+        }
+        
+        return new Promise((resolve, reject) => {
+            const loadHandler = (result) => {
+                let object;
+                
+                // Handle different loader return types
+                if (extension === 'stl' || extension === 'ply') {
+                    // These loaders return geometry
+                    const geometry = result;
+                    const mat = material ? this.createMaterial(material) : this.defaultMaterial.clone();
+                    object = new THREE.Mesh(geometry, mat);
+                } else if (extension === 'gltf' || extension === 'glb') {
+                    // GLTF returns a scene
+                    object = result.scene;
+                } else {
+                    // Collada, OBJ, FBX return the object directly
+                    object = result.scene || result;
+                }
+                
+                // Apply transformations
+                object.position.set(position.x, position.y, position.z);
+                object.rotation.set(rotation.x, rotation.y, rotation.z);
+                object.scale.set(scale.x, scale.y, scale.z);
+                
+                // Apply material if specified
+                if (material && (extension !== 'stl' && extension !== 'ply')) {
+                    const mat = this.createMaterial(material);
+                    object.traverse((child) => {
+                        if (child instanceof THREE.Mesh) {
+                            child.material = mat;
+                        }
+                    });
+                }
+                
+                // Apply shadow settings
+                object.traverse((child) => {
+                    if (child instanceof THREE.Mesh) {
+                        child.castShadow = castShadow;
+                        child.receiveShadow = receiveShadow;
+                    }
+                });
+                
+                // Store the object
+                object.userData.environmentId = id;
+                this.environmentObjects.set(id, object);
+                
+                // Add to scene
+                this.scene.add(object);
+                
+                resolve(object);
+            };
+            
+            // Load the file
+            loader.load(path, loadHandler, undefined, reject);
+        });
+    }
+
+    /**
+     * Create material from configuration
+     * @param {Object} config - Material configuration
+     * @returns {THREE.Material} The created material
+     */
+    createMaterial(config) {
+        const {
+            type = 'phong',
+            color = 0x888888,
+            metalness = 0.5,
+            roughness = 0.5,
+            transparent = false,
+            opacity = 1.0,
+            emissive = 0x000000,
+            shininess = 100,
+            specular = 0x111111
+        } = config;
+        
+        let material;
+        
+        switch (type) {
+            case 'standard':
+                material = new THREE.MeshStandardMaterial({
+                    color, metalness, roughness, transparent, opacity, emissive
+                });
+                break;
+            case 'physical':
+                material = new THREE.MeshPhysicalMaterial({
+                    color, metalness, roughness, transparent, opacity, emissive
+                });
+                break;
+            case 'basic':
+                material = new THREE.MeshBasicMaterial({
+                    color, transparent, opacity
+                });
+                break;
+            default:
+                material = new THREE.MeshPhongMaterial({
+                    color, shininess, specular, transparent, opacity, emissive
+                });
+        }
+        
+        return material;
+    }
+
+    /**
+     * Arrange objects dynamically around the robot
+     * @param {Array<Object>} objectConfigs - Array of object configurations
+     * @param {Object} options - Arrangement options
+     */
+    async loadEnvironmentPreset(objectConfigs, options = {}) {
+        const {
+            arrangement = 'circle', // 'circle', 'grid', 'random'
+            radius = 3,
+            centerOffset = { x: 0, y: 0, z: 0 }
+        } = options;
+        
+        const results = [];
+        
+        for (let i = 0; i < objectConfigs.length; i++) {
+            const config = { ...objectConfigs[i] };
+            
+            // Calculate position based on arrangement
+            if (!config.position) {
+                switch (arrangement) {
+                    case 'circle':
+                        const angle = (i / objectConfigs.length) * Math.PI * 2;
+                        config.position = {
+                            x: centerOffset.x + Math.cos(angle) * radius,
+                            y: centerOffset.y,
+                            z: centerOffset.z + Math.sin(angle) * radius
+                        };
+                        break;
+                    case 'grid':
+                        const cols = Math.ceil(Math.sqrt(objectConfigs.length));
+                        const row = Math.floor(i / cols);
+                        const col = i % cols;
+                        config.position = {
+                            x: centerOffset.x + (col - cols / 2) * 2,
+                            y: centerOffset.y,
+                            z: centerOffset.z + (row - cols / 2) * 2
+                        };
+                        break;
+                    case 'random':
+                        config.position = {
+                            x: centerOffset.x + (Math.random() - 0.5) * radius * 2,
+                            y: centerOffset.y,
+                            z: centerOffset.z + (Math.random() - 0.5) * radius * 2
+                        };
+                        break;
+                }
+            }
+            
+            try {
+                const object = await this.loadEnvironmentObject(config);
+                results.push(object);
+            } catch (error) {
+                console.error(`Failed to load object: ${config.path}`, error);
+            }
+        }
+        
+        return results;
+    }
+
+    /**
+     * Remove an environment object
+     * @param {string} id - The object's unique identifier
+     */
+    removeEnvironmentObject(id) {
+        const object = this.environmentObjects.get(id);
+        if (object) {
+            this.scene.remove(object);
+            
+            // Dispose of resources
+            object.traverse((child) => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(m => m.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            });
+            
+            this.environmentObjects.delete(id);
+        }
+    }
+
+    /**
+     * Remove all environment objects
+     */
+    clearEnvironment() {
+        this.environmentObjects.forEach((object, id) => {
+            this.removeEnvironmentObject(id);
+        });
+    }
+
+    /**
+     * Get all environment objects
+     * @returns {Map} Map of all environment objects
+     */
+    getEnvironmentObjects() {
+        return new Map(this.environmentObjects);
+    }
+
+    /**
+     * Update an environment object's properties
+     * @param {string} id - The object's unique identifier
+     * @param {Object} updates - Properties to update
+     */
+    updateEnvironmentObject(id, updates) {
+        const object = this.environmentObjects.get(id);
+        if (!object) return;
+        
+        if (updates.position) {
+            object.position.set(
+                updates.position.x ?? object.position.x,
+                updates.position.y ?? object.position.y,
+                updates.position.z ?? object.position.z
+            );
+        }
+        
+        if (updates.rotation) {
+            object.rotation.set(
+                updates.rotation.x ?? object.rotation.x,
+                updates.rotation.y ?? object.rotation.y,
+                updates.rotation.z ?? object.rotation.z
+            );
+        }
+        
+        if (updates.scale) {
+            object.scale.set(
+                updates.scale.x ?? object.scale.x,
+                updates.scale.y ?? object.scale.y,
+                updates.scale.z ?? object.scale.z
+            );
+        }
+        
+        if (updates.visible !== undefined) {
+            object.visible = updates.visible;
+        }
+    }
+
+    /**
      * Load and add table to the scene
      * @param {string} modelPath - Path to the table model
      * @returns {Promise<THREE.Object3D>} The loaded table object
      */
     async loadTable(modelPath = '/objects/table/complete_table.dae') {
-        return new Promise((resolve, reject) => {
-            // Remove existing table if any
-            if (this.tableObject) {
-                this.scene.remove(this.tableObject);
-                this.tableObject = null;
+        // Backward compatibility wrapper
+        return this.loadEnvironmentObject({
+            path: modelPath,
+            id: 'table',
+            position: { x: 0, y: 0, z: 0 },
+            material: {
+                color: 0x8e9fa3,
+                shininess: 100,
+                specular: 0x222222
             }
-            
-            const loader = new ColladaLoader();
-            loader.load(
-                modelPath,
-                (collada) => {
-                    const model = collada.scene;
-                    
-                    // Apply gray material from URDF
-                    const grayMaterial = new THREE.MeshPhongMaterial({
-                        color: new THREE.Color(0.56, 0.67, 0.67),
-                        shininess: 100,
-                        specular: 0x222222
-                    });
-                    
-                    // Apply material and shadows
-                    model.traverse((child) => {
-                        if (child instanceof THREE.Mesh) {
-                            child.material = grayMaterial;
-                            child.castShadow = true;
-                            child.receiveShadow = true;
-                        }
-                    });
-                    
-                    // Position table at ground level
-                    model.position.set(0, 0, 0);
-                    model.scale.set(1, 1, 1);
-                    
-                    this.tableObject = model;
-                    this.scene.add(model);
-                    
-                    resolve(model);
-                },
-                undefined,
-                (error) => {
-                    console.error('Error loading table:', error);
-                    reject(error);
-                }
-            );
         });
     }
 
@@ -477,19 +744,16 @@ class SceneSetup {
      * @param {boolean} visible - Whether to show the table
      */
     setTableVisible(visible) {
-        if (this.tableObject) {
-            this.tableObject.visible = visible;
-        }
+        // Backward compatibility wrapper
+        this.updateEnvironmentObject('table', { visible });
     }
 
     /**
      * Remove table from scene
      */
     removeTable() {
-        if (this.tableObject) {
-            this.scene.remove(this.tableObject);
-            this.tableObject = null;
-        }
+        // Backward compatibility wrapper
+        this.removeEnvironmentObject('table');
     }
 }
 
