@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
 import RecordMap from './RecordMap';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
-import './RecordMap.css';
 
 /**
  * Integrated component for trajectory control and visualization

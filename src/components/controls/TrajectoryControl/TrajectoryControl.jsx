@@ -99,8 +99,10 @@ const TrajectoryControl = ({ viewerRef }) => {
     if (traj && traj.endEffectorPath && traj.endEffectorPath.length > 0) {
       const start = traj.endEffectorPath[0].position;
       const geometry = new THREE.SphereGeometry(0.025, 16, 16);
-      const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-      const marker = new THREE.Mesh(geometry, material);
+      const currentMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0xff9900
+      });
+      const marker = new THREE.Mesh(geometry, currentMaterial);
       marker.position.set(start.x, start.y, start.z);
       viewerRef.current.scene.add(marker);
       tcpMarkerRef.current = marker;

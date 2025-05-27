@@ -3,6 +3,7 @@
 
 import * as THREE from 'three';
 import ikAPI from '../IK/API/IKAPI';
+import EventBus from '../../utils/EventBus';
 
 /**
  * API for recording, storing and playing back robot joint trajectories
@@ -84,9 +85,9 @@ class TrajectoryAPI {
    * @param {Object} jointValues - Map of joint names to values
    * @param {number} [timestamp] - Timestamp for the keyframe (default: current time relative to start)
    * @param {Object} [robot] - Robot to get end effector position from
-   * @returns {boolean} Whether keyframe was added successfully
+   * @returns {Promise<boolean>} Whether keyframe was added successfully
    */
-  recordKeyframe(jointValues, timestamp = null, robot = null) {
+  async recordKeyframe(jointValues, timestamp = null, robot = null) {
     if (!this.recording || !this.currentTrajectory) {
       console.warn('Cannot record keyframe: not recording');
       return false;
@@ -95,10 +96,10 @@ class TrajectoryAPI {
     // Calculate timestamp if not provided
     const time = timestamp !== null ? timestamp : Date.now() - this.recordingStartTime;
     
-    // Capture end effector position if robot is provided
+    // Get end effector position from TCPProvider
     let endEffectorPosition = null;
     if (robot) {
-      endEffectorPosition = this._getEndEffectorPosition(robot);
+      endEffectorPosition = await this._getEndEffectorPosition(robot);
     }
     
     // Add keyframe
@@ -349,11 +350,12 @@ class TrajectoryAPI {
    * @returns {Object} Map of joint names to values
    */
   _getJointValues(robot) {
-    const values = {};
+    if (!robot || !robot.joints) return {};
     
-    Object.entries(robot.joints || {}).forEach(([name, joint]) => {
-      if (joint.jointType !== 'fixed' && joint.jointValue !== undefined) {
-        values[name] = Array.isArray(joint.jointValue) ? joint.jointValue[0] : joint.jointValue;
+    const values = {};
+    Object.entries(robot.joints).forEach(([name, joint]) => {
+      if (joint.jointType !== 'fixed') {
+        values[name] = joint.angle;
       }
     });
     
@@ -361,91 +363,37 @@ class TrajectoryAPI {
   }
 
   /**
-   * Get the end effector position from a robot
-   * @private
-   * @param {Object} robot - The robot to get end effector position from
-   * @returns {Object|null} End effector position {x, y, z}, or null if not available
+   * Get end effector position using TCPProvider via EventBus
+   * @param {Object} robot - Robot instance
+   * @returns {Promise<Object>} Position {x, y, z}
    */
   _getEndEffectorPosition(robot) {
     try {
-      // Try using ikAPI first (most reliable)
-      if (ikAPI && typeof ikAPI.getTCPPosition === 'function') {
-        const tcpPos = ikAPI.getTCPPosition();
-        if (tcpPos && typeof tcpPos.x === 'number') {
-          return tcpPos;
-        }
-      }
-      
-      // Find end effector manually
-      const { endEffector, joints } = this._findEndEffector(robot);
-      if (endEffector) {
-        const position = new THREE.Vector3();
-        endEffector.getWorldPosition(position);
+      // Request real-time TCP position from TCPProvider
+      return new Promise((resolve) => {
+        const requestId = `tcp_traj_${Date.now()}`;
         
-        return {
-          x: position.x,
-          y: position.y,
-          z: position.z
-        };
-      }
-      
-      // If all else fails, try to find the last joint directly
-      if (robot.joints) {
-        // Find all non-fixed joints
-        const jointList = Object.values(robot.joints).filter(
-          j => j.jointType !== 'fixed'
-        );
+        // Set up one-time listener for response
+        const unsubscribe = EventBus.on('tcp:realtime-result', (data) => {
+          if (data.requestId === requestId) {
+            unsubscribe();
+            resolve(data.position || { x: 0, y: 0, z: 0 });
+          }
+        });
         
-        if (jointList.length > 0) {
-          // Use the last joint as a fallback
-          const lastJoint = jointList[jointList.length - 1];
-          const position = new THREE.Vector3();
-          lastJoint.getWorldPosition(position);
-          
-          return {
-            x: position.x,
-            y: position.y,
-            z: position.z
-          };
-        }
-      }
-      
-      // Couldn't find any position
-      console.warn('Could not find end effector position, using default');
-      return { x: 0, y: 0, z: 0 };
+        // Request calculation
+        EventBus.emit('tcp:calculate-realtime', { robot, requestId });
+        
+        // Timeout fallback
+        setTimeout(() => {
+          unsubscribe();
+          resolve({ x: 0, y: 0, z: 0 });
+        }, 100);
+      });
     } catch (error) {
       console.warn('Error getting end effector position:', error);
       return { x: 0, y: 0, z: 0 };
     }
-  }
-
-  /**
-   * Find the end effector of a robot
-   * @private
-   * @param {Object} robot - The robot to find end effector in
-   * @returns {Object} Object with endEffector and joints
-   */
-  _findEndEffector(robot) {
-    if (!robot || !robot.joints) {
-      return { endEffector: null, joints: [] };
-    }
-    
-    // Find all non-fixed joints
-    const joints = Object.values(robot.joints).filter(
-      j => j.jointType !== 'fixed' && j.limit && typeof j.limit.lower === 'number'
-    );
-    
-    if (joints.length === 0) {
-      return { endEffector: null, joints: [] };
-    }
-    
-    // Last joint is typically the one closest to end effector
-    const lastJoint = joints[joints.length - 1];
-    
-    // End effector is typically the first child of the last joint
-    const endEffector = lastJoint.children[0];
-    
-    return { endEffector, joints };
   }
 
   /**

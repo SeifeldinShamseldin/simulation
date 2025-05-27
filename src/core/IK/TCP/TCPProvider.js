@@ -31,6 +31,7 @@ class TCPProvider {
     // EventBus listeners
     EventBus.on('tcp:calculate-realtime', this.handleRealTimeCalculation.bind(this));
     EventBus.on('tcp:force-update', this.forceUpdate.bind(this));
+    EventBus.on('tcp:get-joints', this.handleJointsRequest.bind(this));
     
     // Start update loop
     this.startUpdateLoop();
@@ -518,6 +519,19 @@ class TCPProvider {
     this.isCalculating = true;
 
     try {
+      // Find end effector data once
+      const endEffectorData = this.findLastVisualElement(this.currentRobot);
+      
+      // Broadcast end effector information for other components
+      if (endEffectorData) {
+        EventBus.emit('tcp:endeffector-found', {
+          element: endEffectorData.element,
+          joint: endEffectorData.joint,
+          type: endEffectorData.type,
+          timestamp: Date.now()
+        });
+      }
+
       let hasUpdates = false;
 
       this.tcps.forEach((tcp, tcpId) => {
@@ -536,13 +550,15 @@ class TCPProvider {
             EventBus.emit('tcp:position-updated', {
               tcpId,
               position: newPosition,
-              tcp: tcp
+              tcp: tcp,
+              endEffectorData: endEffectorData // Include end effector data
             });
 
             if (tcpId === this.activeTcpId) {
               EventBus.emit('tcp:active-position-updated', {
                 position: newPosition,
-                tcp: tcp
+                tcp: tcp,
+                endEffectorData: endEffectorData // Include end effector data
               });
             }
           }
@@ -552,7 +568,8 @@ class TCPProvider {
       if (hasUpdates) {
         EventBus.emit('tcp:positions-updated', {
           tcps: Array.from(this.tcps.values()),
-          activeTcpId: this.activeTcpId
+          activeTcpId: this.activeTcpId,
+          endEffectorData: endEffectorData // Include end effector data
         });
       }
     } finally {
@@ -629,6 +646,34 @@ class TCPProvider {
    */
   forceUpdate() {
     this.updatePositions();
+  }
+
+  /**
+   * Get all non-fixed joints with valid limits from the robot
+   * @param {Object} robot - Robot instance
+   * @returns {Array} Array of joint objects
+   */
+  getJointsFromRobot(robot) {
+    if (!robot || !robot.joints) return [];
+    
+    return Object.values(robot.joints).filter(
+      j => j.jointType !== 'fixed' && j.limit && typeof j.limit.lower === 'number'
+    );
+  }
+
+  /**
+   * Handle joint request from other components
+   * @param {Object} data - Request data with robot and requestId
+   */
+  handleJointsRequest(data) {
+    const { robot, requestId } = data;
+    const joints = this.getJointsFromRobot(robot);
+    
+    EventBus.emit('tcp:joints-result', {
+      requestId,
+      joints,
+      timestamp: Date.now()
+    });
   }
 }
 

@@ -63,6 +63,12 @@ class IKAPI {
     
     // Subscribe to EventBus updates
     this.setupTCPDataReceiver();
+
+    // Listen for end effector updates
+    this.currentEndEffectorData = null;
+    EventBus.on('tcp:endeffector-found', (data) => {
+      this.currentEndEffectorData = data;
+    });
   }
   
   /**
@@ -247,18 +253,45 @@ class IKAPI {
   }
   
   /**
-   * Solve IK to find joint angles that reach the target - USES EVENTBUS FOR REAL-TIME
-   * @param {Object} robot - Robot object
-   * @param {Object|THREE.Vector3} targetPosition - Target position
-   * @returns {Object} Map of joint names to goal angles
+   * Get joints from TCPProvider via EventBus
+   * @param {Object} robot - Robot instance
+   * @returns {Promise<Array>} Array of joint objects
+   */
+  async getJointsFromTCP(robot) {
+    return new Promise((resolve) => {
+      const requestId = `joints_${Date.now()}`;
+      
+      const unsubscribe = EventBus.on('tcp:joints-result', (data) => {
+        if (data.requestId === requestId) {
+          unsubscribe();
+          resolve(data.joints || []);
+        }
+      });
+      
+      EventBus.emit('tcp:get-joints', { robot, requestId });
+      
+      setTimeout(() => {
+        unsubscribe();
+        // Fallback to direct access if EventBus fails
+        const joints = Object.values(robot.joints || {}).filter(
+          j => j.jointType !== 'fixed' && j.limit && typeof j.limit.lower === 'number'
+        );
+        resolve(joints);
+      }, 50);
+    });
+  }
+  
+  /**
+   * Solve IK to find joint angles that reach the target
+   * @param {Object} robot - Robot instance
+   * @param {Object} targetPosition - Target position {x, y, z}
+   * @returns {Promise<Object|null>} Joint angles or null if not solvable
    */
   async solve(robot, targetPosition) {
     if (!robot) return null;
     
-    // Get joints from robot directly since TCPProvider doesn't have getJoints method
-    const joints = Object.values(robot.joints).filter(
-      j => j.jointType !== 'fixed' && j.limit && typeof j.limit.lower === 'number'
-    );
+    // Request joints from TCPProvider
+    const joints = await this.getJointsFromTCP(robot);
     if (!joints || joints.length === 0) return null;
     
     // Analyze robot and get dynamically optimized parameters

@@ -3,8 +3,6 @@ import React, { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
-import ExternalTrajectoryGraph from './ExternalTrajectoryGraph';
-import './RecordMap.css';
 import { createStandardGrids } from '../../../utils/threeHelpers';
 
 /**
@@ -448,25 +446,6 @@ const RecordMap = ({ trajectoryName }) => {
           ref={containerRef}
           className="record-map-container"
         />
-        
-        {hasData && (
-          <div className="external-view-button-container">
-            <button 
-              className="external-view-button"
-              onClick={() => setShowExternalGraph(true)}
-            >
-              Open in External Window
-            </button>
-          </div>
-        )}
-        
-        {/* External graph modal */}
-        {showExternalGraph && (
-          <ExternalTrajectoryGraph 
-            trajectoryName={trajectoryName}
-            onClose={() => setShowExternalGraph(false)}
-          />
-        )}
       </div>
     </div>
   );
