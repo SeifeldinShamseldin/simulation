@@ -12,6 +12,7 @@ import Reposition from './Reposition/Reposition';
 import TCPManager from '../controls/TCPDisplay/TCPManager';
 import IKController from './IKController/IKController';
 import TrajectoryViewer from './RecordMap/TrajectoryViewer';
+import EnvironmentManager from './EnvironmentManager/EnvironmentManager';
 import ikAPI from '../../core/IK/API/IKAPI';
 import useTCP from '../../contexts/hooks/useTCP';
 import * as THREE from 'three';
@@ -109,54 +110,6 @@ const DebugInfo = ({ enabled, jointInfo, jointValues }) => {
 };
 
 /**
- * Table visualization section component
- */
-const TableSection = ({ showTable, onToggle }) => {
-  return (
-    <div style={{
-      backgroundColor: '#ffffff',
-      border: '1px solid #dee2e6',
-      borderRadius: '0.25rem',
-      marginBottom: '1rem',
-      overflow: 'hidden'
-    }}>
-      <div style={{
-        backgroundColor: '#e9ecef',
-        borderBottom: '1px solid #dee2e6',
-        padding: '0.75rem 1rem',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-      }}>
-        <h3 style={{ 
-          fontSize: '1rem', 
-          fontWeight: 'bold', 
-          margin: 0,
-          color: '#495057'
-        }}>
-          Table Visualization
-        </h3>
-        <button
-          onClick={onToggle}
-          style={{
-            backgroundColor: showTable ? '#dc3545' : '#28a745',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            padding: '0.25rem 0.75rem',
-            fontSize: '0.875rem',
-            cursor: 'pointer',
-            transition: 'background-color 0.2s'
-          }}
-        >
-          {showTable ? 'Hide Table' : 'Show Table'}
-        </button>
-      </div>
-    </div>
-  );
-};
-
-/**
  * Scan for available robots using unified RobotService
  * @returns {string[]} List of available robot names
  */
@@ -209,16 +162,13 @@ const Controls = ({
   const [availableRobots, setAvailableRobots] = useState([]);
   const [currentRobotName, setCurrentRobotName] = useState('');
   const [debugMode, setDebugMode] = useState(GLOBAL_CONFIG.debug);
-  const [showTable, setShowTable] = useState(false);
-  
-  // Use the TCP hook for TCP-related state and functions
-  const { tcpPosition, tcpSettings, handleTcpChange } = useTCP();
-  
-  // IK related state
   const [showIK, setShowIK] = useState(true);
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
   const [isExecutingIK, setIsExecutingIK] = useState(false);
   const [ikStatus, setIkStatus] = useState('Ready');
+  
+  // Use the TCP hook for TCP-related state and functions
+  const { tcpPosition, tcpSettings, handleTcpChange } = useTCP();
   
   // Reference for the IK solver
   const ikSolverRef = useRef(null);
@@ -769,144 +719,65 @@ const Controls = ({
     const newMode = !GLOBAL_CONFIG.debug;
     setDebugMode(newMode);
   };
-  
-  /**
-   * Toggle table visibility
-   */
-  const toggleTable = async () => {
-    if (!viewerRef?.current) return;
-    
-    const sceneSetup = viewerRef.current.getSceneSetup();
-    if (!sceneSetup) return;
-    
-    if (!showTable) {
-      // Load table using the new dynamic system
-      try {
-        await sceneSetup.loadEnvironmentObject({
-          path: '/objects/table/complete_table.dae',
-          id: 'workshop_table',
-          position: { x: 0, y: 0, z: 0 },
-          material: {
-            type: 'phong',
-            color: 0x8e9fa3,
-            shininess: 100,
-            specular: 0x222222
-          },
-          castShadow: true,
-          receiveShadow: true
-        });
-        setShowTable(true);
-      } catch (error) {
-        console.error('Failed to load table:', error);
-      }
-    } else {
-      // Remove table
-      sceneSetup.removeEnvironmentObject('workshop_table');
-      setShowTable(false);
-    }
-  };
 
   return (
-    <div className="urdf-controls" style={{ 
-      padding: '0.5rem',
-      height: '100%',
-      overflowY: 'auto',
-      backgroundColor: '#f8f8f8'
-    }}>
-      <DebugInfo 
-        enabled={debugMode}
-        jointInfo={jointInfo}
-        jointValues={jointValues}
-      />
+    <div className="controls">
+      <DebugInfo enabled={debugMode} jointInfo={jointInfo} jointValues={jointValues} />
       
       {showLoadOptions && (
         <RobotLoader
-          robotName={robotName}
           availableRobots={availableRobots}
-          onRobotNameChange={(selectedRobot) => {
-            setRobotName(selectedRobot);
-            const robotConfig = robotService.getRobotConfig(selectedRobot);
-            if (robotConfig) {
-              setRobotPath(robotConfig.urdfPath);
-            } else {
-              setRobotPath(`/robots/${selectedRobot}/${selectedRobot}.urdf`);
-            }
-          }}
-          onLoadRobot={handleLoadRobot}
+          onLoad={handleLoadRobot}
+          currentRobotName={currentRobotName}
         />
       )}
-      
-      {showTableVisualization && (
-        <TableSection 
-          showTable={showTable}
-          onToggle={toggleTable}
-        />
-      )}
-      
-      <Reposition viewerRef={viewerRef} />
       
       {showJointControls && (
         <ControlJoints
           jointInfo={jointInfo}
           jointValues={jointValues}
-          ignoreLimits={options.ignoreLimits}
           onJointChange={handleJointChange}
-          onResetJoints={handleReset}
+          onOptionChange={handleOptionChange}
+          options={options}
+          onReset={handleReset}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          onFocus={handleFocus}
         />
       )}
       
       {showIKControls && (
-        <>
-          <TCPManager viewerRef={viewerRef} />
-          <IKController
-            viewerRef={viewerRef}
-            tcpPosition={tcpPosition}
-            targetPosition={targetPosition}
-            onTargetChange={handleTargetChange}
-            isExecuting={isExecutingIK}
-            status={ikStatus}
-            onExecute={executeIK}
-            onStop={stopIK}
-            onUseCurrent={useCurrentPosition}
-          />
-        </>
+        <IKController
+          showIK={showIK}
+          setShowIK={setShowIK}
+          targetPosition={targetPosition}
+          onTargetChange={handleTargetChange}
+          onExecute={executeIK}
+          onStop={stopIK}
+          onUseCurrent={useCurrentPosition}
+          isExecuting={isExecutingIK}
+          status={ikStatus}
+        />
       )}
       
-      <div style={{ 
-        position: 'relative',
-        padding: '0.5rem',
-        textAlign: 'center',
-        marginTop: '1rem',
-        borderTop: '1px solid #dee2e6'
-      }}>
-        <button
-          onClick={toggleDebug}
-          style={{
-            backgroundColor: debugMode ? '#dc3545' : '#28a745',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            padding: '0.25rem 0.5rem',
-            fontSize: '0.8rem',
-            cursor: 'pointer',
-            transition: 'background-color 0.2s'
-          }}
-        >
-          {debugMode ? 'Disable Debug' : 'Enable Debug'}
-        </button>
-        
-        {debugMode && (
-          <div style={{ 
-            fontSize: '0.7rem', 
-            marginTop: '0.25rem',
-            color: '#6c757d'
-          }}>
-            Debug mode enabled. Additional information is visible.
-          </div>
-        )}
-      </div>
+      {showTableVisualization && (
+        <EnvironmentManager viewerRef={viewerRef} />
+      )}
+      
+      <TCPManager
+        tcpPosition={tcpPosition}
+        tcpSettings={tcpSettings}
+        onTcpChange={handleTcpChange}
+      />
+      
+      <Reposition viewerRef={viewerRef} />
       
       <TrajectoryViewer viewerRef={viewerRef} />
+      
+      <ActionButtons
+        onToggleDebug={toggleDebug}
+        debugMode={debugMode}
+      />
     </div>
   );
 };
