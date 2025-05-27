@@ -98,19 +98,19 @@ class SceneSetup {
      * Initialize lights
      */
     initLights() {
-        // Ambient light - balanced intensity
+        // Ambient light - softer intensity for KUKA-like lighting
         this.ambientLight = new THREE.HemisphereLight(
             this.ambientColor || '#ffffff',     // Sky color
             '#000000',                          // Ground color  
-            0.6                                 // Moderate intensity
+            0.5                                 // Reduced intensity for softer ambient
         );
-        this.ambientLight.groundColor.lerp(this.ambientLight.color, 0.5);
+        this.ambientLight.groundColor.lerp(this.ambientLight.color, 0.3);
         this.ambientLight.position.set(0, 1, 0);
         this.scene.add(this.ambientLight);
         
-        // Directional light (sun) - balanced intensity
+        // Main directional light (sun) - KUKA-like intensity
         this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-        this.directionalLight.position.set(4, 10, 4);
+        this.directionalLight.position.set(3, 8, 3);
         
         if (this.enableShadows) {
             this.directionalLight.castShadow = true;
@@ -118,10 +118,10 @@ class SceneSetup {
             this.directionalLight.shadow.mapSize.height = 2048;
             this.directionalLight.shadow.normalBias = 0.001;
             
-            // Configure shadow camera
+            // Configure shadow camera for KUKA-like shadows
             const shadowCam = this.directionalLight.shadow.camera;
-            shadowCam.left = shadowCam.bottom = -5;
-            shadowCam.right = shadowCam.top = 5;
+            shadowCam.left = shadowCam.bottom = -4;
+            shadowCam.right = shadowCam.top = 4;
             shadowCam.near = 0.5;
             shadowCam.far = 100;
         }
@@ -133,9 +133,19 @@ class SceneSetup {
         this.scene.add(this.directionalLight.target);
 
         // Add a fill light from the opposite direction
-        this.fillLight = new THREE.DirectionalLight(0xffffff, 0.5);
-        this.fillLight.position.set(-4, 5, -4);
+        this.fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+        this.fillLight.position.set(-3, 4, -3);
         this.scene.add(this.fillLight);
+
+        // Add a rim light for KUKA-like edge highlighting
+        this.rimLight = new THREE.DirectionalLight(0xffffff, 0.3);
+        this.rimLight.position.set(0, 4, -5);
+        this.scene.add(this.rimLight);
+
+        // Add a bottom fill light for KUKA-like under-illumination
+        this.bottomLight = new THREE.DirectionalLight(0xffffff, 0.2);
+        this.bottomLight.position.set(0, -4, 0);
+        this.scene.add(this.bottomLight);
     }
     
     /**
