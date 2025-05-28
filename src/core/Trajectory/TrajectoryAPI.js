@@ -35,7 +35,6 @@ class TrajectoryAPI {
     
     // Callbacks
     this.onRecordUpdate = null;
-    this.onPlaybackUpdate = null;
   }
 
   /**
@@ -127,6 +126,16 @@ class TrajectoryAPI {
     if (this.onRecordUpdate) {
       this.onRecordUpdate(this.currentTrajectory);
     }
+    
+    // Emit playback update event
+    EventBus.emit('trajectory:playback-update', {
+      trajectoryName: this.playback.trajectoryName,
+      currentTime: time,
+      duration: this.currentTrajectory.duration,
+      progress: time / this.currentTrajectory.duration,
+      isPlaying: this.playback.active,
+      endEffectorPosition: endEffectorPosition
+    });
     
     return true;
   }
@@ -270,8 +279,8 @@ class TrajectoryAPI {
     }
     
     // Notify listeners
-    if (this.onPlaybackUpdate) {
-      this.onPlaybackUpdate({
+    if (this.onRecordUpdate) {
+      this.onRecordUpdate({
         trajectoryName: this.playback.trajectoryName,
         currentTime,
         duration: trajectory.duration,
@@ -279,6 +288,16 @@ class TrajectoryAPI {
         endEffectorPosition: this.playback.currentEndEffectorPosition
       });
     }
+    
+    // Emit throttled playback update event
+    EventBus.emitThrottled('trajectory:playback-update', {
+      trajectoryName: this.playback.trajectoryName,
+      currentTime,
+      duration: trajectory.duration,
+      progress: currentTime / trajectory.duration,
+      isPlaying: this.playback.active,
+      endEffectorPosition: this.playback.currentEndEffectorPosition
+    }, 50);
     
     // Continue animation
     this.playback.animationFrameId = requestAnimationFrame(() => this._playbackFrame());
@@ -596,11 +615,14 @@ class TrajectoryAPI {
   }
 
   /**
-   * Register a callback for playback updates
-   * @param {Function} callback - Function to call when playback updates
+   * Set callback for playback updates (deprecated - use EventBus instead)
+   * @param {Function} callback - Function to call with playback info
    */
   registerPlaybackUpdateCallback(callback) {
-    this.onPlaybackUpdate = callback;
+    console.warn('registerPlaybackUpdateCallback is deprecated. Use EventBus.on("trajectory:playback-update") instead');
+    // Create a wrapper that listens to EventBus for backward compatibility
+    const unsubscribe = EventBus.on('trajectory:playback-update', callback);
+    return unsubscribe;
   }
 }
 

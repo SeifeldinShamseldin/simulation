@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
 import './TrajectoryControl.css';
 import * as THREE from 'three';
+import EventBus from '../../../core/EventBus';
 
 /**
  * Component for trajectory recording and playback
@@ -27,13 +28,14 @@ const TrajectoryControl = ({ viewerRef }) => {
   useEffect(() => {
     updateTrajectoryList();
     
-    // Set up callbacks
-    trajectoryAPI.registerPlaybackUpdateCallback((info) => {
+    // Set up EventBus listener
+    const unsubscribe = EventBus.on('trajectory:playback-update', (info) => {
       setPlaybackProgress(info.progress * 100);
     });
     
     return () => {
       // Clean up
+      unsubscribe();
       if (playing) trajectoryAPI.stopPlayback();
       if (recording) trajectoryAPI.stopRecording();
     };
