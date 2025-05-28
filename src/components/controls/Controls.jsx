@@ -13,6 +13,7 @@ import TCPManager from '../controls/TCPDisplay/TCPManager';
 import IKController from './IKController/IKController';
 import TrajectoryViewer from './RecordMap/TrajectoryViewer';
 import EnvironmentManager from './EnvironmentManager/EnvironmentManager';
+import FloorControls from './FloorControls/FloorControls';
 import ikAPI from '../../core/IK/API/IKAPI';
 import useTCP from '../../contexts/hooks/useTCP';
 import * as THREE from 'three';
@@ -761,7 +762,10 @@ const Controls = ({
       )}
       
       {showTableVisualization && (
-        <EnvironmentManager viewerRef={viewerRef} />
+        <>
+            <EnvironmentManager viewerRef={viewerRef} />
+            <FloorControls viewerRef={viewerRef} />
+        </>
       )}
       
       <TCPManager

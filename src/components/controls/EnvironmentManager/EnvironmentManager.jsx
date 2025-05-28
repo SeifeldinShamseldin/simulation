@@ -10,8 +10,8 @@ const OBJECT_LIBRARY = [
     path: '/objects/table/complete_table.dae',
     category: 'furniture',
     thumbnail: '🪑',
-    defaultPosition: { x: 0, y: 0, z: 0 },
     defaultScale: { x: 1, y: 1, z: 1 },
+    groundOffset: 0, // Object sits on ground
     material: {
       type: 'phong',
       color: 0x8e9fa3,
@@ -25,8 +25,8 @@ const OBJECT_LIBRARY = [
     path: '/objects/conveyor/conveyor.dae',
     category: 'industrial',
     thumbnail: '📦',
-    defaultPosition: { x: 2, y: 0, z: 0 },
-    defaultScale: { x: 1, y: 1, z: 1 }
+    defaultScale: { x: 1, y: 1, z: 1 },
+    groundOffset: 0.1 // Slightly elevated for belt clearance
   },
   {
     id: 'tool_rack',
@@ -34,8 +34,8 @@ const OBJECT_LIBRARY = [
     path: '/objects/tools/rack.dae',
     category: 'storage',
     thumbnail: '🔧',
-    defaultPosition: { x: -2, y: 0, z: -1 },
-    defaultScale: { x: 1, y: 1, z: 1 }
+    defaultScale: { x: 1, y: 1, z: 1 },
+    groundOffset: 0 // Sits on ground
   },
   {
     id: 'safety_fence',
@@ -43,8 +43,8 @@ const OBJECT_LIBRARY = [
     path: '/objects/safety/fence.dae',
     category: 'safety',
     thumbnail: '🚧',
-    defaultPosition: { x: 0, y: 0, z: -3 },
-    defaultScale: { x: 1, y: 1, z: 1 }
+    defaultScale: { x: 1, y: 1, z: 1 },
+    groundOffset: 0 // Sits on ground
   },
   {
     id: 'control_panel',
@@ -52,8 +52,8 @@ const OBJECT_LIBRARY = [
     path: '/objects/controls/panel.dae',
     category: 'controls',
     thumbnail: '🎛️',
-    defaultPosition: { x: 3, y: 0, z: 1 },
-    defaultScale: { x: 1, y: 1, z: 1 }
+    defaultScale: { x: 1, y: 1, z: 1 },
+    groundOffset: 0.8 // Elevated for standing height
   }
 ];
 
@@ -92,29 +92,45 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
       const sceneSetup = viewerRef.current.getSceneSetup();
       if (!sceneSetup) throw new Error('Scene not initialized');
       
-      // Create unique instance ID
       const instanceId = `${objectConfig.id}_${Date.now()}`;
       
-      // Load the object
+      // Load with smart placement - don't specify position
       const object3D = await sceneSetup.loadEnvironmentObject({
         ...objectConfig,
         id: instanceId,
-        position: objectConfig.defaultPosition || { x: 0, y: 0, z: 0 },
-        scale: objectConfig.defaultScale || { x: 1, y: 1, z: 1 },
+        // Let smart placement handle position/rotation
         castShadow: true,
-        receiveShadow: true
+        receiveShadow: true,
+        // Add ground offset to initial position
+        position: objectConfig.groundOffset ? {
+          x: 0,
+          y: objectConfig.groundOffset,
+          z: 0
+        } : undefined
       });
       
-      // Add to loaded objects list
+      // Get actual position after smart placement
+      const actualPosition = object3D.position;
+      const actualRotation = object3D.rotation;
+      
       setLoadedObjects(prev => [...prev, {
         instanceId,
         objectId: objectConfig.id,
         name: objectConfig.name,
         category: objectConfig.category,
         thumbnail: objectConfig.thumbnail,
-        position: { ...objectConfig.defaultPosition },
-        rotation: { x: 0, y: 0, z: 0 },
+        position: { 
+          x: actualPosition.x, 
+          y: actualPosition.y, 
+          z: actualPosition.z 
+        },
+        rotation: { 
+          x: actualRotation.x, 
+          y: actualRotation.y, 
+          z: actualRotation.z 
+        },
         scale: { ...objectConfig.defaultScale },
+        groundOffset: objectConfig.groundOffset,
         visible: true
       }]);
       
@@ -272,7 +288,9 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
             <div className="env-manager__grid">
               {filteredObjects.map(obj => (
                 <div key={obj.id} className="env-manager__item">
-                  <div className="env-manager__thumbnail">{obj.thumbnail}</div>
+                  <div className="env-manager__thumbnail" role="img" aria-label={obj.name}>
+                    {obj.thumbnail}
+                  </div>
                   <div className="env-manager__name">{obj.name}</div>
                   <button 
                     className="env-manager__add"
@@ -303,7 +321,9 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
                 {loadedObjects.map(obj => (
                   <div key={obj.instanceId} className="env-manager__object">
                     <div className="env-manager__object-info">
-                      <span className="env-manager__object-thumb">{obj.thumbnail}</span>
+                      <span className="env-manager__object-thumb" role="img" aria-label={obj.name}>
+                        {obj.thumbnail}
+                      </span>
                       <span className="env-manager__object-name">{obj.name}</span>
                       <span className={`env-manager__visibility ${obj.visible ? 'visible' : 'hidden'}`}>
                         {obj.visible ? '👁️' : '👁️‍🗨️'}

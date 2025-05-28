@@ -6,6 +6,7 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
+import * as CANNON from 'cannon-es';
 import { GLOBAL_CONFIG } from '../../utils/GlobalVariables';
 import { createStandardGrids } from '../../utils/threeHelpers';
 
@@ -43,6 +44,7 @@ class SceneSetup {
         this.initRenderer();
         this.initLights();
         this.initControls();
+        this.initPhysics(); // Initialize physics before ground
         this.initGround();
         
         // Add the renderer to the container
@@ -176,16 +178,44 @@ class SceneSetup {
     }
     
     /**
-     * Initialize ground plane
+     * Initialize physics world
+     */
+    initPhysics() {
+        // Create physics world
+        this.world = new CANNON.World();
+        this.world.gravity.set(0, -9.82, 0);
+        this.world.broadphase = new CANNON.NaiveBroadphase();
+        this.world.solver.iterations = 10;
+        
+        // Physics materials
+        this.groundMaterial = new CANNON.Material('ground');
+        this.objectMaterial = new CANNON.Material('object');
+        
+        // Contact material - how materials interact
+        const contactMaterial = new CANNON.ContactMaterial(
+            this.groundMaterial,
+            this.objectMaterial,
+            {
+                friction: 0.4,
+                restitution: 0.1
+            }
+        );
+        this.world.addContactMaterial(contactMaterial);
+        
+        // Store physics bodies
+        this.physicsBodies = new Map();
+    }
+    
+    /**
+     * Initialize ground plane with physics
      */
     initGround() {
-        // Create a visible ground plane instead of just shadow receiver
+        // Visual ground
         const planeGeometry = new THREE.PlaneGeometry(
-            GLOBAL_CONFIG.groundSize || 20, 
-            GLOBAL_CONFIG.groundSize || 20
+            GLOBAL_CONFIG.groundSize || 40, 
+            GLOBAL_CONFIG.groundSize || 40
         );
         
-        // Use a material with subtle grid texture for better visibility
         const planeMaterial = new THREE.MeshStandardMaterial({
             color: 0xeeeeee,
             roughness: 0.7,
@@ -195,22 +225,78 @@ class SceneSetup {
         });
         
         this.ground = new THREE.Mesh(planeGeometry, planeMaterial);
-        this.ground.rotation.x = -Math.PI / 2;  // Rotate to be horizontal
-        this.ground.position.y = -0.01;         // Slightly below the origin to avoid z-fighting
+        this.ground.rotation.x = -Math.PI / 2;
+        this.ground.position.y = 0;
         this.ground.receiveShadow = this.enableShadows;
         this.ground.castShadow = false;
         
+        // Store original opacity
+        this.ground.userData.defaultOpacity = 0.8;
+        
         this.scene.add(this.ground);
         
-        // Add grid lines on the ground for better orientation
-        const gridHelper = new THREE.GridHelper(
-            GLOBAL_CONFIG.groundSize || 20, 
-            GLOBAL_CONFIG.groundSize || 20, 
+        // Physics ground
+        const groundShape = new CANNON.Box(
+            new CANNON.Vec3(
+                GLOBAL_CONFIG.groundSize / 2 || 20,
+                0.1, // Very thin but solid
+                GLOBAL_CONFIG.groundSize / 2 || 20
+            )
+        );
+        
+        this.groundBody = new CANNON.Body({
+            mass: 0, // Static body
+            shape: groundShape,
+            material: this.groundMaterial,
+            position: new CANNON.Vec3(0, -0.1, 0)
+        });
+        
+        this.world.addBody(this.groundBody);
+        
+        // Grid helper
+        this.gridHelper = new THREE.GridHelper(
+            GLOBAL_CONFIG.groundSize || 40, 
+            GLOBAL_CONFIG.groundSize || 40, 
             0x888888, 
             0xdddddd
         );
-        gridHelper.position.y = 0.002; // Slightly above ground to avoid z-fighting
-        this.scene.add(gridHelper);
+        this.gridHelper.position.y = 0.002;
+        this.scene.add(this.gridHelper);
+    }
+    
+    /**
+     * Set ground transparency
+     * @param {number} opacity - Opacity value (0-1)
+     */
+    setGroundOpacity(opacity) {
+        if (this.ground && this.ground.material) {
+            this.ground.material.opacity = opacity;
+            this.ground.material.transparent = opacity < 1;
+            
+            // Update grid visibility
+            if (this.gridHelper) {
+                this.gridHelper.visible = opacity > 0.1;
+            }
+        }
+    }
+    
+    /**
+     * Update physics simulation
+     */
+    updatePhysics(deltaTime = 1/60) {
+        if (!this.world) return;
+        
+        // Step physics world
+        this.world.step(deltaTime);
+        
+        // Update visual objects to match physics bodies
+        this.physicsBodies.forEach((body, objectId) => {
+            const object = this.environmentObjects.get(objectId);
+            if (object && body.type === CANNON.Body.DYNAMIC) {
+                object.position.copy(body.position);
+                object.quaternion.copy(body.quaternion);
+            }
+        });
     }
     
     /**
@@ -219,6 +305,9 @@ class SceneSetup {
     startRenderLoop() {
         const animate = () => {
             requestAnimationFrame(animate);
+            
+            // Update physics
+            this.updatePhysics();
             
             // Update controls
             this.controls.update();
@@ -448,19 +537,173 @@ class SceneSetup {
     }
 
     /**
-     * Dynamically load any 3D object into the environment
-     * @param {Object} config - Configuration for the object
-     * @param {string} config.path - Path to the 3D file
-     * @param {string} [config.id] - Unique identifier for the object
-     * @param {Object} [config.position] - Position {x, y, z}
-     * @param {Object} [config.rotation] - Rotation {x, y, z} in radians
-     * @param {Object} [config.scale] - Scale {x, y, z}
-     * @param {Object} [config.material] - Custom material settings
-     * @param {boolean} [config.castShadow] - Whether object casts shadows
-     * @param {boolean} [config.receiveShadow] - Whether object receives shadows
-     * @returns {Promise<THREE.Object3D>} The loaded object
+     * Calculate smart position and orientation for environment objects
+     * @param {Object} config - Object configuration
+     * @returns {Object} Updated config with smart positioning
+     */
+    calculateSmartPlacement(config) {
+        const robot = this.robotRoot.children.find(child => child.isURDFRobot);
+        const robotBounds = new THREE.Box3();
+        const robotCenter = new THREE.Vector3();
+        let robotRadius = 1; // Default if no robot
+        let groundY = 0; // Ground level
+        
+        // Find ground plane
+        if (this.ground) {
+            groundY = this.ground.position.y + 0.01; // Slightly above ground
+        }
+        
+        if (robot) {
+            robotBounds.setFromObject(robot);
+            robotBounds.getCenter(robotCenter);
+            robotRadius = robotBounds.getSize(new THREE.Vector3()).length() / 2;
+            
+            // Make sure robot center is at ground level for calculations
+            robotCenter.y = groundY;
+        }
+        
+        // Smart positioning based on object type
+        const smartPlacements = {
+            'furniture': {
+                distance: robotRadius + 1.5,
+                heightOffset: 0, // Will be adjusted based on object bounds
+                angleOffset: Math.PI, // Behind robot
+                alignToGrid: true
+            },
+            'industrial': {
+                distance: robotRadius + 2,
+                heightOffset: 0,
+                angleOffset: Math.PI / 2, // Side of robot
+                alignToGrid: true
+            },
+            'storage': {
+                distance: robotRadius + 2.5,
+                heightOffset: 0,
+                angleOffset: -Math.PI / 2, // Other side
+                alignToGrid: true
+            },
+            'safety': {
+                distance: robotRadius + 3,
+                heightOffset: 0,
+                angleOffset: 0, // In front
+                alignToGrid: false,
+                createPerimeter: true
+            },
+            'controls': {
+                distance: robotRadius + 2,
+                heightOffset: 0.8, // Control panels elevated
+                angleOffset: Math.PI / 4, // Diagonal
+                alignToGrid: true
+            }
+        };
+        
+        const placement = smartPlacements[config.category] || {
+            distance: robotRadius + 2,
+            heightOffset: 0,
+            angleOffset: 0,
+            alignToGrid: true
+        };
+        
+        // Calculate position based on existing objects
+        const existingObjects = Array.from(this.environmentObjects.values());
+        let angle = placement.angleOffset;
+        let attempts = 0;
+        let position = new THREE.Vector3();
+        let foundValidPosition = false;
+        
+        // Find non-overlapping position
+        while (attempts < 16 && !foundValidPosition) {
+            position.set(
+                robotCenter.x + Math.cos(angle) * placement.distance,
+                groundY + placement.heightOffset, // Start at ground level
+                robotCenter.z + Math.sin(angle) * placement.distance
+            );
+            
+            // Check for overlaps with existing objects
+            let overlap = false;
+            for (const obj of existingObjects) {
+                if (!obj.geometry) {
+                    // Calculate bounding box for objects
+                    const objBounds = new THREE.Box3().setFromObject(obj);
+                    const objSize = objBounds.getSize(new THREE.Vector3());
+                    const objCenter = objBounds.getCenter(new THREE.Vector3());
+                    
+                    // Check 2D distance (ignore Y for now)
+                    const distance2D = Math.sqrt(
+                        Math.pow(position.x - objCenter.x, 2) + 
+                        Math.pow(position.z - objCenter.z, 2)
+                    );
+                    
+                    // Minimum spacing based on object sizes
+                    const minSpacing = Math.max(objSize.x, objSize.z) / 2 + 1.5;
+                    
+                    if (distance2D < minSpacing) {
+                        overlap = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!overlap) {
+                foundValidPosition = true;
+            } else {
+                // Try different angle
+                angle += Math.PI / 8; // Try every 22.5 degrees
+                attempts++;
+                
+                // After trying all angles, increase distance
+                if (attempts % 16 === 0) {
+                    placement.distance += 1;
+                }
+            }
+        }
+        
+        // Align to grid if needed
+        if (placement.alignToGrid) {
+            const gridSize = 0.5;
+            position.x = Math.round(position.x / gridSize) * gridSize;
+            position.z = Math.round(position.z / gridSize) * gridSize;
+        }
+        
+        // Calculate rotation to face robot
+        const lookDirection = new THREE.Vector3()
+            .subVectors(robotCenter, position)
+            .normalize();
+        const rotationY = Math.atan2(lookDirection.x, lookDirection.z);
+        
+        // Special cases for certain objects
+        let rotation = { x: 0, y: rotationY, z: 0 };
+        
+        if (config.category === 'safety') {
+            // Safety fences should be perpendicular to robot
+            rotation.y = rotationY + Math.PI / 2;
+        } else if (config.category === 'industrial') {
+            // Conveyors should be tangential
+            rotation.y = rotationY + Math.PI / 2;
+        }
+        
+        // Return updated config
+        return {
+            ...config,
+            position: {
+                x: position.x,
+                y: position.y,
+                z: position.z
+            },
+            rotation: rotation,
+            needsGroundAdjustment: true // Flag to adjust after loading
+        };
+    }
+    
+    /**
+     * Enhanced loadEnvironmentObject with smart placement and ground detection
      */
     async loadEnvironmentObject(config) {
+        // Apply smart placement if position not explicitly set
+        if (!config.position || (config.position.x === 0 && config.position.z === 0)) {
+            config = this.calculateSmartPlacement(config);
+        }
+        
         const {
             path,
             id = `env_object_${Date.now()}`,
@@ -469,7 +712,8 @@ class SceneSetup {
             scale = { x: 1, y: 1, z: 1 },
             material = null,
             castShadow = true,
-            receiveShadow = true
+            receiveShadow = true,
+            isDynamic = false // Whether object should have physics
         } = config;
         
         // Determine file type
@@ -486,15 +730,12 @@ class SceneSetup {
                 
                 // Handle different loader return types
                 if (extension === 'stl' || extension === 'ply') {
-                    // These loaders return geometry
                     const geometry = result;
                     const mat = material ? this.createMaterial(material) : this.defaultMaterial.clone();
                     object = new THREE.Mesh(geometry, mat);
                 } else if (extension === 'gltf' || extension === 'glb') {
-                    // GLTF returns a scene
                     object = result.scene;
                 } else {
-                    // Collada, OBJ, FBX return the object directly
                     object = result.scene || result;
                 }
                 
@@ -502,6 +743,28 @@ class SceneSetup {
                 object.position.set(position.x, position.y, position.z);
                 object.rotation.set(rotation.x, rotation.y, rotation.z);
                 object.scale.set(scale.x, scale.y, scale.z);
+                
+                // Adjust height based on object bounds if needed
+                if (config.needsGroundAdjustment) {
+                    // Wait for object to be added to scene to calculate bounds
+                    setTimeout(() => {
+                        const bounds = new THREE.Box3().setFromObject(object);
+                        const size = bounds.getSize(new THREE.Vector3());
+                        const center = bounds.getCenter(new THREE.Vector3());
+                        
+                        // Calculate how much to lift the object
+                        const bottomY = center.y - size.y / 2;
+                        const groundY = this.ground ? this.ground.position.y : 0;
+                        const adjustment = groundY - bottomY + 0.01; // Small gap above ground
+                        
+                        // Adjust position
+                        object.position.y += adjustment;
+                        
+                        // Update bounds for future collision checks
+                        object.userData.bounds = bounds;
+                        object.userData.size = size;
+                    }, 100);
+                }
                 
                 // Apply material if specified
                 if (material && (extension !== 'stl' && extension !== 'ply')) {
@@ -523,10 +786,59 @@ class SceneSetup {
                 
                 // Store the object
                 object.userData.environmentId = id;
+                object.userData.category = config.category;
                 this.environmentObjects.set(id, object);
                 
                 // Add to scene
                 this.scene.add(object);
+                
+                // After object is created and added to scene
+                setTimeout(() => {
+                    // Calculate bounds
+                    const bounds = new THREE.Box3().setFromObject(object);
+                    const size = bounds.getSize(new THREE.Vector3());
+                    const center = bounds.getCenter(new THREE.Vector3());
+                    
+                    // Create physics body
+                    const halfExtents = new CANNON.Vec3(
+                        size.x / 2,
+                        size.y / 2,
+                        size.z / 2
+                    );
+                    
+                    const boxShape = new CANNON.Box(halfExtents);
+                    
+                    // Calculate proper position (center of bounds)
+                    const bodyPosition = new CANNON.Vec3(
+                        center.x,
+                        center.y,
+                        center.z
+                    );
+                    
+                    // Ensure object is above ground
+                    if (bodyPosition.y - halfExtents.y < 0) {
+                        bodyPosition.y = halfExtents.y + 0.01;
+                        object.position.y = bodyPosition.y;
+                    }
+                    
+                    const body = new CANNON.Body({
+                        mass: isDynamic ? 10 : 0, // Static by default
+                        shape: boxShape,
+                        material: this.objectMaterial,
+                        position: bodyPosition
+                    });
+                    
+                    // Apply rotation
+                    const euler = new CANNON.Vec3(rotation.x, rotation.y, rotation.z);
+                    body.quaternion.setFromEuler(euler.x, euler.y, euler.z);
+                    
+                    this.world.addBody(body);
+                    this.physicsBodies.set(id, body);
+                    
+                    // Store physics reference
+                    object.userData.physicsBody = body;
+                    
+                }, 100);
                 
                 resolve(object);
             };
@@ -647,6 +959,14 @@ class SceneSetup {
     removeEnvironmentObject(id) {
         const object = this.environmentObjects.get(id);
         if (object) {
+            // Remove physics body
+            const body = this.physicsBodies.get(id);
+            if (body) {
+                this.world.removeBody(body);
+                this.physicsBodies.delete(id);
+            }
+            
+            // Remove visual object
             this.scene.remove(object);
             
             // Dispose of resources
