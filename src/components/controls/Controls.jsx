@@ -7,7 +7,6 @@ import { GLOBAL_CONFIG } from '../../utils/GlobalVariables';
 import robotService from '../../core/services/RobotService'; // Updated import
 import ControlJoints from './ControlJoints/ControlJoints';
 import RobotLoader from './RobotLoader/RobotLoader';
-import ActionButtons from './ActionButtons/ActionButtons';
 import Reposition from './Reposition/Reposition';
 import TCPManager from '../controls/TCPDisplay/TCPManager';
 import IKController from './IKController/IKController';
@@ -15,7 +14,7 @@ import TrajectoryViewer from './RecordMap/TrajectoryViewer';
 import EnvironmentManager from './EnvironmentManager/EnvironmentManager';
 import FloorControls from './FloorControls/FloorControls';
 import ikAPI from '../../core/IK/API/IKAPI';
-import useTCP from '../../contexts/hooks/useTCP';
+import tcpProvider from '../../core/IK/TCP/TCPProvider';
 import * as THREE from 'three';
 
 /**
@@ -167,9 +166,6 @@ const Controls = ({
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
   const [isExecutingIK, setIsExecutingIK] = useState(false);
   const [ikStatus, setIkStatus] = useState('Ready');
-  
-  // Use the TCP hook for TCP-related state and functions
-  const { tcpPosition, tcpSettings, handleTcpChange } = useTCP();
   
   // Reference for the IK solver
   const ikSolverRef = useRef(null);
@@ -564,33 +560,6 @@ const Controls = ({
   };
   
   /**
-   * Undo last joint change
-   */
-  const handleUndo = () => {
-    if (!viewerRef?.current) return;
-    
-    viewerRef.current.undo();
-  };
-  
-  /**
-   * Redo last undone joint change
-   */
-  const handleRedo = () => {
-    if (!viewerRef?.current) return;
-    
-    viewerRef.current.redo();
-  };
-  
-  /**
-   * Focus camera on robot
-   */
-  const handleFocus = () => {
-    if (!viewerRef?.current) return;
-    
-    viewerRef.current.focusOnRobot();
-  };
-  
-  /**
    * Load a robot using RobotService
    */
   const handleLoadRobot = async () => {
@@ -680,11 +649,29 @@ const Controls = ({
    * Set current TCP position as target
    */
   const useCurrentPosition = () => {
-    setTargetPosition({
-      x: parseFloat(tcpPosition.x.toFixed(3)),
-      y: parseFloat(tcpPosition.y.toFixed(3)),
-      z: parseFloat(tcpPosition.z.toFixed(3))
-    });
+    const activeTcp = tcpProvider.getActiveTCP();
+    if (activeTcp && activeTcp.position) {
+      setTargetPosition({
+        x: parseFloat(activeTcp.position.x.toFixed(3)),
+        y: parseFloat(activeTcp.position.y.toFixed(3)),
+        z: parseFloat(activeTcp.position.z.toFixed(3))
+      });
+    } else {
+      // If no TCP active, try to get end effector position
+      const robot = viewerRef?.current?.getCurrentRobot();
+      if (robot) {
+        const { endEffector } = ikAPI.findEndEffectorAndJoints(robot);
+        if (endEffector) {
+          const worldPos = new THREE.Vector3();
+          endEffector.getWorldPosition(worldPos);
+          setTargetPosition({
+            x: parseFloat(worldPos.x.toFixed(3)),
+            y: parseFloat(worldPos.y.toFixed(3)),
+            z: parseFloat(worldPos.z.toFixed(3))
+          });
+        }
+      }
+    }
   };
   
   // Convert comma to period for numeric parsing
@@ -737,13 +724,9 @@ const Controls = ({
         <ControlJoints
           jointInfo={jointInfo}
           jointValues={jointValues}
+          ignoreLimits={options.ignoreLimits}
           onJointChange={handleJointChange}
-          onOptionChange={handleOptionChange}
-          options={options}
-          onReset={handleReset}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
-          onFocus={handleFocus}
+          onResetJoints={handleReset}
         />
       )}
       
@@ -768,20 +751,11 @@ const Controls = ({
         </>
       )}
       
-      <TCPManager
-        tcpPosition={tcpPosition}
-        tcpSettings={tcpSettings}
-        onTcpChange={handleTcpChange}
-      />
+      <TCPManager viewerRef={viewerRef} />
       
       <Reposition viewerRef={viewerRef} />
       
       <TrajectoryViewer viewerRef={viewerRef} />
-      
-      <ActionButtons
-        onToggleDebug={toggleDebug}
-        debugMode={debugMode}
-      />
     </div>
   );
 };
