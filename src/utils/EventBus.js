@@ -1,9 +1,11 @@
 // utils/EventBus.js
 import debugSystem from './DebugSystem';
+import _ from 'lodash';
 
 class EventBus {
   constructor() {
     this.listeners = new Map();
+    this.throttledEmitters = new Map();
     
     // For debugging
     this.debug = true;
@@ -68,6 +70,35 @@ class EventBus {
     }
   }
 
+  // High-frequency event emitter with throttling
+  emitThrottled(event, data, delay = 16) { // 60fps by default
+    const key = `${event}_${delay}`;
+    
+    if (!this.throttledEmitters.has(key)) {
+      this.throttledEmitters.set(key, 
+        _.throttle((d) => this.emit(event, d), delay, {
+          leading: true,
+          trailing: true
+        })
+      );
+    }
+    
+    this.throttledEmitters.get(key)(data);
+  }
+
+  // Emit with rate limiting for very high frequency updates
+  emitDebounced(event, data, delay = 100) {
+    const key = `${event}_debounced_${delay}`;
+    
+    if (!this.throttledEmitters.has(key)) {
+      this.throttledEmitters.set(key, 
+        _.debounce((d) => this.emit(event, d), delay)
+      );
+    }
+    
+    this.throttledEmitters.get(key)(data);
+  }
+
   // Get all registered events
   getRegisteredEvents() {
     return Array.from(this.listeners.keys());
@@ -81,7 +112,14 @@ class EventBus {
   // Clear all listeners
   clear() {
     this.listeners.clear();
+    this.throttledEmitters.clear();
     debugSystem.addLog('info', ['EventBus: All listeners cleared']);
+  }
+
+  // Clear throttled emitters to free memory
+  clearThrottledEmitters() {
+    this.throttledEmitters.clear();
+    debugSystem.addLog('info', ['EventBus: Throttled emitters cleared']);
   }
 }
 

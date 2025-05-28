@@ -4,7 +4,8 @@
  */
 import React, { useState, useEffect, useRef } from 'react';
 import { GLOBAL_CONFIG } from '../../utils/GlobalVariables';
-import robotService from '../../core/services/RobotService'; // Updated import
+import robotService from '../../core/services/RobotService';
+import { useRobot } from '../../contexts/RobotContext';
 import ControlJoints from './ControlJoints/ControlJoints';
 import RobotLoader from './RobotLoader/RobotLoader';
 import Reposition from './Reposition/Reposition';
@@ -16,6 +17,7 @@ import FloorControls from './FloorControls/FloorControls';
 import ikAPI from '../../core/IK/API/IKAPI';
 import tcpProvider from '../../core/IK/TCP/TCPProvider';
 import * as THREE from 'three';
+import EventBus from '../../utils/EventBus';
 
 /**
  * Debug information component for displaying joint data and values
@@ -153,10 +155,7 @@ const Controls = ({
   const [jointInfo, setJointInfo] = useState([]);
   const [jointValues, setJointValues] = useState({});
   const [savedJointValues, setSavedJointValues] = useState({});
-  const [options, setOptions] = useState({
-    ignoreLimits: false,
-    upAxis: GLOBAL_CONFIG.upAxis,
-  });
+  const { viewOptions, setViewOptions } = useRobot();
   const [robotName, setRobotName] = useState(defaultRobotName);
   const [robotPath, setRobotPath] = useState(defaultRobotPath);
   const [availableRobots, setAvailableRobots] = useState([]);
@@ -496,6 +495,13 @@ const Controls = ({
     
     if (debugMode) console.log(`[DEBUG] Setting joint ${name} to ${numValue}`);
     
+    // Emit to EventBus for all subscribers
+    EventBus.emit('joint:value-changed', {
+      jointName: name,
+      value: numValue,
+      source: 'manual'
+    });
+    
     // Set the joint value directly in the robot
     try {
       const robot = viewerRef.current.getCurrentRobot();
@@ -529,8 +535,8 @@ const Controls = ({
   const handleOptionChange = (name, value) => {
     if (!viewerRef?.current) return;
     
-    // Update state
-    setOptions((prev) => ({
+    // Update context state
+    setViewOptions((prev) => ({
       ...prev,
       [name]: value
     }));
@@ -544,7 +550,7 @@ const Controls = ({
       }
     }
     
-    // Notify parent component
+    // Notify parent component if needed
     if (onOptionChange) {
       onOptionChange(name, value);
     }
@@ -724,7 +730,7 @@ const Controls = ({
         <ControlJoints
           jointInfo={jointInfo}
           jointValues={jointValues}
-          ignoreLimits={options.ignoreLimits}
+          ignoreLimits={viewOptions.ignoreLimits}
           onJointChange={handleJointChange}
           onResetJoints={handleReset}
         />

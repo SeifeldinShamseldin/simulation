@@ -5,6 +5,7 @@ import RobotManager from '../robot/RobotManager';
 import RobotState from '../robot/RobotState';
 import { PointerURDFDragControls } from '../../core/Loader/URDFControls';
 import { GLOBAL_CONFIG, ROBOT_EVENTS, Logger } from '../../utils/GlobalVariables';
+import EventBus from '../../utils/EventBus';
 
 /**
  * URDF Viewer component for displaying and interacting with robot models
@@ -79,6 +80,17 @@ const URDFViewer = ({
     // Set up event handlers
     setupEventHandlers();
     
+    // Listen to scene events for coordination
+    const unsubscribeCamera = EventBus.on('scene:camera-updated', (data) => {
+      // Can be used by other components to sync with camera state
+      Logger.debug('Camera updated:', data);
+    });
+    
+    const unsubscribeObjects = EventBus.on('scene:object-added', (data) => {
+      // Can trigger UI updates or other actions
+      Logger.debug('Object added to scene:', data);
+    });
+    
     return () => {
       // Clean up
       Logger.info('Cleaning up URDF Viewer');
@@ -102,6 +114,10 @@ const URDFViewer = ({
         sceneRef.current.dispose();
         sceneRef.current = null;
       }
+      
+      // Clean up event listeners
+      unsubscribeCamera();
+      unsubscribeObjects();
     };
   }, [backgroundColor, enableShadows, showCollision, upAxis]);
   

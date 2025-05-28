@@ -1,6 +1,8 @@
 // src/contexts/RobotContext.jsx
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import robotService from '../core/services/RobotService'; // Fixed path and default import
+import robotService from '../core/services/RobotService';
+import EventBus from '../utils/EventBus';
+import { GLOBAL_CONFIG } from '../utils/GlobalVariables';
 
 // Create context
 const RobotContext = createContext(null);
@@ -12,6 +14,38 @@ export const RobotProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const viewerRef = useRef(null);
+  
+  const [viewOptions, setViewOptions] = useState({
+    ignoreLimits: false,
+    showCollisions: false,
+    enableDragging: true,
+    upAxis: GLOBAL_CONFIG.upAxis || '+Z',
+    highlightColor: GLOBAL_CONFIG.highlightColor || '#ff0000',
+    showGrid: true,
+    showAxes: true,
+    enableShadows: GLOBAL_CONFIG.enableShadows !== undefined ? GLOBAL_CONFIG.enableShadows : true,
+    backgroundColor: GLOBAL_CONFIG.backgroundColor || '#f5f5f5',
+    ambientColor: GLOBAL_CONFIG.ambientColor || '#8ea0a8'
+  });
+
+  // Emit events when view options change
+  useEffect(() => {
+    EventBus.emit('view-options:changed', viewOptions);
+  }, [viewOptions]);
+
+  // Listen for external view option changes
+  useEffect(() => {
+    const unsubscribe = EventBus.on('view-options:update', (updates) => {
+      setViewOptions(prev => ({ ...prev, ...updates }));
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // Update view options function
+  const updateViewOptions = (updates) => {
+    setViewOptions(prev => ({ ...prev, ...updates }));
+  };
   
   // Initialize - load available robots using unified service
   useEffect(() => {
@@ -223,6 +257,11 @@ export const RobotProvider = ({ children }) => {
     getRobotConfig,
     refresh,
     getServiceStatus,
+    
+    // View options
+    viewOptions,
+    setViewOptions,
+    updateViewOptions,
     
     // Direct access to service (for advanced usage)
     robotService

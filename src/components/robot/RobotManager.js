@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import URDFLoader from '../../core/Loader/URDFLoader';
 import { ROBOT_EVENTS, GLOBAL_CONFIG, Logger } from '../../utils/GlobalVariables';
 import robotService from '../../core/services/RobotService';
+import EventBus from '../../utils/EventBus';
 
 /**
  * Class for managing URDF robot models
@@ -91,6 +92,13 @@ class RobotManager {
             // Add to scene
             this.sceneSetup.addRobotObject(robot);
             
+            // Emit robot added event
+            EventBus.emit('scene:robot-loaded', {
+                robotName: robotName,
+                robotId: robot.uuid,
+                joints: Object.keys(robot.joints || {})
+            });
+            
             // Update scene based on robot
             this.updateSceneForRobot(robot);
             
@@ -171,8 +179,17 @@ class RobotManager {
      * Clear the current robot from the scene
      */
     clearRobot() {
+        const previousRobot = this.currentRobot;
+        
         this.sceneSetup.clearRobot();
         this.currentRobot = null;
+        
+        if (previousRobot) {
+            EventBus.emit('scene:robot-removed', {
+                robotName: previousRobot.robotName,
+                robotId: previousRobot.uuid
+            });
+        }
     }
     
     /**

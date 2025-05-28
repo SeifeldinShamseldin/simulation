@@ -9,6 +9,7 @@ import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import * as CANNON from 'cannon-es';
 import { GLOBAL_CONFIG } from '../../utils/GlobalVariables';
 import { createStandardGrids } from '../../utils/threeHelpers';
+import EventBus from '../../utils/EventBus';
 
 /**
  * Class for setting up and managing a Three.js scene for URDF viewing
@@ -175,6 +176,14 @@ class SceneSetup {
         this.controls.dampingFactor = 0.2;
         this.controls.minDistance = 0.5;
         this.controls.maxDistance = 50;
+        
+        // Emit camera updates when controls change
+        this.controls.addEventListener('change', () => {
+            EventBus.emit('scene:camera-moved', {
+                position: this.camera.position.toArray(),
+                target: this.controls.target.toArray()
+            });
+        });
     }
     
     /**
@@ -371,7 +380,7 @@ class SceneSetup {
      * @param {THREE.Object3D} object - The object to focus on
      * @param {number} [padding] - Extra padding around the object
      */
-    focusOnObject(object, padding = 1.2) { // Adjusted default padding
+    focusOnObject(object, padding = 1.2) {
         if (!object) return;
         
         // Create a bounding box
@@ -433,6 +442,17 @@ class SceneSetup {
         if (this.ground) {
             this.ground.position.y = bbox.min.y - 0.001;
         }
+        
+        // Emit event for other components
+        EventBus.emit('scene:focus-changed', {
+            targetId: object.userData?.id || object.name,
+            position: center.toArray(),
+            bounds: {
+                min: bbox.min.toArray(),
+                max: bbox.max.toArray()
+            },
+            cameraDistance
+        });
         
         // Force rendering to update immediately
         this.renderer.render(this.scene, this.camera);
@@ -792,6 +812,14 @@ class SceneSetup {
                 // Add to scene
                 this.scene.add(object);
                 
+                // Emit object added event
+                EventBus.emit('scene:object-added', {
+                    objectId: id,
+                    type: 'environment',
+                    category: config.category,
+                    position: object.position.toArray()
+                });
+                
                 // After object is created and added to scene
                 setTimeout(() => {
                     // Calculate bounds
@@ -982,6 +1010,12 @@ class SceneSetup {
             });
             
             this.environmentObjects.delete(id);
+            
+            // Emit object removed event
+            EventBus.emit('scene:object-removed', {
+                objectId: id,
+                type: 'environment'
+            });
         }
     }
 

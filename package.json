@@ -13,6 +13,7 @@
     "bootstrap": "^5.3.6",
     "cannon-es": "^0.20.0",
     "cors": "^2.8.5",
+    "lodash": "^4.17.21",
     "multer": "^2.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

@@ -1,10 +1,13 @@
 // components/controls/ViewerOptions.jsx
 import React from 'react';
+import { useRobot } from '../../contexts/RobotContext';
 
 /**
  * Component for controlling viewer display options
  */
-const ViewerOptions = ({ options, onOptionChange }) => {
+const ViewerOptions = ({ onOptionChange }) => {
+  const { viewOptions } = useRobot();
+  
   return (
     <div className="urdf-controls-section">
       <h3>Options</h3>
@@ -12,7 +15,7 @@ const ViewerOptions = ({ options, onOptionChange }) => {
         <label>
           <input
             type="checkbox"
-            checked={options.ignoreLimits}
+            checked={viewOptions.ignoreLimits}
             onChange={(e) => onOptionChange('ignoreLimits', e.target.checked)}
           />
           Ignore Joint Limits
@@ -21,7 +24,7 @@ const ViewerOptions = ({ options, onOptionChange }) => {
         <label>
           <input
             type="checkbox"
-            checked={options.showCollisions}
+            checked={viewOptions.showCollisions}
             onChange={(e) => onOptionChange('showCollisions', e.target.checked)}
           />
           Show Collision Geometry
@@ -30,7 +33,7 @@ const ViewerOptions = ({ options, onOptionChange }) => {
         <label>
           <input
             type="checkbox"
-            checked={options.enableDragging}
+            checked={viewOptions.enableDragging}
             onChange={(e) => onOptionChange('enableDragging', e.target.checked)}
           />
           Enable Dragging
@@ -40,7 +43,7 @@ const ViewerOptions = ({ options, onOptionChange }) => {
           <label htmlFor="up-axis">Up Axis:</label>
           <select
             id="up-axis"
-            value={options.upAxis}
+            value={viewOptions.upAxis}
             onChange={(e) => onOptionChange('upAxis', e.target.value)}
             style={{ marginLeft: '0.5rem' }}
           >

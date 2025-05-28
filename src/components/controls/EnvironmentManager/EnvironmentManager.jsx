@@ -1,6 +1,7 @@
 // src/components/controls/EnvironmentManager/EnvironmentManager.jsx
 import React, { useState, useEffect } from 'react';
 import './EnvironmentManager.css';
+import EventBus from '../../../utils/EventBus';
 
 // Predefined object library
 const OBJECT_LIBRARY = [
@@ -80,6 +81,28 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
   const filteredObjects = selectedCategory === 'all' 
     ? OBJECT_LIBRARY 
     : OBJECT_LIBRARY.filter(obj => obj.category === selectedCategory);
+
+  // Listen for external object additions/removals
+  useEffect(() => {
+    const unsubscribeAdded = EventBus.on('scene:object-added', (data) => {
+      if (data.type === 'environment' && !loadedObjects.find(obj => obj.instanceId === data.objectId)) {
+        // Sync state if object was added externally
+        console.log('Environment object added externally:', data);
+      }
+    });
+    
+    const unsubscribeRemoved = EventBus.on('scene:object-removed', (data) => {
+      if (data.type === 'environment') {
+        // Remove from local state if removed externally
+        setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== data.objectId));
+      }
+    });
+    
+    return () => {
+      unsubscribeAdded();
+      unsubscribeRemoved();
+    };
+  }, [loadedObjects]);
 
   // Load object into scene
   const loadObject = async (objectConfig) => {
