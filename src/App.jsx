@@ -30,7 +30,7 @@ const AppContent = () => {
     }}>
       {/* Controls panel - fixed narrow width */}
       <div className="controls-panel" style={{ 
-        width: '280px',
+        width: '500px',
         height: '100%', 
         overflowY: 'auto',
         overflowX: 'hidden',

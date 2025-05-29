@@ -88,6 +88,7 @@
     padding: var(--controls-spacing-md);
     margin-bottom: var(--controls-spacing-md);
     box-shadow: var(--controls-shadow-sm);
+    max-width: 500px;
   }
   
   .controls-section-header {

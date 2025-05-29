@@ -4,10 +4,9 @@ import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import tcpProvider from '../../../core/IK/TCP/TCPProvider';
 import EventBus from '../../../utils/EventBus';
-import TCPUpload from './TCPUpload';
 
 /**
- * Comprehensive TCP Manager Component - Combines display and management functionality
+ * Comprehensive TCP Component - Combines display and management functionality
  * Merged from TCPDisplay and TCPManager for unified TCP operations
  */
 const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
@@ -36,7 +35,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
   const [displayMode, setDisplayMode] = useState('display'); // 'display' or 'manage'
   
   // TCP Library state
-  const [showUpload, setShowUpload] = useState(false);
   const [tcpLibrary, setTcpLibrary] = useState([]);
 
   // 3D visualization state
@@ -551,11 +549,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     tcpObjectsRef.current.clear();
   };
 
-  const handleTCPUploaded = (newTcp) => {
-    loadTCPLibrary();
-    console.log('New TCP uploaded:', newTcp);
-  };
-
   const loadTCPFromLibrary = (tcp) => {
     console.log('Loading TCP from library:', tcp);
   };
@@ -565,7 +558,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     return (
       <div className={`controls-section ${compact ? 'controls-compact' : ''}`}>
         <div className="controls-section-header">
-          <h3 className="controls-h3 controls-mb-0">TCP Manager</h3>
+          <h3 className="controls-h3 controls-mb-0">TCP</h3>
           <span className={`controls-badge ${isConnected ? 'controls-badge-danger' : 'controls-badge-secondary'}`}>
             No TCP
           </span>
@@ -587,7 +580,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
   return (
     <div className={`controls-section ${compact ? 'controls-compact' : ''}`}>
       <div className="controls-section-header">
-        <h3 className="controls-h3 controls-mb-0">TCP Manager</h3>
+        <h3 className="controls-h3 controls-mb-0">TCP</h3>
         <div className="controls-d-flex controls-align-items-center" style={{ gap: '0.5rem' }}>
           <span className={`controls-badge ${isConnected ? 'controls-badge-success' : 'controls-badge-secondary'}`}>
             {isConnected ? 'Connected' : 'Disconnected'}
@@ -614,14 +607,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
               onClick={() => setIsAddModalOpen(true)}
             >
               + Add TCP
-            </button>
-          )}
-          {showManagement && (
-            <button 
-              className="controls-btn controls-btn-info controls-btn-sm"
-              onClick={() => setShowUpload(true)}
-            >
-              📁 Upload Tool
             </button>
           )}
         </div>
@@ -1037,13 +1022,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
           </div>
         </div>
       )}
-
-      {/* Upload Modal */}
-      <TCPUpload 
-        isOpen={showUpload}
-        onClose={() => setShowUpload(false)}
-        onSuccess={handleTCPUploaded}
-      />
     </div>
   );
 };
