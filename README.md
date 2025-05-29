@@ -117,30 +117,7 @@ Select from available objects (tables, conveyors, etc.)
 Click "Add" to place objects in the scene
 Edit position, rotation, and scale as needed
 
-Project Structure
-simulation/
-├── src/
-│   ├── components/         # React UI components
-│   │   ├── controls/      # Control panel components
-│   │   ├── robot/         # Robot management
-│   │   └── ViewerOptions/ # 3D viewer components
-│   ├── core/              # Core functionality
-│   │   ├── IK/           # Inverse kinematics system
-│   │   ├── Loader/       # URDF and mesh loaders
-│   │   ├── Scene/        # 3D scene management
-│   │   └── services/     # Robot services
-│   ├── contexts/          # React context providers
-│   ├── utils/            # Utility functions
-│   └── App.jsx           # Main application component
-├── public/
-│   ├── robots/           # Robot URDF and mesh files
-│   ├── objects/          # Environment object models
-│   └── tcp/              # TCP tool models
-├── server/               # Backend server files
-├── package.json          # Project dependencies
-└── vite.config.js       # Vite configuration
-Technologies
-Frontend
+
 
 React 18: Component-based UI framework
 Three.js: 3D graphics and visualization
