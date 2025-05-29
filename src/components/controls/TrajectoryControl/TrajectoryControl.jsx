@@ -1,7 +1,6 @@
 // components/controls/TrajectoryControl/TrajectoryControl.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
-import './TrajectoryControl.css';
 import * as THREE from 'three';
 import EventBus from '../../../core/EventBus';
 
@@ -215,159 +214,171 @@ const TrajectoryControl = ({ viewerRef }) => {
   };
   
   return (
-    <div className="urdf-controls-section trajectory-control">
-      <h3>Trajectory Control</h3>
+    <div className="controls-section">
+      <div className="controls-section-header">
+        <h3 className="controls-section-title">Trajectory Control</h3>
+      </div>
       
       {/* Recording controls */}
-      <div className="trajectory-recording">
-        <h4>Record Trajectory</h4>
-        <div className="trajectory-name-input">
-          <input
-            type="text"
-            placeholder="Trajectory name"
-            value={newTrajectoryName}
-            onChange={(e) => setNewTrajectoryName(e.target.value)}
-            disabled={recording}
-          />
-        </div>
-        
-        <div style={{ marginBottom: '0.5rem' }}>
-          <label htmlFor="record-interval">
-            Recording interval (ms):
+      <div className="controls-card-body">
+        <div className="controls-form-group">
+          <h4 className="controls-subtitle">Record Trajectory</h4>
+          <div className="controls-form-group">
             <input
-              id="record-interval"
-              type="number"
-              min="10"
-              max="1000"
-              step="10"
-              value={recordInterval}
-              onChange={handleRecordIntervalChange}
+              type="text"
+              placeholder="Trajectory name"
+              value={newTrajectoryName}
+              onChange={(e) => setNewTrajectoryName(e.target.value)}
               disabled={recording}
-              style={{ width: '80px', marginLeft: '0.5rem' }}
+              className="controls-form-input"
             />
-          </label>
+          </div>
+          
+          <div className="controls-form-group">
+            <label className="controls-form-label" htmlFor="record-interval">
+              Recording interval (ms):
+              <input
+                id="record-interval"
+                type="number"
+                min="10"
+                max="1000"
+                step="10"
+                value={recordInterval}
+                onChange={handleRecordIntervalChange}
+                disabled={recording}
+                className="controls-form-input controls-form-input-sm"
+              />
+            </label>
+          </div>
+          
+          <div className="controls-btn-group">
+            {!recording ? (
+              <button 
+                className="controls-btn controls-btn-primary"
+                onClick={handleStartRecording}
+                disabled={!newTrajectoryName.trim()}
+              >
+                Start Recording
+              </button>
+            ) : (
+              <button 
+                className="controls-btn controls-btn-danger"
+                onClick={handleStopRecording}
+              >
+                Stop Recording
+              </button>
+            )}
+          </div>
         </div>
         
-        <div className="trajectory-buttons">
-          {!recording ? (
-            <button 
-              className="record-btn"
-              onClick={handleStartRecording}
-              disabled={!newTrajectoryName.trim()}
-            >
-              Start Recording
-            </button>
+        {/* Playback controls */}
+        <div className="controls-form-group">
+          <h4 className="controls-subtitle">Playback Options</h4>
+          <div className="controls-form-group">
+            <label className="controls-form-label" htmlFor="playback-speed">
+              Speed:
+              <input
+                id="playback-speed"
+                type="number"
+                min="0.1"
+                max="5"
+                step="0.1"
+                value={playbackOptions.speed}
+                onChange={(e) => handlePlaybackOptionChange('speed', parseFloat(e.target.value))}
+                disabled={playing}
+                className="controls-form-input controls-form-input-sm"
+              />
+            </label>
+            
+            <label className="controls-form-label controls-ml-3">
+              <input
+                type="checkbox"
+                checked={playbackOptions.loop}
+                onChange={(e) => handlePlaybackOptionChange('loop', e.target.checked)}
+                disabled={playing}
+                className="controls-form-checkbox"
+              />
+              Loop
+            </label>
+          </div>
+        </div>
+        
+        {/* Import/Export */}
+        <div className="controls-form-group">
+          <h4 className="controls-subtitle">Import/Export</h4>
+          <div className="controls-btn-group">
+            <label className="controls-btn controls-btn-light">
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImportTrajectory}
+                className="controls-hidden"
+              />
+              Import Trajectory
+            </label>
+          </div>
+        </div>
+        
+        {/* Trajectory list */}
+        <div className="controls-form-group">
+          <h4 className="controls-subtitle">Saved Trajectories</h4>
+          {trajectories.length === 0 ? (
+            <div className="controls-text-muted">No trajectories recorded</div>
           ) : (
-            <button 
-              className="stop-btn"
-              onClick={handleStopRecording}
-            >
-              Stop Recording
-            </button>
+            <ul className="controls-list">
+              {trajectories.map(name => (
+                <li key={name} className="controls-list-item">
+                  <span className="controls-text">{name}</span>
+                  <div className="controls-btn-group">
+                    <button 
+                      className="controls-btn controls-btn-sm controls-btn-primary"
+                      onClick={() => handlePlayTrajectory(name)}
+                      disabled={playing}
+                    >
+                      Play
+                    </button>
+                    <button 
+                      className="controls-btn controls-btn-sm controls-btn-light"
+                      onClick={() => handleExportTrajectory(name)}
+                    >
+                      Export
+                    </button>
+                    <button 
+                      className="controls-btn controls-btn-sm controls-btn-danger"
+                      onClick={() => handleDeleteTrajectory(name)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
-      </div>
-      
-      {/* Playback controls */}
-      <div style={{ marginBottom: '1rem' }}>
-        <h4>Playback Options</h4>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
-          <label htmlFor="playback-speed">
-            Speed:
-            <input
-              id="playback-speed"
-              type="number"
-              min="0.1"
-              max="5"
-              step="0.1"
-              value={playbackOptions.speed}
-              onChange={(e) => handlePlaybackOptionChange('speed', parseFloat(e.target.value))}
-              disabled={playing}
-              style={{ width: '60px', marginLeft: '0.5rem' }}
-            />
-          </label>
-          
-          <label style={{ marginLeft: '1rem' }}>
-            <input
-              type="checkbox"
-              checked={playbackOptions.loop}
-              onChange={(e) => handlePlaybackOptionChange('loop', e.target.checked)}
-              disabled={playing}
-            />
-            Loop
-          </label>
-        </div>
-      </div>
-      
-      {/* Import/Export */}
-      <div style={{ marginBottom: '1rem' }}>
-        <h4>Import/Export</h4>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <label className="custom-file-upload" style={{ flex: 1 }}>
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleImportTrajectory}
-              style={{ display: 'none' }}
-            />
-            <button style={{ width: '100%' }}>Import Trajectory</button>
-          </label>
-        </div>
-      </div>
-      
-      {/* Trajectory list */}
-      <div className="trajectory-list">
-        <h4>Saved Trajectories</h4>
-        {trajectories.length === 0 ? (
-          <div className="no-trajectories">No trajectories recorded</div>
-        ) : (
-          <ul>
-            {trajectories.map(name => (
-              <li key={name} className="trajectory-item">
-                <span className="trajectory-name">{name}</span>
-                <div className="trajectory-actions">
-                  <button 
-                    onClick={() => handlePlayTrajectory(name)}
-                    disabled={playing}
-                  >
-                    Play
-                  </button>
-                  <button onClick={() => handleExportTrajectory(name)}>
-                    Export
-                  </button>
-                  <button onClick={() => handleDeleteTrajectory(name)}>
-                    Delete
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+        
+        {/* Active playback controls */}
+        {playing && (
+          <div className="controls-form-group">
+            <div className="controls-text controls-mb-2">
+              Playing: <strong>{currentTrajectory}</strong>
+            </div>
+            
+            <div className="controls-progress">
+              <div
+                className="controls-progress-bar"
+                style={{ width: `${playbackProgress}%` }}
+              />
+            </div>
+            
+            <button 
+              className="controls-btn controls-btn-danger controls-mt-2"
+              onClick={handleStopPlayback}
+            >
+              Stop Playback
+            </button>
+          </div>
         )}
       </div>
-      
-      {/* Active playback controls */}
-      {playing && (
-        <div className="playback-controls">
-          <div style={{ marginBottom: '0.5rem' }}>
-            Playing: <strong>{currentTrajectory}</strong>
-          </div>
-          
-          <div className="playback-progress">
-            <div
-              className="playback-progress-bar"
-              style={{ width: `${playbackProgress}%` }}
-            />
-          </div>
-          
-          <button 
-            className="stop-playback-btn"
-            onClick={handleStopPlayback}
-            style={{ marginTop: '0.5rem' }}
-          >
-            Stop Playback
-          </button>
-        </div>
-      )}
     </div>
   );
 };

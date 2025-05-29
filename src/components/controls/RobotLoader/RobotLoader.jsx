@@ -1,20 +1,18 @@
-// components/controls/RobotLoader.jsx
 import React, { useState, useEffect } from 'react';
 import { useRobot } from '../../../contexts/RobotContext';
-import NewRobot from '../../NewRobot/NewRobot'; // Import the NewRobot component
-import './RobotLoader.css'; // Import the CSS file
+import NewRobot from '../../NewRobot/NewRobot';
 
 /**
  * Component for loading and selecting robot models
  */
 const RobotLoader = () => {
   const { categories, availableRobots, loadRobot, isLoading } = useRobot();
-  const [activeTab, setActiveTab] = useState('load'); // 'load' or 'add'
+  const [activeTab, setActiveTab] = useState('load');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedRobot, setSelectedRobot] = useState('');
   const [categoryRobots, setCategoryRobots] = useState([]);
-  const [showAddRobot, setShowAddRobot] = useState(false); // New state for modal
-  const [error, setError] = useState(null); // Error state
+  const [showAddRobot, setShowAddRobot] = useState(false);
+  const [error, setError] = useState(null);
   
   // Update available robots when category changes
   useEffect(() => {
@@ -22,7 +20,6 @@ const RobotLoader = () => {
       const robots = availableRobots.filter(robot => robot.category === selectedCategory);
       setCategoryRobots(robots);
       
-      // Auto-select first robot in category if none selected
       if (robots.length > 0 && (!selectedRobot || !robots.find(r => r.id === selectedRobot))) {
         setSelectedRobot(robots[0].id);
       }
@@ -41,12 +38,12 @@ const RobotLoader = () => {
   
   const handleCategoryChange = (e) => {
     setSelectedCategory(e.target.value);
-    setError(null); // Clear any previous errors
+    setError(null);
   };
   
   const handleRobotChange = (e) => {
     setSelectedRobot(e.target.value);
-    setError(null); // Clear any previous errors
+    setError(null);
   };
   
   const handleLoadRobot = async () => {
@@ -61,31 +58,29 @@ const RobotLoader = () => {
     }
   };
 
-  // Handle successful robot addition
   const handleRobotAdded = (success) => {
     setShowAddRobot(false);
     if (success) {
-      setActiveTab('load'); // Switch back to load tab after successful addition
+      setActiveTab('load');
       console.log('Robot added successfully');
     }
   };
   
-  // Render the load robot form
   const renderLoadForm = () => (
     <>
       {error && (
-        <div className="error-message">
+        <div className="controls-alert controls-alert-danger controls-mb-3">
           {error}
         </div>
       )}
       
-      <div className="form-group">
-        <label htmlFor="category-select">Manufacturer:</label>
+      <div className="controls-form-group">
+        <label className="controls-form-label" htmlFor="category-select">Manufacturer:</label>
         <select
           id="category-select"
           value={selectedCategory}
           onChange={handleCategoryChange}
-          className="select-input"
+          className="controls-form-select"
         >
           <option value="" disabled>Select Manufacturer</option>
           {categories.map(category => (
@@ -96,13 +91,13 @@ const RobotLoader = () => {
         </select>
       </div>
       
-      <div className="form-group">
-        <label htmlFor="robot-select">Robot Model:</label>
+      <div className="controls-form-group">
+        <label className="controls-form-label" htmlFor="robot-select">Robot Model:</label>
         <select
           id="robot-select"
           value={selectedRobot}
           onChange={handleRobotChange}
-          className="select-input"
+          className="controls-form-select"
           disabled={!selectedCategory || categoryRobots.length === 0}
         >
           <option value="" disabled>Select Robot Model</option>
@@ -116,7 +111,7 @@ const RobotLoader = () => {
       
       <button 
         onClick={handleLoadRobot} 
-        className="load-button"
+        className="controls-btn controls-btn-primary controls-btn-block"
         disabled={isLoading || !selectedCategory || !selectedRobot}
       >
         {isLoading ? 'Loading...' : 'Load Robot'}
@@ -124,15 +119,14 @@ const RobotLoader = () => {
     </>
   );
 
-  // Render the add robot form
   const renderAddForm = () => (
-    <div className="add-robot-content">
-      <p className="add-robot-description">
+    <div className="controls-text-center controls-p-4">
+      <p className="controls-text-muted controls-mb-3">
         Add a new robot to your collection by providing its URDF file and mesh files.
       </p>
       <button 
         onClick={() => setShowAddRobot(true)}
-        className="add-button"
+        className="controls-btn controls-btn-success"
         disabled={isLoading}
       >
         + Add New Robot
@@ -141,18 +135,18 @@ const RobotLoader = () => {
   );
   
   return (
-    <div className="urdf-controls-section">
-      <div className="robot-loader-header">
-        <h3>Robot Management</h3>
-        <div className="tab-buttons">
+    <div className="controls-section">
+      <div className="controls-section-header">
+        <h3 className="controls-section-title">Robot Management</h3>
+        <div className="controls-btn-group">
           <button
-            className={`tab-button ${activeTab === 'load' ? 'active' : ''}`}
+            className={`controls-btn controls-btn-sm ${activeTab === 'load' ? 'controls-btn-primary' : 'controls-btn-light'}`}
             onClick={() => setActiveTab('load')}
           >
             Load
           </button>
           <button
-            className={`tab-button ${activeTab === 'add' ? 'active' : ''}`}
+            className={`controls-btn controls-btn-sm ${activeTab === 'add' ? 'controls-btn-primary' : 'controls-btn-light'}`}
             onClick={() => setActiveTab('add')}
           >
             Add New
@@ -160,7 +154,7 @@ const RobotLoader = () => {
         </div>
       </div>
 
-      <div className="tab-content">
+      <div className="controls-card-body">
         {activeTab === 'load' ? renderLoadForm() : renderAddForm()}
       </div>
 
@@ -172,4 +166,4 @@ const RobotLoader = () => {
   );
 };
 
-export default RobotLoader;
+export default RobotLoader; 
