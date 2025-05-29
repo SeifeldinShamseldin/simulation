@@ -9,7 +9,7 @@ Simulation is a comprehensive web-based platform for visualizing, controlling, a
 
 ## **System Architecture**
 
-![Architecture Graph](architecture_graph.png)
+![Architecture Graph](architecture_graph%20.png)
 
 ## **System Requirements**
 
