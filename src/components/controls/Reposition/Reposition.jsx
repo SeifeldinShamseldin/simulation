@@ -1,6 +1,5 @@
 // components/controls/Reposition/Reposition.jsx
 import React, { useState, useEffect } from 'react';
-import './Reposition.css';
 
 /**
  * Component for repositioning the robot in world space
@@ -77,7 +76,8 @@ const Reposition = ({ viewerRef }) => {
   const moveRelative = (axis, delta) => {
     setPosition(prev => ({
       ...prev,
-      [axis]: prev[axis] + delta
+      // Round the result to a fixed number of decimal places to avoid floating-point issues
+      [axis]: parseFloat((prev[axis] + delta).toFixed(10))
     }));
   };
   
@@ -101,70 +101,111 @@ const Reposition = ({ viewerRef }) => {
   };
   
   return (
-    <div className="urdf-controls-section reposition-container">
-      <h3>Robot Position</h3>
-      <div className="reposition-description">
+    <div className="controls-section">
+      <h3 className="controls-section-title">Robot Position</h3>
+      <p className="controls-text">
         Reposition the robot in world space
+      </p>
+      
+      <div className="controls-form-group">
+        <div className="controls-form-row">
+          <div className="controls-form-group">
+            <label className="controls-form-label" htmlFor="position-x">X Position:</label>
+            <div className="controls-input-group">
+              <input
+                id="position-x"
+                type="number"
+                className="controls-form-control"
+                value={position.x}
+                onChange={(e) => handlePositionChange('x', e.target.value)}
+                step="0.1"
+              />
+              <div className="controls-btn-group">
+                <button 
+                  className="controls-btn controls-btn-secondary controls-btn-sm"
+                  onClick={() => moveRelative('x', -0.1)}
+                >
+                  -
+                </button>
+                <button 
+                  className="controls-btn controls-btn-secondary controls-btn-sm"
+                  onClick={() => moveRelative('x', 0.1)}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div className="controls-form-group">
+            <label className="controls-form-label" htmlFor="position-y">Y Position:</label>
+            <div className="controls-input-group">
+              <input
+                id="position-y"
+                type="number"
+                className="controls-form-control"
+                value={position.y}
+                onChange={(e) => handlePositionChange('y', e.target.value)}
+                step="0.1"
+              />
+              <div className="controls-btn-group">
+                <button 
+                  className="controls-btn controls-btn-secondary controls-btn-sm"
+                  onClick={() => moveRelative('y', -0.1)}
+                >
+                  -
+                </button>
+                <button 
+                  className="controls-btn controls-btn-secondary controls-btn-sm"
+                  onClick={() => moveRelative('y', 0.1)}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div className="controls-form-group">
+            <label className="controls-form-label" htmlFor="position-z">Z Position:</label>
+            <div className="controls-input-group">
+              <input
+                id="position-z"
+                type="number"
+                className="controls-form-control"
+                value={position.z}
+                onChange={(e) => handlePositionChange('z', e.target.value)}
+                step="0.1"
+              />
+              <div className="controls-btn-group">
+                <button 
+                  className="controls-btn controls-btn-secondary controls-btn-sm"
+                  onClick={() => moveRelative('z', -0.1)}
+                >
+                  -
+                </button>
+                <button 
+                  className="controls-btn controls-btn-secondary controls-btn-sm"
+                  onClick={() => moveRelative('z', 0.1)}
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       
-      <div className="position-inputs">
-        <div className="position-input-group">
-          <label htmlFor="position-x">X Position:</label>
-          <div className="position-input-row">
-            <input
-              id="position-x"
-              type="number"
-              value={position.x}
-              onChange={(e) => handlePositionChange('x', e.target.value)}
-              step="0.1"
-            />
-            <div className="position-buttons">
-              <button onClick={() => moveRelative('x', -0.1)}>-</button>
-              <button onClick={() => moveRelative('x', 0.1)}>+</button>
-            </div>
-          </div>
-        </div>
-        
-        <div className="position-input-group">
-          <label htmlFor="position-y">Y Position:</label>
-          <div className="position-input-row">
-            <input
-              id="position-y"
-              type="number"
-              value={position.y}
-              onChange={(e) => handlePositionChange('y', e.target.value)}
-              step="0.1"
-            />
-            <div className="position-buttons">
-              <button onClick={() => moveRelative('y', -0.1)}>-</button>
-              <button onClick={() => moveRelative('y', 0.1)}>+</button>
-            </div>
-          </div>
-        </div>
-        
-        <div className="position-input-group">
-          <label htmlFor="position-z">Z Position:</label>
-          <div className="position-input-row">
-            <input
-              id="position-z"
-              type="number"
-              value={position.z}
-              onChange={(e) => handlePositionChange('z', e.target.value)}
-              step="0.1"
-            />
-            <div className="position-buttons">
-              <button onClick={() => moveRelative('z', -0.1)}>-</button>
-              <button onClick={() => moveRelative('z', 0.1)}>+</button>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <div className="reposition-actions">
-        <button onClick={applyPosition} className="apply-button">
+      <div className="controls-btn-group">
+        <button 
+          onClick={applyPosition} 
+          className="controls-btn controls-btn-primary"
+        >
           Apply Position
         </button>
-        <button onClick={resetPosition} className="reset-button">
+        <button 
+          onClick={resetPosition} 
+          className="controls-btn controls-btn-warning"
+        >
           Reset to Origin
         </button>
       </div>

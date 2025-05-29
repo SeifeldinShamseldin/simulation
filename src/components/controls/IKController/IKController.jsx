@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import useTCP from '../../../contexts/hooks/useTCP';
 import ikAPI from '../../../core/IK/API/IKAPI';
 import tcpProvider from '../../../core/IK/TCP/TCPProvider';
-import './IKController.css';
 
 /**
  * Component for controlling Inverse Kinematics
@@ -215,171 +214,98 @@ const IKController = ({
   };
 
   return (
-    <div className="urdf-controls-section ik-controller">
-      <h3>Inverse Kinematics</h3>
+    <div className="controls-section">
+      <h3 className="controls-section-title">Inverse Kinematics</h3>
       
       {/* Current TCP Position Display */}
-      <div className="ik-current-position">
-        <p><strong>Current End Effector Position:</strong></p>
-        <div className="ik-position-grid">
+      <div className="controls-group">
+        <p className="controls-text-muted controls-mb-1"><strong>Current End Effector Position:</strong></p>
+        <div className="controls-grid controls-grid-cols-3 controls-gap-sm controls-text-center">
           <div>
-            <label>X</label>
-            <div className="ik-position-value">{tcpPosition.x.toFixed(4)}</div>
+            <label className="controls-form-label">X</label>
+            <div className="controls-form-control controls-text-center">{tcpPosition.x.toFixed(4)}</div>
           </div>
           <div>
-            <label>Y</label>
-            <div className="ik-position-value">{tcpPosition.y.toFixed(4)}</div>
+            <label className="controls-form-label">Y</label>
+            <div className="controls-form-control controls-text-center">{tcpPosition.y.toFixed(4)}</div>
           </div>
           <div>
-            <label>Z</label>
-            <div className="ik-position-value">{tcpPosition.z.toFixed(4)}</div>
+            <label className="controls-form-label">Z</label>
+            <div className="controls-form-control controls-text-center">{tcpPosition.z.toFixed(4)}</div>
           </div>
         </div>
       </div>
       
-      {/* Target Position Inputs with Prominent UI */}
-      <div className="ik-target-container">
-        <div className="ik-target-header">
-          <h4>MOVE ROBOT TO:</h4>
-          <button
-            className="ik-use-current-btn"
-            onClick={useCurrentPosition}
+      {/* Target Position Inputs */}
+      <div className="controls-card controls-ik-target controls-mb-md">
+        <div className="controls-card-body">
+          <div className="controls-section-header">
+            <h4 className="controls-h4 controls-mb-0">MOVE ROBOT TO:</h4>
+            <button
+              className="controls-btn controls-btn-success controls-btn-sm"
+              onClick={useCurrentPosition}
+            >
+              Use Current Position
+            </button>
+          </div>
+          
+          <div className="controls-grid controls-grid-cols-3 controls-gap-sm controls-mb-md">
+            {['x', 'y', 'z'].map(axis => (
+              <div key={axis} className="controls-form-group">
+                <label className="controls-form-label">{axis.toUpperCase()} Position:</label>
+                <div className="controls-input-group">
+                  <input
+                    type="number"
+                    className="controls-form-control"
+                    value={targetPosition[axis]}
+                    onChange={(e) => handleInputChange(axis, e.target.value)}
+                    step="0.1"
+                  />
+                  <div className="controls-btn-group">
+                    <button 
+                      className="controls-btn controls-btn-secondary controls-btn-sm controls-btn-icon"
+                      onClick={() => moveRelative(axis, -0.1)}
+                    >
+                      -
+                    </button>
+                    <button 
+                      className="controls-btn controls-btn-secondary controls-btn-sm controls-btn-icon"
+                      onClick={() => moveRelative(axis, 0.1)}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <button 
+            className="controls-btn controls-btn-primary controls-btn-block controls-mb-sm"
+            onClick={moveToTarget}
+            disabled={isAnimating}
           >
-            Use Current Position
+            {isAnimating ? 'Moving...' : 'Move Robot to Target'}
           </button>
+          
+          {isAnimating && (
+            <button
+              className="controls-btn controls-btn-danger controls-btn-block"
+              onClick={stopAnimation}
+            >
+              Stop Movement
+            </button>
+          )}
         </div>
-        
-        <div className="ik-coordinates-grid">
-          <div className="ik-coordinate-control">
-            <label htmlFor="target-x">X Position:</label>
-            <input
-              id="target-x"
-              className="ik-coordinate-input"
-              type="number"
-              step="0.01"
-              value={targetPosition.x}
-              onChange={(e) => handleInputChange('x', e.target.value)}
-            />
-            <div className="ik-increment-controls">
-              <button 
-                className="ik-increment-btn"
-                onClick={() => moveRelative('x', -0.1)}
-              >-0.1</button>
-              <button 
-                className="ik-increment-btn"
-                onClick={() => moveRelative('x', 0.1)}
-              >+0.1</button>
-            </div>
-          </div>
-          <div className="ik-coordinate-control">
-            <label htmlFor="target-y">Y Position:</label>
-            <input
-              id="target-y"
-              className="ik-coordinate-input"
-              type="number"
-              step="0.01"
-              value={targetPosition.y}
-              onChange={(e) => handleInputChange('y', e.target.value)}
-            />
-            <div className="ik-increment-controls">
-              <button 
-                className="ik-increment-btn"
-                onClick={() => moveRelative('y', -0.1)}
-              >-0.1</button>
-              <button 
-                className="ik-increment-btn"
-                onClick={() => moveRelative('y', 0.1)}
-              >+0.1</button>
-            </div>
-          </div>
-          <div className="ik-coordinate-control">
-            <label htmlFor="target-z">Z Position:</label>
-            <input
-              id="target-z"
-              className="ik-coordinate-input"
-              type="number"
-              step="0.01"
-              value={targetPosition.z}
-              onChange={(e) => handleInputChange('z', e.target.value)}
-            />
-            <div className="ik-increment-controls">
-              <button 
-                className="ik-increment-btn"
-                onClick={() => moveRelative('z', -0.1)}
-              >-0.1</button>
-              <button 
-                className="ik-increment-btn"
-                onClick={() => moveRelative('z', 0.1)}
-              >+0.1</button>
-            </div>
-          </div>
-        </div>
-        
-        <button
-          className="ik-move-btn"
-          onClick={moveToTarget}
-          disabled={isAnimating}
-        >
-          {isAnimating ? '⏳ Moving Robot...' : '🤖 Animate Joints'}
-        </button>
-        
-        {isAnimating && (
-          <button
-            className="ik-stop-btn"
-            onClick={stopAnimation}
-          >
-            Stop Animation
-          </button>
-        )}
       </div>
       
       {/* Status Display */}
-      <div className="ik-status">
-        <p>{solverStatus}</p>
+      <div className="controls-info-block controls-mb-md">
+        <p className="controls-text-muted controls-mb-0">Status: {solverStatus}</p>
       </div>
       
-      {/* Home Position */}
-      <div style={{ marginTop: '1rem' }}>
-        <button
-          className="ik-reset-btn"
-          onClick={resetRobot}
-        >
-          Reset Robot to Home Position
-        </button>
-      </div>
-
-      {/* Debug Button */}
-      <div style={{ marginTop: '1rem' }}>
-        <button 
-          onClick={() => {
-            console.log('=== DEBUG INFO ===');
-            console.log('Current TCP Position:', tcpPosition);
-            console.log('Target Position:', targetPosition);
-            console.log('Robot:', viewerRef.current?.getCurrentRobot());
-            
-            // Test TCP calculation
-            const robot = viewerRef.current?.getCurrentRobot();
-            if (robot) {
-              const tcpCalc = tcpProvider.calculateTCPPosition();
-              console.log('TCP Provider calculated:', tcpCalc);
-              
-              const ikTcp = ikAPI.getCurrentTCPPosition();
-              console.log('IK API TCP:', ikTcp);
-            }
-          }}
-          style={{
-            marginTop: '10px', 
-            backgroundColor: '#ffa500',
-            color: 'white',
-            border: 'none',
-            padding: '8px 16px',
-            borderRadius: '4px',
-            cursor: 'pointer'
-          }}
-        >
-          Debug TCP
-        </button>
-      </div>
+      {/* Reset Button */}
+      {/* Removed Reset Robot Position Button */}
     </div>
   );
 };
