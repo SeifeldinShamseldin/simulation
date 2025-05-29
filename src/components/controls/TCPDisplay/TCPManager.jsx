@@ -5,7 +5,6 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import tcpProvider from '../../../core/IK/TCP/TCPProvider';
 import EventBus from '../../../utils/EventBus';
 import TCPUpload from './TCPUpload';
-import './TCPManager.css';
 
 /**
  * Comprehensive TCP Manager Component - Combines display and management functionality
@@ -129,18 +128,14 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     return () => clearInterval(interval);
   }, [viewerRef]);
 
-  // 3D visualization effect
+  // 3D visualization effect (keeping as is for Three.js functionality)
   useEffect(() => {
     if (!viewerRef?.current || !activeTcp) return;
 
-    // Get scene
     const sceneSetup = viewerRef.current.getSceneSetup?.() || viewerRef.current.sceneRef?.current;
     if (!sceneSetup?.scene) return;
 
-    // Create TCP 3D visualization
     createTCPVisualization(sceneSetup.scene, activeTcp);
-
-    // Start update loop for 3D position
     startTCPVisualizationLoop();
 
     return () => {
@@ -149,9 +144,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     };
   }, [activeTcp, viewerRef, isConnected]);
 
-  /**
-   * Load all TCPs from provider
-   */
+  // Load all TCPs from provider
   const loadTCPs = () => {
     const allTcps = tcpProvider.getAllTCPs();
     const activeTcp = tcpProvider.getActiveTCP();
@@ -160,9 +153,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     setActiveTcpId(activeTcp?.id || null);
   };
 
-  /**
-   * Load active TCP data
-   */
+  // Load active TCP data
   const loadActiveTCP = () => {
     const tcp = tcpProvider.getActiveTCP();
     setActiveTcp(tcp);
@@ -171,9 +162,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     }
   };
 
-  /**
-   * Load TCP library from server
-   */
+  // Load TCP library from server
   const loadTCPLibrary = async () => {
     try {
       const response = await fetch('/api/tcp/list');
@@ -187,23 +176,17 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     }
   };
 
-  /**
-   * Handle TCP added event from EventBus
-   */
+  // Handle TCP added event from EventBus
   const handleTCPAdded = (data) => {
     loadTCPs();
   };
 
-  /**
-   * Handle TCP removed event from EventBus  
-   */
+  // Handle TCP removed event from EventBus  
   const handleTCPRemoved = (data) => {
     loadTCPs();
   };
 
-  /**
-   * Handle TCP activated event from EventBus
-   */
+  // Handle TCP activated event from EventBus
   const handleTCPActivated = (data) => {
     setActiveTcpId(data.id);
     setActiveTcp(data.tcp);
@@ -212,28 +195,21 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     }
   };
 
-  /**
-   * Handle settings updated event from EventBus
-   */
+  // Handle settings updated event from EventBus
   const handleSettingsUpdated = (data) => {
     loadTCPs();
-    // Reload active TCP to get updated settings
     const currentActiveTcp = tcpProvider.getActiveTCP();
     if (currentActiveTcp) {
       setActiveTcp({ ...currentActiveTcp });
     }
   };
 
-  /**
-   * Handle active TCP position updates from EventBus
-   */
+  // Handle active TCP position updates from EventBus
   const handleActivePositionUpdated = (data) => {
     setPosition(data.position);
   };
 
-  /**
-   * Handle active TCP settings updates from EventBus
-   */
+  // Handle active TCP settings updates from EventBus
   const handleActiveSettingsUpdated = (data) => {
     const currentActiveTcp = tcpProvider.getActiveTCP();
     if (currentActiveTcp) {
@@ -241,9 +217,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     }
   };
 
-  /**
-   * Handle general positions updated from EventBus
-   */
+  // Handle general positions updated from EventBus
   const handlePositionsUpdated = (data) => {
     const activeTcpData = data.tcps.find(tcp => tcp.id === data.activeTcpId);
     if (activeTcpData) {
@@ -251,9 +225,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     }
   };
 
-  /**
-   * Handle form input changes
-   */
+  // Handle form input changes
   const handleFormChange = (field, value) => {
     if (field.startsWith('offset.')) {
       const offsetField = field.split('.')[1];
@@ -272,16 +244,13 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     }
   };
 
-  /**
-   * Add new TCP
-   */
+  // Add new TCP
   const handleAddTCP = () => {
     if (!newTcpForm.name.trim()) {
       alert('Please enter a TCP name');
       return;
     }
 
-    // Get STL path for predefined TCPs
     let stlPath = null;
     if (tcpType !== 'custom' && PREDEFINED_TCPS[tcpType]) {
       stlPath = PREDEFINED_TCPS[tcpType].stlPath;
@@ -289,7 +258,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
 
     const tcpId = tcpProvider.addTCP({
       name: newTcpForm.name.trim(),
-      stlPath: stlPath, // Include STL path
+      stlPath: stlPath,
       visible: newTcpForm.visible,
       size: parseFloat(newTcpForm.size) || 0.03,
       color: newTcpForm.color,
@@ -300,7 +269,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
       }
     });
 
-    // Reset form and close modal
     setNewTcpForm({
       name: '',
       stlPath: null,
@@ -309,32 +277,25 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
       color: '#ff0000',
       offset: { x: 0, y: 0, z: 0 }
     });
-    setTcpType('custom'); // Reset TCP type
+    setTcpType('custom');
     setIsAddModalOpen(false);
 
-    // Activate the new TCP
     tcpProvider.setActiveTCP(tcpId);
   };
 
-  /**
-   * Remove TCP
-   */
+  // Remove TCP
   const handleRemoveTCP = (tcpId) => {
     if (window.confirm('Are you sure you want to remove this TCP?')) {
       tcpProvider.removeTCP(tcpId);
     }
   };
 
-  /**
-   * Activate TCP
-   */
+  // Activate TCP
   const handleActivateTCP = (tcpId) => {
     tcpProvider.setActiveTCP(tcpId);
   };
 
-  /**
-   * Start editing TCP
-   */
+  // Start editing TCP
   const handleEditTCP = (tcp) => {
     setEditingTcp(tcp.id);
     setNewTcpForm({
@@ -347,9 +308,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     });
   };
 
-  /**
-   * Save TCP edits
-   */
+  // Save TCP edits
   const handleSaveEdit = () => {
     if (!editingTcp) return;
 
@@ -365,7 +324,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
       }
     });
 
-    // Update name if changed
     const tcp = tcpProvider.getTCP(editingTcp);
     if (tcp && tcp.name !== newTcpForm.name.trim()) {
       tcp.name = newTcpForm.name.trim();
@@ -383,9 +341,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     });
   };
 
-  /**
-   * Cancel editing
-   */
+  // Cancel editing
   const handleCancelEdit = () => {
     setEditingTcp(null);
     setNewTcpForm({
@@ -398,16 +354,12 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     });
   };
 
-  /**
-   * Format coordinate value for display
-   */
+  // Format coordinate value for display
   const formatCoordinate = (value) => {
     return parseFloat(value).toFixed(4);
   };
 
-  /**
-   * Create TCP visualization in the scene
-   */
+  // Three.js visualization functions (keeping as is)
   const createTCPVisualization = async (scene, tcpData) => {
     cleanupTCPVisualization(scene);
 
@@ -417,9 +369,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     tcpGroup.name = `TCP_${tcpData.id}`;
     tcpGroup.userData = { isTCP: true, tcpId: tcpData.id };
 
-    // Check if TCP has an STL path
     if (tcpData.stlPath) {
-      // Load STL file
       const loader = new STLLoader();
       
       try {
@@ -432,7 +382,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
           );
         });
 
-        // Create mesh from STL
         const material = new THREE.MeshPhongMaterial({
           color: new THREE.Color(tcpData.settings.color),
           specular: 0x111111,
@@ -443,23 +392,18 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
         
         const mesh = new THREE.Mesh(geometry, material);
         
-        // Center and scale the geometry
         geometry.center();
         
-        // Calculate bounding box for proper scaling
         const bbox = new THREE.Box3().setFromObject(mesh);
         const size = bbox.getSize(new THREE.Vector3());
         const maxDim = Math.max(size.x, size.y, size.z);
         
-        // Scale to match TCP size setting
         const targetSize = tcpData.settings.size || 0.05;
         const scale = targetSize / maxDim;
         mesh.scale.set(scale, scale, scale);
         
-        // Add to group
         tcpGroup.add(mesh);
         
-        // Add subtle outline for better visibility
         const edges = new THREE.EdgesGeometry(geometry);
         const line = new THREE.LineSegments(
           edges,
@@ -470,29 +414,22 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
         
       } catch (error) {
         console.error('Error loading TCP STL:', error);
-        // Fallback to cube if STL fails
         createDefaultTCPCube(tcpGroup, tcpData);
       }
     } else {
-      // Use default cube visualization
       createDefaultTCPCube(tcpGroup, tcpData);
     }
 
-    // Add coordinate axes (smaller for STL models)
     const axesSize = tcpData.settings.size * 0.8;
     const axesHelper = new THREE.AxesHelper(axesSize);
     axesHelper.renderOrder = 100001;
     axesHelper.material.depthTest = false;
     tcpGroup.add(axesHelper);
 
-    // Add to scene
     scene.add(tcpGroup);
     tcpObjectsRef.current.set(tcpData.id, tcpGroup);
   };
 
-  /**
-   * Create default TCP cube visualization
-   */
   const createDefaultTCPCube = (tcpGroup, tcpData) => {
     const size = tcpData.settings.size;
     const cubeGeom = new THREE.BoxGeometry(size, size, size);
@@ -506,7 +443,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     cube.renderOrder = 99999;
     tcpGroup.add(cube);
 
-    // Add wireframe
     const wireframe = new THREE.LineSegments(
       new THREE.EdgesGeometry(cubeGeom),
       new THREE.LineBasicMaterial({ 
@@ -519,9 +455,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     cube.add(wireframe);
   };
 
-  /**
-   * Update TCP 3D position
-   */
   const updateTCPVisualization = () => {
     if (!activeTcp || !viewerRef?.current) return;
 
@@ -560,9 +493,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     }
   };
 
-  /**
-   * Find last joint in robot
-   */
   const findLastJoint = (robot) => {
     if (!robot?.joints) return null;
 
@@ -585,9 +515,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     return joints.length > 0 ? joints[joints.length - 1] : null;
   };
 
-  /**
-   * Start TCP visualization update loop
-   */
   const startTCPVisualizationLoop = () => {
     const updateLoop = () => {
       updateTCPVisualization();
@@ -596,9 +523,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     animationRef.current = requestAnimationFrame(updateLoop);
   };
 
-  /**
-   * Stop TCP visualization update loop
-   */
   const stopTCPVisualizationLoop = () => {
     if (animationRef.current) {
       cancelAnimationFrame(animationRef.current);
@@ -606,9 +530,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     }
   };
 
-  /**
-   * Cleanup TCP visualization
-   */
   const cleanupTCPVisualization = (scene) => {
     tcpObjectsRef.current.forEach((tcpObject, tcpId) => {
       if (scene && tcpObject.parent) {
@@ -630,39 +551,33 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     tcpObjectsRef.current.clear();
   };
 
-  /**
-   * Handle TCP upload success
-   */
   const handleTCPUploaded = (newTcp) => {
-    loadTCPLibrary(); // Refresh library
+    loadTCPLibrary();
     console.log('New TCP uploaded:', newTcp);
   };
 
-  /**
-   * Load TCP from library
-   */
   const loadTCPFromLibrary = (tcp) => {
-    // TODO: Implement loading TCP from library
     console.log('Loading TCP from library:', tcp);
   };
 
   // If no active TCP, show error state
   if (!activeTcp) {
     return (
-      <div className={`tcp-manager ${compact ? 'tcp-manager--compact' : ''}`}>
-        <div className="tcp-manager__header">
-          <h3>TCP Manager</h3>
-          <div className="tcp-manager__status tcp-manager__status--disconnected">
+      <div className={`controls-section ${compact ? 'controls-compact' : ''}`}>
+        <div className="controls-section-header">
+          <h3 className="controls-h3 controls-mb-0">TCP Manager</h3>
+          <span className={`controls-badge ${isConnected ? 'controls-badge-danger' : 'controls-badge-secondary'}`}>
             No TCP
-          </div>
+          </span>
         </div>
-        <div className="tcp-manager__content">
-          <div className="tcp-manager__empty">
-            <p>No active TCP found</p>
-            <button onClick={() => setIsAddModalOpen(true)}>
-              Create your first TCP
-            </button>
-          </div>
+        <div className="controls-card-body controls-text-center">
+          <p className="controls-text-muted">No active TCP found</p>
+          <button 
+            className="controls-btn controls-btn-primary"
+            onClick={() => setIsAddModalOpen(true)}
+          >
+            Create your first TCP
+          </button>
         </div>
       </div>
     );
@@ -670,23 +585,23 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
 
   // Render based on display mode and compact setting
   return (
-    <div className={`tcp-manager ${compact ? 'tcp-manager--compact' : ''}`}>
-      <div className="tcp-manager__header">
-        <h3>TCP Manager</h3>
-        <div className="tcp-manager__header-controls">
-          <div className={`tcp-manager__status ${isConnected ? 'tcp-manager__status--connected' : 'tcp-manager__status--disconnected'}`}>
+    <div className={`controls-section ${compact ? 'controls-compact' : ''}`}>
+      <div className="controls-section-header">
+        <h3 className="controls-h3 controls-mb-0">TCP Manager</h3>
+        <div className="controls-d-flex controls-align-items-center" style={{ gap: '0.5rem' }}>
+          <span className={`controls-badge ${isConnected ? 'controls-badge-success' : 'controls-badge-secondary'}`}>
             {isConnected ? 'Connected' : 'Disconnected'}
-          </div>
+          </span>
           {showManagement && !compact && (
-            <div className="tcp-manager__mode-toggle">
+            <div className="controls-btn-group">
               <button 
-                className={`tcp-manager__mode-btn ${displayMode === 'display' ? 'tcp-manager__mode-btn--active' : ''}`}
+                className={`controls-btn controls-btn-sm ${displayMode === 'display' ? 'controls-btn-primary' : 'controls-btn-light'}`}
                 onClick={() => setDisplayMode('display')}
               >
                 Display
               </button>
               <button 
-                className={`tcp-manager__mode-btn ${displayMode === 'manage' ? 'tcp-manager__mode-btn--active' : ''}`}
+                className={`controls-btn controls-btn-sm ${displayMode === 'manage' ? 'controls-btn-primary' : 'controls-btn-light'}`}
                 onClick={() => setDisplayMode('manage')}
               >
                 Manage
@@ -695,81 +610,98 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
           )}
           {showManagement && displayMode === 'manage' && (
             <button 
-              className="tcp-manager__add-btn"
+              className="controls-btn controls-btn-success controls-btn-sm"
               onClick={() => setIsAddModalOpen(true)}
             >
               + Add TCP
             </button>
           )}
           {showManagement && (
-            <>
-              <button 
-                className="tcp-manager__upload-btn"
-                onClick={() => setShowUpload(true)}
-              >
-                📁 Upload TCP Tool
-              </button>
-            </>
+            <button 
+              className="controls-btn controls-btn-info controls-btn-sm"
+              onClick={() => setShowUpload(true)}
+            >
+              📁 Upload Tool
+            </button>
           )}
         </div>
       </div>
 
-      <div className="tcp-manager__content">
+      <div className="controls-card-body">
         {/* Display Mode - Shows current TCP info */}
         {(displayMode === 'display' || compact) && (
-          <div className="tcp-manager__display">
+          <div>
             {/* TCP Info */}
-            <div className="tcp-manager__info">
-              <div className="tcp-manager__name">
-                <strong>{activeTcp.name}</strong>
-                {activeTcp.isDefault && <span className="tcp-manager__badge">Default</span>}
+            <div className="controls-mb-3">
+              <div className="controls-d-flex controls-align-items-center controls-mb-2" style={{ gap: '0.5rem' }}>
+                <strong className="controls-h5 controls-mb-0">{activeTcp.name}</strong>
+                {activeTcp.isDefault && <span className="controls-badge controls-badge-primary">Default</span>}
               </div>
-              <div className="tcp-manager__id">ID: {activeTcp.id}</div>
+              <div className="controls-text-muted">ID: {activeTcp.id}</div>
             </div>
 
             {/* Position Display */}
-            <div className="tcp-manager__position">
-              <h4>Current Position</h4>
-              <div className="tcp-manager__coordinates">
-                <div className="tcp-manager__coordinate">
-                  <label>X:</label>
-                  <span className="tcp-manager__value">{formatCoordinate(position.x)}</span>
-                  <span className="tcp-manager__unit">m</span>
+            <div className="controls-mb-3">
+              <h4 className="controls-h6">Current Position</h4>
+              <div className="controls-grid controls-grid-cols-3" style={{ gap: '0.5rem' }}>
+                <div className="controls-card">
+                  <div className="controls-card-body controls-text-center controls-p-2">
+                    <label className="controls-form-label controls-text-muted controls-mb-1">X</label>
+                    <div className="controls-h6 controls-text-primary controls-mb-0">{formatCoordinate(position.x)}</div>
+                    <small className="controls-text-muted">m</small>
+                  </div>
                 </div>
-                <div className="tcp-manager__coordinate">
-                  <label>Y:</label>
-                  <span className="tcp-manager__value">{formatCoordinate(position.y)}</span>
-                  <span className="tcp-manager__unit">m</span>
+                <div className="controls-card">
+                  <div className="controls-card-body controls-text-center controls-p-2">
+                    <label className="controls-form-label controls-text-muted controls-mb-1">Y</label>
+                    <div className="controls-h6 controls-text-primary controls-mb-0">{formatCoordinate(position.y)}</div>
+                    <small className="controls-text-muted">m</small>
+                  </div>
                 </div>
-                <div className="tcp-manager__coordinate">
-                  <label>Z:</label>
-                  <span className="tcp-manager__value">{formatCoordinate(position.z)}</span>
-                  <span className="tcp-manager__unit">m</span>
+                <div className="controls-card">
+                  <div className="controls-card-body controls-text-center controls-p-2">
+                    <label className="controls-form-label controls-text-muted controls-mb-1">Z</label>
+                    <div className="controls-h6 controls-text-primary controls-mb-0">{formatCoordinate(position.z)}</div>
+                    <small className="controls-text-muted">m</small>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Settings Display */}
             {!compact && (
-              <div className="tcp-manager__settings">
-                <h4>Settings</h4>
-                <div className="tcp-manager__settings-grid">
-                  <div className="tcp-manager__setting">
-                    <label>Visible:</label>
-                    <span className={`tcp-manager__indicator ${activeTcp.settings.visible ? 'tcp-manager__indicator--active' : ''}`}>
-                      {activeTcp.settings.visible ? '●' : '○'}
-                    </span>
+              <div className="controls-mb-3">
+                <h4 className="controls-h6">Settings</h4>
+                <div className="controls-grid controls-grid-cols-3" style={{ gap: '0.5rem' }}>
+                  <div className="controls-card">
+                    <div className="controls-card-body controls-text-center controls-p-2">
+                      <label className="controls-form-label controls-text-muted controls-mb-1">Visible</label>
+                      <span className={`controls-badge ${activeTcp.settings.visible ? 'controls-badge-success' : 'controls-badge-secondary'}`}>
+                        {activeTcp.settings.visible ? '●' : '○'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="tcp-manager__setting">
-                    <label>Size:</label>
-                    <span>{activeTcp.settings.size.toFixed(3)}</span>
+                  <div className="controls-card">
+                    <div className="controls-card-body controls-text-center controls-p-2">
+                      <label className="controls-form-label controls-text-muted controls-mb-1">Size</label>
+                      <span>{activeTcp.settings.size.toFixed(3)}</span>
+                    </div>
                   </div>
-                  <div className="tcp-manager__setting">
-                    <label>Color:</label>
-                    <div 
-                      className="tcp-manager__color-indicator"
-                      style={{ backgroundColor: activeTcp.settings.color }}
-                    ></div>
+                  <div className="controls-card">
+                    <div className="controls-card-body controls-text-center controls-p-2">
+                      <label className="controls-form-label controls-text-muted controls-mb-1">Color</label>
+                      <div 
+                        style={{ 
+                          width: '20px', 
+                          height: '20px', 
+                          borderRadius: '50%',
+                          backgroundColor: activeTcp.settings.color,
+                          margin: '0 auto',
+                          border: '2px solid #fff',
+                          boxShadow: '0 0 0 1px #ddd'
+                        }}
+                      ></div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -777,20 +709,26 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
 
             {/* Offset Display */}
             {!compact && (
-              <div className="tcp-manager__offset">
-                <h4>TCP Offset</h4>
-                <div className="tcp-manager__coordinates tcp-manager__coordinates--small">
-                  <div className="tcp-manager__coordinate">
-                    <label>X:</label>
-                    <span className="tcp-manager__value">{formatCoordinate(activeTcp.settings.offset.x)}</span>
+              <div className="controls-mb-3">
+                <h4 className="controls-h6">TCP Offset</h4>
+                <div className="controls-grid controls-grid-cols-3" style={{ gap: '0.5rem' }}>
+                  <div className="controls-card">
+                    <div className="controls-card-body controls-text-center controls-p-2">
+                      <label className="controls-form-label controls-text-muted controls-mb-1">X</label>
+                      <div className="controls-text-primary">{formatCoordinate(activeTcp.settings.offset.x)}</div>
+                    </div>
                   </div>
-                  <div className="tcp-manager__coordinate">
-                    <label>Y:</label>
-                    <span className="tcp-manager__value">{formatCoordinate(activeTcp.settings.offset.y)}</span>
+                  <div className="controls-card">
+                    <div className="controls-card-body controls-text-center controls-p-2">
+                      <label className="controls-form-label controls-text-muted controls-mb-1">Y</label>
+                      <div className="controls-text-primary">{formatCoordinate(activeTcp.settings.offset.y)}</div>
+                    </div>
                   </div>
-                  <div className="tcp-manager__coordinate">
-                    <label>Z:</label>
-                    <span className="tcp-manager__value">{formatCoordinate(activeTcp.settings.offset.z)}</span>
+                  <div className="controls-card">
+                    <div className="controls-card-body controls-text-center controls-p-2">
+                      <label className="controls-form-label controls-text-muted controls-mb-1">Z</label>
+                      <div className="controls-text-primary">{formatCoordinate(activeTcp.settings.offset.z)}</div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -798,9 +736,9 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
 
             {/* Quick edit button in display mode */}
             {showManagement && !compact && (
-              <div className="tcp-manager__quick-actions">
+              <div className="controls-text-center">
                 <button 
-                  className="tcp-manager__btn tcp-manager__btn--edit"
+                  className="controls-btn controls-btn-warning"
                   onClick={() => handleEditTCP(activeTcp)}
                 >
                   Edit Current TCP
@@ -809,83 +747,90 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
             )}
 
             {/* Last Updated */}
-            <div className="tcp-manager__footer">
-              <small>Updated: {new Date(activeTcp.lastUpdated).toLocaleTimeString()}</small>
+            <div className="controls-text-center controls-mt-3">
+              <small className="controls-text-muted">Updated: {new Date(activeTcp.lastUpdated).toLocaleTimeString()}</small>
             </div>
           </div>
         )}
 
         {/* Management Mode - Shows all TCPs */}
         {displayMode === 'manage' && showManagement && !compact && (
-          <div className="tcp-manager__management">
+          <div>
             {tcps.length === 0 ? (
-              <div className="tcp-manager__empty">
-                <p>No TCPs available</p>
-                <button onClick={() => setIsAddModalOpen(true)}>
+              <div className="controls-text-center controls-p-4">
+                <p className="controls-text-muted">No TCPs available</p>
+                <button 
+                  className="controls-btn controls-btn-primary"
+                  onClick={() => setIsAddModalOpen(true)}
+                >
                   Create your first TCP
                 </button>
               </div>
             ) : (
-              <div className="tcp-manager__list">
+              <div>
                 {tcps.map(tcp => (
                   <div 
                     key={tcp.id}
-                    className={`tcp-manager__item ${tcp.id === activeTcpId ? 'tcp-manager__item--active' : ''}`}
+                    className={`controls-list-item ${tcp.id === activeTcpId ? 'controls-active' : ''}`}
                   >
-                    <div className="tcp-manager__item-header">
-                      <div className="tcp-manager__item-info">
-                        <div className="tcp-manager__item-name">
-                          {tcp.name}
-                          {tcp.isDefault && <span className="tcp-manager__badge">Default</span>}
-                        </div>
-                        <div className="tcp-manager__item-id">ID: {tcp.id}</div>
-                      </div>
-                      <div className="tcp-manager__item-actions">
-                        {tcp.id !== activeTcpId && (
-                          <button 
-                            className="tcp-manager__btn tcp-manager__btn--activate"
-                            onClick={() => handleActivateTCP(tcp.id)}
-                          >
-                            Activate
-                          </button>
-                        )}
-                        <button 
-                          className="tcp-manager__btn tcp-manager__btn--edit"
-                          onClick={() => handleEditTCP(tcp)}
-                        >
-                          Edit
-                        </button>
-                        {!tcp.isDefault && (
-                          <button 
-                            className="tcp-manager__btn tcp-manager__btn--remove"
-                            onClick={() => handleRemoveTCP(tcp.id)}
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="tcp-manager__item-details">
-                      <div className="tcp-manager__item-settings">
-                        <span className={`tcp-manager__visibility ${tcp.settings.visible ? 'tcp-manager__visibility--visible' : 'tcp-manager__visibility--hidden'}`}>
+                    <div className="controls-list-item-content">
+                      <h5 className="controls-list-item-title">
+                        {tcp.name}
+                        {tcp.isDefault && <span className="controls-badge controls-badge-primary controls-ml-2">Default</span>}
+                      </h5>
+                      <div className="controls-text-muted">ID: {tcp.id}</div>
+                      
+                      <div className="controls-d-flex controls-align-items-center controls-mt-2" style={{ gap: '1rem' }}>
+                        <span className={`controls-badge ${tcp.settings.visible ? 'controls-badge-success' : 'controls-badge-secondary'}`}>
                           {tcp.settings.visible ? '👁️ Visible' : '🚫 Hidden'}
                         </span>
-                        <span className="tcp-manager__size">Size: {tcp.settings.size.toFixed(3)}</span>
-                        <div className="tcp-manager__color-info">
+                        <span className="controls-text-muted">Size: {tcp.settings.size.toFixed(3)}</span>
+                        <div className="controls-d-flex controls-align-items-center" style={{ gap: '0.25rem' }}>
                           <div 
-                            className="tcp-manager__color-preview"
-                            style={{ backgroundColor: tcp.settings.color }}
+                            style={{ 
+                              width: '16px', 
+                              height: '16px', 
+                              borderRadius: '50%',
+                              backgroundColor: tcp.settings.color,
+                              border: '2px solid white',
+                              boxShadow: '0 0 0 1px #ddd'
+                            }}
                           ></div>
-                          <span>{tcp.settings.color}</span>
+                          <span className="controls-text-muted">{tcp.settings.color}</span>
                         </div>
                       </div>
-                      <div className="tcp-manager__item-offset">
+                      
+                      <div className="controls-text-muted controls-mt-1">
                         <strong>Offset:</strong> 
                         X: {tcp.settings.offset.x.toFixed(3)}, 
                         Y: {tcp.settings.offset.y.toFixed(3)}, 
                         Z: {tcp.settings.offset.z.toFixed(3)}
                       </div>
+                    </div>
+                    
+                    <div className="controls-list-item-actions">
+                      {tcp.id !== activeTcpId && (
+                        <button 
+                          className="controls-btn controls-btn-success controls-btn-sm"
+                          onClick={() => handleActivateTCP(tcp.id)}
+                        >
+                          Activate
+                        </button>
+                      )}
+                      <button 
+                        className="controls-btn controls-btn-warning controls-btn-sm"
+                        onClick={() => handleEditTCP(tcp)}
+                      >
+                        Edit
+                      </button>
+                      {!tcp.isDefault && (
+                        <button 
+                          className="controls-btn controls-btn-danger controls-btn-sm"
+                          onClick={() => handleRemoveTCP(tcp.id)}
+                        >
+                          Remove
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -896,30 +841,34 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
 
         {/* TCP Library Section */}
         {displayMode === 'manage' && tcpLibrary.length > 0 && (
-          <div className="tcp-manager__library">
-            <h4>TCP Tool Library</h4>
-            <div className="tcp-library-grid">
+          <div className="controls-mt-4">
+            <h4 className="controls-h5">TCP Tool Library</h4>
+            <div className="controls-grid controls-grid-cols-4" style={{ gap: '0.5rem' }}>
               {tcpLibrary.map(tcp => (
-                <div key={tcp.id} className="tcp-library-item">
-                  <div className="tcp-library-preview">
-                    <div 
-                      className="tcp-library-color"
-                      style={{ backgroundColor: tcp.color }}
-                    />
-                    <span className="tcp-library-category">{tcp.category}</span>
-                  </div>
-                  <div className="tcp-library-info">
-                    <div className="tcp-library-name">{tcp.name}</div>
+                <div key={tcp.id} className="controls-card">
+                  <div className="controls-card-body">
+                    <div className="controls-d-flex controls-justify-content-between controls-align-items-center controls-mb-2">
+                      <div 
+                        style={{ 
+                          width: '20px', 
+                          height: '20px', 
+                          borderRadius: '50%',
+                          backgroundColor: tcp.color,
+                          border: '2px solid white',
+                          boxShadow: '0 0 0 1px #ddd'
+                        }}
+                      />
+                      <span className="controls-badge controls-badge-secondary">{tcp.category}</span>
+                    </div>
+                    <h6 className="controls-card-title">{tcp.name}</h6>
                     {tcp.dimensions && (
-                      <div className="tcp-library-dimensions">
+                      <small className="controls-text-muted">
                         {tcp.dimensions.width.toFixed(2)} × {tcp.dimensions.height.toFixed(2)} × {tcp.dimensions.depth.toFixed(2)}m
-                      </div>
+                      </small>
                     )}
-                  </div>
-                  <div className="tcp-library-actions">
                     <button 
                       onClick={() => loadTCPFromLibrary(tcp)}
-                      className="tcp-library-btn tcp-library-btn--load"
+                      className="controls-btn controls-btn-success controls-btn-sm controls-btn-block controls-mt-2"
                     >
                       Load
                     </button>
@@ -933,12 +882,12 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
 
       {/* Add/Edit Modal */}
       {(isAddModalOpen || editingTcp) && (
-        <div className="tcp-manager__modal-overlay">
-          <div className="tcp-manager__modal">
-            <div className="tcp-manager__modal-header">
-              <h3>{editingTcp ? 'Edit TCP' : 'Add New TCP'}</h3>
+        <div className="controls-modal-overlay">
+          <div className="controls-modal" style={{ maxWidth: '500px' }}>
+            <div className="controls-modal-header">
+              <h3 className="controls-h3 controls-mb-0">{editingTcp ? 'Edit TCP' : 'Add New TCP'}</h3>
               <button 
-                className="tcp-manager__modal-close"
+                className="controls-close"
                 onClick={() => {
                   setIsAddModalOpen(false);
                   handleCancelEdit();
@@ -948,11 +897,12 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
               </button>
             </div>
 
-            <div className="tcp-manager__modal-content">
+            <div className="controls-modal-body">
               {/* TCP Type Selector */}
-              <div className="tcp-manager__form-group">
-                <label>TCP Type:</label>
+              <div className="controls-form-group">
+                <label className="controls-form-label">TCP Type:</label>
                 <select
+                  className="controls-form-select"
                   value={tcpType}
                   onChange={(e) => {
                     setTcpType(e.target.value);
@@ -967,14 +917,6 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
                       }));
                     }
                   }}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    border: '1px solid #ced4da',
-                    borderRadius: '4px',
-                    fontSize: '1rem',
-                    marginBottom: '1rem'
-                  }}
                 >
                   <option value="custom">Custom TCP</option>
                   <option value="er20">ER20 Collet</option>
@@ -985,21 +927,17 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
 
               {/* Show STL preview for predefined TCPs */}
               {tcpType !== 'custom' && (
-                <div className="tcp-manager__form-group" style={{
-                  padding: '0.75rem',
-                  backgroundColor: '#f8f9fa',
-                  borderRadius: '4px',
-                  marginBottom: '1rem'
-                }}>
+                <div className="controls-alert controls-alert-info controls-mb-3">
                   <small>Using predefined STL: {PREDEFINED_TCPS[tcpType].stlPath}</small>
                 </div>
               )}
 
               {/* TCP Name */}
-              <div className="tcp-manager__form-group">
-                <label>TCP Name:</label>
+              <div className="controls-form-group">
+                <label className="controls-form-label">TCP Name:</label>
                 <input
                   type="text"
+                  className="controls-form-control"
                   value={newTcpForm.name}
                   onChange={(e) => handleFormChange('name', e.target.value)}
                   placeholder="Enter TCP name"
@@ -1007,9 +945,9 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
               </div>
 
               {/* Rest of the form */}
-              <div className="tcp-manager__form-row">
-                <div className="tcp-manager__form-group">
-                  <label>
+              <div className="controls-grid controls-grid-cols-3" style={{ gap: '0.5rem' }}>
+                <div className="controls-form-group">
+                  <label className="controls-form-label">
                     <input
                       type="checkbox"
                       checked={newTcpForm.visible}
@@ -1018,10 +956,11 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
                     Visible
                   </label>
                 </div>
-                <div className="tcp-manager__form-group">
-                  <label>Size:</label>
+                <div className="controls-form-group">
+                  <label className="controls-form-label">Size:</label>
                   <input
                     type="number"
+                    className="controls-form-control"
                     step="0.001"
                     min="0.001"
                     max="0.5"
@@ -1029,41 +968,46 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
                     onChange={(e) => handleFormChange('size', e.target.value)}
                   />
                 </div>
-                <div className="tcp-manager__form-group">
-                  <label>Color:</label>
+                <div className="controls-form-group">
+                  <label className="controls-form-label">Color:</label>
                   <input
                     type="color"
+                    className="controls-form-control"
                     value={newTcpForm.color}
                     onChange={(e) => handleFormChange('color', e.target.value)}
+                    style={{ height: '40px' }}
                   />
                 </div>
               </div>
 
-              <div className="tcp-manager__form-group">
-                <label>TCP Offset:</label>
-                <div className="tcp-manager__offset-inputs">
+              <div className="controls-form-group">
+                <label className="controls-form-label">TCP Offset:</label>
+                <div className="controls-grid controls-grid-cols-3" style={{ gap: '0.5rem' }}>
                   <div>
-                    <label>X:</label>
+                    <label className="controls-form-label">X:</label>
                     <input
                       type="number"
+                      className="controls-form-control"
                       step="0.001"
                       value={newTcpForm.offset.x}
                       onChange={(e) => handleFormChange('offset.x', e.target.value)}
                     />
                   </div>
                   <div>
-                    <label>Y:</label>
+                    <label className="controls-form-label">Y:</label>
                     <input
                       type="number"
+                      className="controls-form-control"
                       step="0.001"
                       value={newTcpForm.offset.y}
                       onChange={(e) => handleFormChange('offset.y', e.target.value)}
                     />
                   </div>
                   <div>
-                    <label>Z:</label>
+                    <label className="controls-form-label">Z:</label>
                     <input
                       type="number"
+                      className="controls-form-control"
                       step="0.001"
                       value={newTcpForm.offset.z}
                       onChange={(e) => handleFormChange('offset.z', e.target.value)}
@@ -1073,9 +1017,9 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
               </div>
             </div>
 
-            <div className="tcp-manager__modal-actions">
+            <div className="controls-modal-footer">
               <button 
-                className="tcp-manager__btn tcp-manager__btn--cancel"
+                className="controls-btn controls-btn-secondary"
                 onClick={() => {
                   setIsAddModalOpen(false);
                   handleCancelEdit();
@@ -1084,7 +1028,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
                 Cancel
               </button>
               <button 
-                className="tcp-manager__btn tcp-manager__btn--save"
+                className="controls-btn controls-btn-primary"
                 onClick={editingTcp ? handleSaveEdit : handleAddTCP}
               >
                 {editingTcp ? 'Save Changes' : 'Add TCP'}

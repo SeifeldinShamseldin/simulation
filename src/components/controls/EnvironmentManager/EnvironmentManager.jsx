@@ -1,6 +1,5 @@
 // src/components/controls/EnvironmentManager/EnvironmentManager.jsx
 import React, { useState, useEffect } from 'react';
-import './EnvironmentManager.css';
 import EventBus from '../../../utils/EventBus';
 
 // Predefined object library
@@ -12,7 +11,7 @@ const OBJECT_LIBRARY = [
     category: 'furniture',
     thumbnail: '🪑',
     defaultScale: { x: 1, y: 1, z: 1 },
-    groundOffset: 0, // Object sits on ground
+    groundOffset: 0,
     material: {
       type: 'phong',
       color: 0x8e9fa3,
@@ -27,7 +26,7 @@ const OBJECT_LIBRARY = [
     category: 'industrial',
     thumbnail: '📦',
     defaultScale: { x: 1, y: 1, z: 1 },
-    groundOffset: 0.1 // Slightly elevated for belt clearance
+    groundOffset: 0.1
   },
   {
     id: 'tool_rack',
@@ -36,7 +35,7 @@ const OBJECT_LIBRARY = [
     category: 'storage',
     thumbnail: '🔧',
     defaultScale: { x: 1, y: 1, z: 1 },
-    groundOffset: 0 // Sits on ground
+    groundOffset: 0
   },
   {
     id: 'safety_fence',
@@ -45,7 +44,7 @@ const OBJECT_LIBRARY = [
     category: 'safety',
     thumbnail: '🚧',
     defaultScale: { x: 1, y: 1, z: 1 },
-    groundOffset: 0 // Sits on ground
+    groundOffset: 0
   },
   {
     id: 'control_panel',
@@ -54,7 +53,7 @@ const OBJECT_LIBRARY = [
     category: 'controls',
     thumbnail: '🎛️',
     defaultScale: { x: 1, y: 1, z: 1 },
-    groundOffset: 0.8 // Elevated for standing height
+    groundOffset: 0.8
   }
 ];
 
@@ -86,14 +85,12 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
   useEffect(() => {
     const unsubscribeAdded = EventBus.on('scene:object-added', (data) => {
       if (data.type === 'environment' && !loadedObjects.find(obj => obj.instanceId === data.objectId)) {
-        // Sync state if object was added externally
         console.log('Environment object added externally:', data);
       }
     });
     
     const unsubscribeRemoved = EventBus.on('scene:object-removed', (data) => {
       if (data.type === 'environment') {
-        // Remove from local state if removed externally
         setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== data.objectId));
       }
     });
@@ -117,14 +114,11 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
       
       const instanceId = `${objectConfig.id}_${Date.now()}`;
       
-      // Load with smart placement - don't specify position
       const object3D = await sceneSetup.loadEnvironmentObject({
         ...objectConfig,
         id: instanceId,
-        // Let smart placement handle position/rotation
         castShadow: true,
         receiveShadow: true,
-        // Add ground offset to initial position
         position: objectConfig.groundOffset ? {
           x: 0,
           y: objectConfig.groundOffset,
@@ -132,7 +126,6 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
         } : undefined
       });
       
-      // Get actual position after smart placement
       const actualPosition = object3D.position;
       const actualRotation = object3D.rotation;
       
@@ -172,13 +165,9 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
     const sceneSetup = viewerRef.current.getSceneSetup();
     if (!sceneSetup) return;
     
-    // Remove from scene
     sceneSetup.removeEnvironmentObject(instanceId);
-    
-    // Remove from state
     setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
     
-    // Close edit form if editing this object
     if (editingObject?.instanceId === instanceId) {
       setEditingObject(null);
     }
@@ -191,10 +180,8 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
     const sceneSetup = viewerRef.current.getSceneSetup();
     if (!sceneSetup) return;
     
-    // Update in scene
     sceneSetup.updateEnvironmentObject(editingObject.instanceId, editForm);
     
-    // Update in state
     setLoadedObjects(prev => prev.map(obj => 
       obj.instanceId === editingObject.instanceId 
         ? { ...obj, ...editForm }
@@ -236,10 +223,8 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
     
     const newVisibility = !object.visible;
     
-    // Update in scene
     sceneSetup.updateEnvironmentObject(instanceId, { visible: newVisibility });
     
-    // Update in state
     setLoadedObjects(prev => prev.map(obj => 
       obj.instanceId === instanceId 
         ? { ...obj, visible: newVisibility }
@@ -262,147 +247,175 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
   };
 
   return (
-    <div className={`env-manager ${compact ? 'env-manager--compact' : ''}`}>
+    <div className={`controls-section ${compact ? 'controls-compact' : ''}`}>
       {/* Toggle Button */}
       <button 
-        className="env-manager__toggle"
+        className="controls-btn controls-btn-info controls-btn-block"
         onClick={() => setIsOpen(!isOpen)}
         title="Environment Objects"
       >
-        🏭 {loadedObjects.length > 0 && <span className="env-manager__count">{loadedObjects.length}</span>}
+        🏭 Environment Objects
+        {loadedObjects.length > 0 && (
+          <span className="controls-badge controls-badge-light controls-ml-2">
+            {loadedObjects.length}
+          </span>
+        )}
       </button>
 
       {/* Manager Panel */}
       {isOpen && (
-        <div className="env-manager__panel">
-          <div className="env-manager__header">
-            <h3>Environment Objects</h3>
-            <button 
-              className="env-manager__close"
-              onClick={() => setIsOpen(false)}
-            >
-              ×
-            </button>
-          </div>
-
-          {error && (
-            <div className="env-manager__error">
-              {error}
-              <button onClick={() => setError(null)}>×</button>
-            </div>
-          )}
-
-          {/* Category Filter */}
-          <div className="env-manager__categories">
-            {categories.map(cat => (
-              <button
-                key={cat}
-                className={`env-manager__category ${selectedCategory === cat ? 'active' : ''}`}
-                onClick={() => setSelectedCategory(cat)}
+        <div className="controls-modal-overlay">
+          <div className="controls-modal" style={{ maxWidth: '900px' }}>
+            <div className="controls-modal-header">
+              <h3 className="controls-h3 controls-mb-0">Environment Objects</h3>
+              <button 
+                className="controls-close"
+                onClick={() => setIsOpen(false)}
               >
-                {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                ×
               </button>
-            ))}
-          </div>
+            </div>
 
-          {/* Object Library */}
-          <div className="env-manager__library">
-            <h4>Available Objects</h4>
-            <div className="env-manager__grid">
-              {filteredObjects.map(obj => (
-                <div key={obj.id} className="env-manager__item">
-                  <div className="env-manager__thumbnail" role="img" aria-label={obj.name}>
-                    {obj.thumbnail}
-                  </div>
-                  <div className="env-manager__name">{obj.name}</div>
+            <div className="controls-modal-body">
+              {error && (
+                <div className="controls-alert controls-alert-danger controls-mb-3">
+                  {error}
                   <button 
-                    className="env-manager__add"
-                    onClick={() => loadObject(obj)}
-                    disabled={loading}
+                    className="controls-close controls-float-right"
+                    onClick={() => setError(null)}
                   >
-                    + Add
+                    ×
                   </button>
                 </div>
-              ))}
-            </div>
-          </div>
+              )}
 
-          {/* Loaded Objects */}
-          {loadedObjects.length > 0 && (
-            <div className="env-manager__loaded">
-              <div className="env-manager__loaded-header">
-                <h4>Scene Objects ({loadedObjects.length})</h4>
-                <button 
-                  className="env-manager__clear"
-                  onClick={clearAll}
-                >
-                  Clear All
-                </button>
-              </div>
-              
-              <div className="env-manager__list">
-                {loadedObjects.map(obj => (
-                  <div key={obj.instanceId} className="env-manager__object">
-                    <div className="env-manager__object-info">
-                      <span className="env-manager__object-thumb" role="img" aria-label={obj.name}>
-                        {obj.thumbnail}
-                      </span>
-                      <span className="env-manager__object-name">{obj.name}</span>
-                      <span className={`env-manager__visibility ${obj.visible ? 'visible' : 'hidden'}`}>
-                        {obj.visible ? '👁️' : '👁️‍🗨️'}
-                      </span>
-                    </div>
-                    
-                    <div className="env-manager__object-actions">
-                      <button 
-                        onClick={() => toggleVisibility(obj.instanceId)}
-                        title="Toggle Visibility"
-                      >
-                        {obj.visible ? 'Hide' : 'Show'}
-                      </button>
-                      <button 
-                        onClick={() => startEdit(obj)}
-                        title="Edit Properties"
-                      >
-                        Edit
-                      </button>
-                      <button 
-                        onClick={() => removeObject(obj.instanceId)}
-                        className="env-manager__remove"
-                        title="Remove"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
+              {/* Category Filter */}
+              <div className="controls-pills controls-mb-3">
+                {categories.map(cat => (
+                  <button
+                    key={cat}
+                    className={`controls-pill ${selectedCategory === cat ? 'active' : ''}`}
+                    onClick={() => setSelectedCategory(cat)}
+                  >
+                    {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                  </button>
                 ))}
               </div>
+
+              {/* Object Library */}
+              <div className="controls-mb-4">
+                <h4 className="controls-h4 controls-mb-3">Available Objects</h4>
+                <div className="controls-grid controls-grid-cols-5">
+                  {filteredObjects.map(obj => (
+                    <div key={obj.id} className="controls-card">
+                      <div className="controls-card-body">
+                        <div 
+                          className="controls-card-icon" 
+                          role="img" 
+                          aria-label={obj.name}
+                        >
+                          {obj.thumbnail}
+                        </div>
+                        <h5 className="controls-card-title">{obj.name}</h5>
+                        <button 
+                          className="controls-btn controls-btn-success controls-btn-sm controls-btn-block"
+                          onClick={() => loadObject(obj)}
+                          disabled={loading}
+                        >
+                          + Add
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Loaded Objects */}
+              {loadedObjects.length > 0 && (
+                <div className="controls-section">
+                  <div className="controls-section-header">
+                    <h4 className="controls-h4 controls-mb-0">
+                      Scene Objects ({loadedObjects.length})
+                    </h4>
+                    <button 
+                      className="controls-btn controls-btn-danger controls-btn-sm"
+                      onClick={clearAll}
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                  
+                  <div className="controls-list">
+                    {loadedObjects.map(obj => (
+                      <div key={obj.instanceId} className="controls-list-item">
+                        <span 
+                          className="controls-list-item-icon" 
+                          role="img" 
+                          aria-label={obj.name}
+                        >
+                          {obj.thumbnail}
+                        </span>
+                        <div className="controls-list-item-content">
+                          <h5 className="controls-list-item-title">{obj.name}</h5>
+                          <span className={`controls-badge ${obj.visible ? 'controls-badge-success' : 'controls-badge-secondary'}`}>
+                            {obj.visible ? 'Visible' : 'Hidden'}
+                          </span>
+                        </div>
+                        <div className="controls-list-item-actions">
+                          <button 
+                            className="controls-btn controls-btn-light controls-btn-sm"
+                            onClick={() => toggleVisibility(obj.instanceId)}
+                            title="Toggle Visibility"
+                          >
+                            {obj.visible ? 'Hide' : 'Show'}
+                          </button>
+                          <button 
+                            className="controls-btn controls-btn-warning controls-btn-sm"
+                            onClick={() => startEdit(obj)}
+                            title="Edit Properties"
+                          >
+                            Edit
+                          </button>
+                          <button 
+                            className="controls-btn controls-btn-danger controls-btn-sm"
+                            onClick={() => removeObject(obj.instanceId)}
+                            title="Remove"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
 
       {/* Edit Modal */}
       {editingObject && (
-        <div className="env-manager__modal-overlay">
-          <div className="env-manager__modal">
-            <div className="env-manager__modal-header">
-              <h3>Edit {editingObject.name}</h3>
+        <div className="controls-modal-overlay">
+          <div className="controls-modal" style={{ maxWidth: '500px' }}>
+            <div className="controls-modal-header">
+              <h3 className="controls-h3 controls-mb-0">Edit {editingObject.name}</h3>
               <button 
-                className="env-manager__modal-close"
+                className="controls-close"
                 onClick={() => setEditingObject(null)}
               >
                 ×
               </button>
             </div>
 
-            <div className="env-manager__modal-content">
+            <div className="controls-modal-body">
               {/* Position */}
-              <div className="env-manager__form-group">
-                <label>Position</label>
-                <div className="env-manager__form-row">
+              <div className="controls-form-group">
+                <label className="controls-form-label">Position</label>
+                <div className="controls-grid controls-grid-cols-3">
                   <input
                     type="number"
+                    className="controls-form-control"
                     step="0.1"
                     value={editForm.position.x}
                     onChange={(e) => handleFormChange('position', 'x', e.target.value)}
@@ -410,6 +423,7 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
                   />
                   <input
                     type="number"
+                    className="controls-form-control"
                     step="0.1"
                     value={editForm.position.y}
                     onChange={(e) => handleFormChange('position', 'y', e.target.value)}
@@ -417,6 +431,7 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
                   />
                   <input
                     type="number"
+                    className="controls-form-control"
                     step="0.1"
                     value={editForm.position.z}
                     onChange={(e) => handleFormChange('position', 'z', e.target.value)}
@@ -426,11 +441,12 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
               </div>
 
               {/* Rotation */}
-              <div className="env-manager__form-group">
-                <label>Rotation (radians)</label>
-                <div className="env-manager__form-row">
+              <div className="controls-form-group">
+                <label className="controls-form-label">Rotation (radians)</label>
+                <div className="controls-grid controls-grid-cols-3">
                   <input
                     type="number"
+                    className="controls-form-control"
                     step="0.1"
                     value={editForm.rotation.x}
                     onChange={(e) => handleFormChange('rotation', 'x', e.target.value)}
@@ -438,6 +454,7 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
                   />
                   <input
                     type="number"
+                    className="controls-form-control"
                     step="0.1"
                     value={editForm.rotation.y}
                     onChange={(e) => handleFormChange('rotation', 'y', e.target.value)}
@@ -445,6 +462,7 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
                   />
                   <input
                     type="number"
+                    className="controls-form-control"
                     step="0.1"
                     value={editForm.rotation.z}
                     onChange={(e) => handleFormChange('rotation', 'z', e.target.value)}
@@ -454,11 +472,12 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
               </div>
 
               {/* Scale */}
-              <div className="env-manager__form-group">
-                <label>Scale</label>
-                <div className="env-manager__form-row">
+              <div className="controls-form-group">
+                <label className="controls-form-label">Scale</label>
+                <div className="controls-grid controls-grid-cols-3">
                   <input
                     type="number"
+                    className="controls-form-control"
                     step="0.1"
                     min="0.1"
                     value={editForm.scale.x}
@@ -467,6 +486,7 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
                   />
                   <input
                     type="number"
+                    className="controls-form-control"
                     step="0.1"
                     min="0.1"
                     value={editForm.scale.y}
@@ -475,6 +495,7 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
                   />
                   <input
                     type="number"
+                    className="controls-form-control"
                     step="0.1"
                     min="0.1"
                     value={editForm.scale.z}
@@ -485,16 +506,16 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
               </div>
             </div>
 
-            <div className="env-manager__modal-actions">
+            <div className="controls-modal-footer">
               <button 
                 onClick={() => setEditingObject(null)}
-                className="env-manager__btn--cancel"
+                className="controls-btn controls-btn-secondary"
               >
                 Cancel
               </button>
               <button 
                 onClick={updateObject}
-                className="env-manager__btn--save"
+                className="controls-btn controls-btn-primary"
               >
                 Save Changes
               </button>
