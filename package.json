@@ -1,32 +1,22 @@
 {
-  "name": "urdf-viewer",
+  "name": "simulation",
+  "version": "1.0.0",
   "private": true,
-  "version": "0.1.0",
-  "type": "module",
-  "scripts": {
-    "dev": "concurrently \"npm run server\" \"vite\"",
-    "build": "vite build",
-    "preview": "vite preview",
-    "server": "node src/server/server.cjs"
-  },
   "dependencies": {
-    "bootstrap": "^5.3.6",
-    "cannon-es": "^0.20.0",
-    "cors": "^2.8.5",
-    "lodash": "^4.17.21",
-    "multer": "^2.0.0",
+    "@react-three/drei": "^9.99.0",
+    "@react-three/fiber": "^8.15.16",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.30.0",
-    "three": "^0.152.2"
+    "three": "^0.161.0",
+    "urdf-loader": "^0.6.0"
   },
   "devDependencies": {
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
-    "@types/three": "^0.152.1",
-    "@vitejs/plugin-react": "^4.0.0",
-    "concurrently": "^9.1.2",
-    "express": "^5.1.0",
-    "vite": "^6.3.5"
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.1.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   }
 }
