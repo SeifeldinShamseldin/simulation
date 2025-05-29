@@ -7,6 +7,10 @@
 
 Simulation is a comprehensive web-based platform for visualizing, controlling, and simulating URDF robot models. The application provides real-time robot manipulation, inverse kinematics solving, trajectory recording/playback, and advanced TCP (Tool Center Point) management capabilities.
 
+## **System Architecture**
+
+![Architecture Graph](./architecture_graph.png)
+
 ## **System Requirements**
 
 - **Node.js:** v16.0.0 or higher
