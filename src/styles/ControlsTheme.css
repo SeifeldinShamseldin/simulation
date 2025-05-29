@@ -1341,3 +1341,127 @@
   .controls-group:last-child {
     border-bottom: none;
   }
+
+/* ===================================
+   NAVBAR
+   =================================== */
+
+.controls-navbar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  min-height: 4rem;
+}
+
+.controls-navbar-dark {
+  background-color: var(--controls-dark);
+  color: var(--controls-white);
+}
+
+.controls-bg-primary {
+  background-color: var(--controls-primary) !important;
+}
+
+.controls-container-fluid {
+  width: 100%;
+  padding-right: 1rem;
+  padding-left: 1rem;
+  margin-right: auto;
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.controls-navbar-brand {
+  display: inline-block;
+  padding-top: 0.3125rem;
+  padding-bottom: 0.3125rem;
+  margin-right: 1rem;
+  font-size: 1.25rem;
+  line-height: inherit;
+  white-space: nowrap;
+  color: var(--controls-white);
+  text-decoration: none;
+}
+
+.controls-navbar-brand:hover {
+  color: var(--controls-white);
+  text-decoration: none;
+}
+
+.controls-navbar-nav {
+  display: flex;
+  flex-direction: row;
+  padding-left: 0;
+  margin-bottom: 0;
+  list-style: none;
+  align-items: center;
+  gap: 1rem;
+}
+
+.controls-ms-auto {
+  margin-left: auto !important;
+}
+
+.controls-nav-link {
+  display: block;
+  padding: 0.5rem 1rem;
+  color: var(--controls-white);
+  text-decoration: none;
+  transition: color 0.15s ease-in-out;
+}
+
+.controls-nav-link:hover {
+  color: var(--controls-gray-200);
+  text-decoration: none;
+}
+
+.controls-nav-link.active {
+  color: var(--controls-white);
+  font-weight: 500;
+}
+
+.controls-dropdown {
+  position: relative;
+}
+
+.controls-dropdown-toggle {
+  white-space: nowrap;
+  background-color: transparent;
+  border: 1px solid var(--controls-white);
+  color: var(--controls-white);
+}
+
+.controls-dropdown-toggle:hover {
+  background-color: var(--controls-white);
+  color: var(--controls-primary);
+}
+
+/* Responsive Navbar */
+@media (max-width: 768px) {
+  .controls-navbar-nav {
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    padding: 1rem 0;
+  }
+
+  .controls-nav-link {
+    width: 100%;
+    padding: 0.5rem 0;
+  }
+
+  .controls-dropdown {
+    width: 100%;
+  }
+
+  .controls-dropdown-toggle {
+    width: 100%;
+    text-align: left;
+  }
+}

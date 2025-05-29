@@ -1,6 +1,27 @@
 {
   "categories": [
     {
+      "id": "fanuc",
+      "name": "fanuc",
+      "robots": [
+        {
+          "id": "crx10ial",
+          "name": "Crx10ial",
+          "urdfPath": "/robots/fanuc/crx10ial/crx10ial.urdf",
+          "packagePath": "/robots/fanuc/crx10ial",
+          "meshFiles": [
+            "base_link.stl",
+            "link_1.stl",
+            "link_2.stl",
+            "link_3.stl",
+            "link_4.stl",
+            "link_5.stl",
+            "link_6.stl"
+          ]
+        }
+      ]
+    },
+    {
       "id": "kuka",
       "name": "kuka",
       "robots": [
@@ -17,6 +38,27 @@
             "link_4.stl",
             "link_5.stl",
             "link_6.stl"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "robotiq",
+      "name": "robotiq",
+      "robots": [
+        {
+          "id": "robotiqarg2f85model",
+          "name": "Robotiqarg2f85model",
+          "urdfPath": "/robots/robotiq/robotiqarg2f85model/robotiq_arg2f_85_model.urdf",
+          "packagePath": "/robots/robotiq/robotiqarg2f85model",
+          "meshFiles": [
+            "robotiq_arg2f_85_base_link.dae",
+            "robotiq_arg2f_85_inner_finger.dae",
+            "robotiq_arg2f_85_inner_knuckle.dae",
+            "robotiq_arg2f_85_outer_finger.dae",
+            "robotiq_arg2f_85_outer_knuckle.dae",
+            "robotiq_arg2f_85_pad.dae",
+            "robotiq_gripper_coupling.stl"
           ]
         }
       ]
