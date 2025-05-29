@@ -1,51 +1,36 @@
-# Robot Simulation Platform
+Simulation - URDF Robot Visualization & Control Platform
+Author: Seifeldin Shamseldin
+Company: Fraunhofer IWU & Botfellows
+Overview
+Simulation is a comprehensive web-based platform for visualizing, controlling, and simulating URDF robot models. The application provides real-time robot manipulation, inverse kinematics solving, trajectory recording/playback, and advanced TCP (Tool Center Point) management capabilities.
+System Requirements
 
-A comprehensive web-based URDF robot visualization and simulation platform developed for industrial robotics applications.
+Node.js: v16.0.0 or higher
+npm: v7.0.0 or higher
+Browser: Chrome, Firefox, Safari, or Edge (latest versions)
+Operating System: Windows 10/11, macOS 10.15+, or Ubuntu 20.04+
 
-**Author:** Seifeldin Shamseldin  
-**Organization:** Fraunhofer IWU & Botfellows  
-**Project:** simulation
+Required Libraries & Dependencies
+Core Dependencies
 
-## Overview
+React (v18.2.0) - UI framework
+Three.js (v0.152.2) - 3D graphics and visualization
+Cannon-ES (v0.20.0) - Physics engine
+Vite (v6.3.5) - Build tool and development server
+Express (v5.1.0) - Backend server
 
-This simulation platform provides a powerful browser-based environment for loading, visualizing, and controlling URDF (Unified Robot Description Format) robot models. It features real-time inverse kinematics, trajectory recording/playback, and comprehensive robot manipulation tools designed for industrial automation workflows.
+Additional Libraries
 
-## Key Features
+Bootstrap (v5.3.6) - UI styling
+Lodash (v4.17.21) - Utility functions
+Multer (v2.0.0) - File upload handling
+CORS (v2.8.5) - Cross-origin resource sharing
 
-### Core Functionality
-- **URDF Robot Loading**: Support for standard URDF files with STL/DAE mesh formats
-- **Real-time 3D Visualization**: High-performance rendering using Three.js
-- **Joint Control**: Direct manipulation of robot joints with limit enforcement
-- **Inverse Kinematics (IK)**: Real-time IK solver for end-effector positioning
-- **Tool Center Point (TCP) Management**: Dynamic TCP configuration and tracking
+Installation
 
-### Advanced Features
-- **Trajectory Recording & Playback**: Record and replay robot movements
-- **Environment Management**: Add industrial objects (tables, conveyors, safety fences)
-- **Multi-Robot Support**: Load and switch between multiple robot models
-- **Physics Simulation**: Integrated Cannon.js physics engine
-- **Import/Export**: Save and load robot configurations and trajectories
-
-### Supported Robot Models
-- Universal Robots (UR5, UR10)
-- KUKA robots (KR3R540)
-- Custom URDF models via upload interface
-
-## Prerequisites
-
-Before installation, ensure you have the following installed:
-
-- **Node.js**: Version 16.0.0 or higher
-- **npm**: Version 7.0.0 or higher (comes with Node.js)
-- **Git**: For cloning the repository
-- **Modern Web Browser**: Chrome, Firefox, Safari, or Edge (latest versions)
-
-## Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone [repository-url]
-   cd simulation
+Clone the repository
+bashgit clone [repository-url]
+cd simulation
 
 Install dependencies
 bashnpm install
@@ -56,141 +41,147 @@ bashnpm list
 
 Running the Application
 Development Mode
-Start the development server with hot-reload:
+Start both the frontend and backend servers simultaneously:
 bashnpm run dev
-The application will be available at http://localhost:3000
-Production Build
-Create an optimized production build:
-bashnpm run build
-Preview Production Build
-Test the production build locally:
-bashnpm run preview
-Start Backend Server
-The application includes a backend server for robot management:
-bashnpm run server
-The server runs on http://localhost:3001
-Usage Guide
-Initial Setup
+This will:
 
-Open the application in your browser
-Click the "Robot" link in the navigation bar to open the control panel
+Start the Express server on port 3001
+Start the Vite development server on port 3000
+Open the application in your default browser
+
+Production Build
+
+Build the application
+bashnpm run build
+
+Preview the production build
+bashnpm run preview
+
+
+Manual Server Start
+If you need to run servers separately:
+bash# Terminal 1 - Backend server
+npm run server
+
+# Terminal 2 - Frontend
+npx vite
+Initial Setup & Configuration
+1. Robot Models
+The application expects robot models in the public/robots/ directory. Structure:
+public/robots/
+├── [Manufacturer]/
+│   └── [Model]/
+│       ├── [model].urdf
+│       └── [mesh files (.stl, .dae)]
+2. Default Robots
+The application comes pre-configured with support for:
+
+Universal Robots (UR5, UR10)
+KUKA robots (KR3R540)
+
+3. Environment Variables (Optional)
+Create a .env file in the root directory:
+envVITE_API_URL=http://localhost:3001
+VITE_PORT=3000
+Usage Guide
+Basic Operations
 
 Loading a Robot
 
-In the Robot Management section, select:
+Click the "Robot" link in the navigation bar
+Select manufacturer and model from the dropdown
+Click "Load Robot"
 
-Manufacturer (e.g., Universal Robots, KUKA)
-Robot Model (e.g., UR5, UR10)
 
+Joint Control
 
-Click "Load Robot" to visualize the model
-
-Controlling Joints
-
-Use the joint sliders in the "Joint Controls" section
+Use the joint sliders to control individual joint angles
 Toggle "Ignore Joint Limits" for unrestricted movement
 Click "Return to Zero" to reset all joints
 
-Using Inverse Kinematics
 
-Navigate to the "Inverse Kinematics" section
+Inverse Kinematics
+
 Enter target X, Y, Z coordinates
-Click "Move Robot to Target" to calculate and execute movement
+Click "Move Robot to Target"
+Use "Use Current Position" to set current TCP as target
 
-Recording Trajectories
 
-Enter a trajectory name in the "Trajectory Recording" section
+Trajectory Recording
+
+Enter a trajectory name
+Set recording interval (default: 100ms)
 Click "Start Recording" and move the robot
-Click "Stop Recording" when finished
-Use "Play" to replay saved trajectories
+Click "Stop Recording" when done
 
-Managing TCP (Tool Center Point)
-
-Open the TCP section
-Configure offset values for your end effector
-Toggle visibility and adjust visual properties
-
-Environment Setup
-
-Click "Environment Objects" button
-Select from available objects (tables, conveyors, etc.)
-Click "Add" to place objects in the scene
-Edit position, rotation, and scale as needed
-
-
-
-React 18: Component-based UI framework
-Three.js: 3D graphics and visualization
-Vite: Fast build tool and development server
-
-3D & Physics
-
-Three.js r128: WebGL-based 3D graphics
-Cannon-ES: Physics simulation engine
-URDF Loader: Custom URDF parsing and loading
-
-Backend
-
-Express.js: Web server framework
-Multer: File upload handling
-CORS: Cross-origin resource sharing
-
-State Management
-
-React Context API: Global state management
-EventBus: Real-time component communication
-
-API Endpoints
-Robot Management
-
-GET /robots/list - List available robots
-POST /api/robots/add - Upload new robot
-DELETE /api/robots/:manufacturer/:model - Remove robot
 
 TCP Management
 
-GET /api/tcp/list - List TCP tools
-POST /api/tcp/add - Add new TCP tool
+View current TCP position in real-time
+Add custom TCP tools with STL files
+Configure TCP offset and visualization settings
+
+
+
+Advanced Features
+
+Environment Objects: Add tables, conveyors, and other objects to the scene
+3D Trajectory Visualization: View recorded trajectories in 3D space
+Import/Export: Save and load trajectory files (JSON format)
+Multi-robot Support: Load and switch between different robot models
+
+API Endpoints
+The backend server provides the following endpoints:
+
+GET /robots/list - Get available robots
+POST /api/robots/add - Add new robot
+DELETE /api/robots/:manufacturer/:model - Remove robot
+GET /api/tcp/list - Get TCP tools
+POST /api/tcp/add - Add TCP tool
 DELETE /api/tcp/:id - Remove TCP tool
-
-Configuration
-Key configuration options can be found in:
-
-src/utils/GlobalVariables.js - Application settings
-vite.config.js - Build configuration
-src/server/server.cjs - Server settings
-
-Browser Compatibility
-
-Chrome 90+
-Firefox 88+
-Safari 14+
-Edge 90+
-
-Performance Optimization
-For optimal performance:
-
-Use modern browsers with WebGL 2.0 support
-Ensure hardware acceleration is enabled
-Close unnecessary browser tabs
-For complex robots, consider reducing mesh complexity
 
 Troubleshooting
 Common Issues
-Robot not loading:
 
-Check browser console for errors
-Verify URDF file format
-Ensure mesh files are in correct location
+Port Already in Use
+bash# Kill process on port 3000
+npx kill-port 3000
 
-Slow performance:
+# Kill process on port 3001
+npx kill-port 3001
 
-Reduce shadow quality in settings
-Disable unnecessary visual features
-Check GPU acceleration settings
+Module Not Found Errors
+bash# Clear npm cache and reinstall
+npm cache clean --force
+rm -rf node_modules package-lock.json
+npm install
 
-Server connection issues:
+CORS Issues
 
-Verify server is running on port 3001
-Check firewall settings
-Ensure CORS is properly configured
+Ensure the backend server is running on port 3001
+Check proxy configuration in vite.config.js
+
+
+Robot Not Loading
+
+Verify URDF file path is correct
+Check browser console for mesh loading errors
+Ensure all mesh files are in lowercase
+
+
+
+Performance Optimization
+
+Enable hardware acceleration in your browser
+Close unnecessary browser tabs
+Use production build for better performance
+Reduce trajectory recording interval for smoother playback
+
+Browser Compatibility
+
+Chrome/Edge: Full support (recommended)
+Firefox: Full support
+Safari: Full support (WebGL required)
+
+License & Copyright
+© 2024 Fraunhofer IWU & Botfellows. All rights reserved.
