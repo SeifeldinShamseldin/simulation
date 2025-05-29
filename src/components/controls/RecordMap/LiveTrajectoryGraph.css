@@ -292,3 +292,161 @@
     background-color: #ccc;
     cursor: not-allowed;
   }
+
+/* Update button colors in TrajectoryViewer component styles */
+.trajectory-buttons button {
+  background-color: var(--controls-brand-teal);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.trajectory-buttons button:hover {
+  background-color: var(--controls-brand-dark-teal);
+}
+
+.trajectory-buttons button:disabled {
+  background-color: var(--controls-gray-400);
+  cursor: not-allowed;
+}
+
+.record-btn {
+  background-color: var(--controls-brand-teal) !important;
+}
+
+.record-btn:hover {
+  background-color: var(--controls-brand-dark-teal) !important;
+}
+
+.stop-btn {
+  background-color: var(--controls-danger) !important;
+}
+
+.stop-btn:hover {
+  background-color: #c82333 !important;
+}
+
+.graph-button {
+  background-color: var(--controls-brand-teal) !important;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  margin-top: 1rem;
+  width: 100%;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: background-color 0.3s ease;
+}
+
+.graph-button:hover {
+  background-color: var(--controls-brand-dark-teal) !important;
+}
+
+/* Update trajectory item buttons */
+.trajectory-item button {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.875rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.trajectory-item button:first-child {
+  background-color: var(--controls-brand-teal);
+  color: white;
+}
+
+.trajectory-item button:first-child:hover {
+  background-color: var(--controls-brand-dark-teal);
+}
+
+.trajectory-item button:nth-child(2) {
+  background-color: var(--controls-gray-300);
+  color: var(--controls-gray-700);
+}
+
+.trajectory-item button:nth-child(2):hover {
+  background-color: var(--controls-gray-400);
+}
+
+.trajectory-item button:last-child {
+  background-color: var(--controls-danger);
+  color: white;
+}
+
+.trajectory-item button:last-child:hover {
+  background-color: #c82333;
+}
+
+/* Update playback controls */
+.stop-playback-btn {
+  background-color: var(--controls-danger) !important;
+  color: white;
+  margin-top: 0.5rem;
+}
+
+.stop-playback-btn:hover {
+  background-color: #c82333 !important;
+}
+
+.playback-progress-bar {
+  background-color: var(--controls-brand-teal);
+}
+
+/* Update import button styling */
+.custom-file-upload button {
+  background-color: var(--controls-gray-300);
+  color: var(--controls-gray-700);
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  width: 100%;
+  transition: background-color 0.2s ease;
+}
+
+.custom-file-upload button:hover {
+  background-color: var(--controls-gray-400);
+}
+
+/* Update selected trajectory highlighting */
+.trajectory-name {
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.trajectory-name:hover {
+  color: var(--controls-brand-teal);
+}
+
+/* Selected trajectory style */
+.trajectory-item .trajectory-name[style*="color: rgb(52, 152, 219)"] {
+  color: var(--controls-brand-teal) !important;
+}
+
+/* Update any primary colored elements */
+[style*="background-color: #3498db"],
+[style*="backgroundColor: #3498db"] {
+  background-color: var(--controls-brand-teal) !important;
+}
+
+[style*="background-color: #2980b9"],
+[style*="backgroundColor: #2980b9"] {
+  background-color: var(--controls-brand-dark-teal) !important;
+}
+
+[style*="background-color: #1976d2"],
+[style*="backgroundColor: #1976d2"] {
+  background-color: var(--controls-brand-teal) !important;
+}
+
+[style*="color: #3498db"],
+[style*="color: rgb(52, 152, 219)"] {
+  color: var(--controls-brand-teal) !important;
+}

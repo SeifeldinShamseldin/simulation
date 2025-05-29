@@ -31,25 +31,18 @@ const ControlJoints = ({
   // Show message if no joints to display
   if (!jointInfo || jointInfo.length === 0) {
     return (
-      <div className="urdf-controls-section">
-        <h3>Joint Controls</h3>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-          <span>Control robot joint positions</span>
+      <div className="controls-section">
+        <div className="controls-section-header">
+          <h3 className="controls-h3 controls-mb-0">Joint Controls</h3>
           <button 
             onClick={onResetJoints}
-            style={{ 
-              backgroundColor: '#3498db', 
-              color: 'white', 
-              border: 'none', 
-              borderRadius: '4px',
-              padding: '6px 12px',
-              cursor: 'pointer'
-            }}
+            className="controls-btn controls-btn-primary"
           >
             Return to Zero
           </button>
         </div>
-        <div style={{color: 'red', marginTop: '10px'}}>
+        <p className="controls-text-muted">Control robot joint positions</p>
+        <div className="controls-alert controls-alert-danger">
           No joint information available. Please ensure a robot is loaded.
         </div>
       </div>
@@ -57,26 +50,20 @@ const ControlJoints = ({
   }
 
   return (
-    <div className="urdf-controls-section">
-      <h3>Joint Controls</h3>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-        <span>Control robot joint positions</span>
+    <div className="controls-section">
+      <div className="controls-section-header">
+        <h3 className="controls-h3 controls-mb-0">Joint Controls</h3>
         <button 
           onClick={onResetJoints}
-          style={{ 
-            backgroundColor: '#3498db', 
-            color: 'white', 
-            border: 'none', 
-            borderRadius: '4px',
-            padding: '6px 12px',
-            cursor: 'pointer'
-          }}
+          className="controls-btn controls-btn-primary"
         >
           Return to Zero
         </button>
       </div>
       
-      <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+      <p className="controls-text-muted controls-mb-3">Control robot joint positions</p>
+      
+      <div className="joint-controls-container">
         {(jointInfo || []).map((joint, index) => {
           if (!joint || !joint.name) return null;
           
@@ -98,11 +85,11 @@ const ControlJoints = ({
                              jointValues[joint.name] : 0;
           
           return (
-            <div key={joint.name || index} style={{ marginBottom: '0.5rem' }}>
-              <label htmlFor={`joint-${joint.name}`}>
+            <div key={joint.name || index} className="controls-form-group">
+              <label className="controls-form-label" htmlFor={`joint-${joint.name}`}>
                 {joint.name} ({jointType || 'unknown'}):
               </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div className="controls-d-flex controls-align-items-center controls-gap-3">
                 <input
                   id={`joint-${joint.name}`}
                   type="range"
@@ -111,9 +98,9 @@ const ControlJoints = ({
                   step={0.01}
                   value={currentValue}
                   onChange={(e) => handleJointChange(joint.name, e.target.value)}
-                  style={{ flex: 1 }}
+                  className="joint-slider"
                 />
-                <span style={{ minWidth: '60px', textAlign: 'right' }}>
+                <span className="joint-value-display">
                   {currentValue.toFixed(2)}
                 </span>
               </div>

@@ -4,15 +4,15 @@
 
 /* Root Variables */
 :root {
-    /* Colors */
-    --controls-primary: #007bff;
+    /* Colors - Updated to match Botfellows brand */
+    --controls-primary: #00a99d;      /* Teal/turquoise green from website */
     --controls-secondary: #6c757d;
-    --controls-success: #28a745;
+    --controls-success: #00a99d;      /* Use brand green for success */
     --controls-info: #17a2b8;
     --controls-warning: #ffc107;
     --controls-danger: #dc3545;
     --controls-light: #f8f9fa;
-    --controls-dark: #343a40;
+    --controls-dark: #000000;         /* Pure black for navbar */
     --controls-white: #ffffff;
     --controls-gray-100: #f8f9fa;
     --controls-gray-200: #e9ecef;
@@ -23,6 +23,12 @@
     --controls-gray-700: #495057;
     --controls-gray-800: #343a40;
     --controls-gray-900: #212529;
+    
+    /* Brand colors */
+    --controls-brand-teal: #00a99d;
+    --controls-brand-dark-teal: #008077;
+    --controls-brand-black: #000000;
+    --controls-brand-dark-gray: #1a1a1a;
     
     /* Spacing */
     --controls-spacing-0: 0;
@@ -186,18 +192,18 @@
   /* Button Variants */
   .controls-btn-primary {
     color: var(--controls-white);
-    background-color: var(--controls-primary);
-    border-color: var(--controls-primary);
+    background-color: var(--controls-brand-teal);
+    border-color: var(--controls-brand-teal);
   }
   
   .controls-btn-primary:hover {
     color: var(--controls-white);
-    background-color: #0056b3;
-    border-color: #004a9b;
+    background-color: var(--controls-brand-dark-teal);
+    border-color: var(--controls-brand-dark-teal);
   }
   
   .controls-btn-primary:focus {
-    box-shadow: 0 0 0 0.2rem rgba(38, 143, 255, 0.5);
+    box-shadow: 0 0 0 0.2rem rgba(0, 169, 157, 0.5);
   }
   
   .controls-btn-secondary {
@@ -214,14 +220,14 @@
   
   .controls-btn-success {
     color: var(--controls-white);
-    background-color: var(--controls-success);
-    border-color: var(--controls-success);
+    background-color: var(--controls-brand-teal);
+    border-color: var(--controls-brand-teal);
   }
   
   .controls-btn-success:hover {
     color: var(--controls-white);
-    background-color: #218838;
-    border-color: #1e7e34;
+    background-color: var(--controls-brand-dark-teal);
+    border-color: var(--controls-brand-dark-teal);
   }
   
   .controls-btn-info {
@@ -477,8 +483,8 @@
   
   /* Special IK Target Card */
   .controls-ik-target {
-    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-    border: 2px solid var(--controls-primary);
+    background: linear-gradient(135deg, #f5f7fa 0%, #e0f2f1 100%);
+    border: 2px solid var(--controls-brand-teal);
   }
   
   /* ===================================
@@ -593,7 +599,7 @@
   
   .controls-badge-primary {
     color: var(--controls-white);
-    background-color: var(--controls-primary);
+    background-color: var(--controls-brand-teal);
   }
   
   .controls-badge-secondary {
@@ -603,7 +609,7 @@
   
   .controls-badge-success {
     color: var(--controls-white);
-    background-color: var(--controls-success);
+    background-color: var(--controls-brand-teal);
   }
   
   .controls-badge-info {
@@ -740,8 +746,8 @@
   .controls-list-item.controls-active {
     z-index: 2;
     color: var(--controls-white);
-    background-color: var(--controls-primary);
-    border-color: var(--controls-primary);
+    background-color: var(--controls-brand-teal);
+    border-color: var(--controls-brand-teal);
   }
   
   .controls-list-item-content {
@@ -798,7 +804,7 @@
   
   .controls-pill.active {
     color: var(--controls-white);
-    background-color: var(--controls-primary);
+    background-color: var(--controls-brand-teal);
   }
   
   /* ===================================
@@ -823,7 +829,7 @@
     color: var(--controls-white);
     text-align: center;
     white-space: nowrap;
-    background-color: var(--controls-primary);
+    background-color: var(--controls-brand-teal);
     transition: width 0.6s ease;
   }
   
@@ -1132,7 +1138,7 @@
     padding: 0.75rem;
     background-color: var(--controls-gray-100);
     border-radius: var(--controls-border-radius);
-    border-left: 4px solid var(--controls-primary);
+    border-left: 4px solid var(--controls-brand-teal);
   }
   
   /* Toggle button */
@@ -1166,7 +1172,7 @@
   }
   
   .controls-toggle-btn.active::before {
-    background-color: var(--controls-primary);
+    background-color: var(--controls-brand-teal);
   }
   
   .controls-toggle-btn.active::after {
@@ -1271,7 +1277,7 @@
   
   .playback-progress-bar {
     height: 100%;
-    background-color: var(--controls-success);
+    background-color: var(--controls-brand-teal);
     transition: width 0.1s linear;
   }
   
@@ -1343,7 +1349,7 @@
   }
 
 /* ===================================
-   NAVBAR
+   NAVBAR - Updated for black background
    =================================== */
 
 .controls-navbar {
@@ -1357,12 +1363,12 @@
 }
 
 .controls-navbar-dark {
-  background-color: var(--controls-dark);
+  background-color: var(--controls-brand-black);
   color: var(--controls-white);
 }
 
 .controls-bg-primary {
-  background-color: var(--controls-primary) !important;
+  background-color: var(--controls-brand-black) !important;
 }
 
 .controls-container-fluid {
@@ -1413,16 +1419,17 @@
   padding: 0.5rem 1rem;
   color: var(--controls-white);
   text-decoration: none;
-  transition: color 0.15s ease-in-out;
+  transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out;
+  border-radius: 4px;
 }
 
 .controls-nav-link:hover {
-  color: var(--controls-gray-200);
+  color: var(--controls-brand-teal);
   text-decoration: none;
 }
 
 .controls-nav-link.active {
-  color: var(--controls-white);
+  color: var(--controls-brand-teal);
   font-weight: 500;
 }
 
@@ -1439,7 +1446,7 @@
 
 .controls-dropdown-toggle:hover {
   background-color: var(--controls-white);
-  color: var(--controls-primary);
+  color: var(--controls-brand-teal);
 }
 
 /* Responsive Navbar */
@@ -1464,4 +1471,173 @@
     width: 100%;
     text-align: left;
   }
+}
+
+/* ===================================
+   JOINT CONTROLS COMPONENT
+   =================================== */
+
+.joint-controls-container {
+  padding-right: 0.5rem;
+  margin-right: -0.5rem;
+}
+
+.joint-slider {
+  flex: 1;
+  margin: 0;
+}
+
+.joint-value-display {
+  min-width: 60px;
+  text-align: right;
+  font-family: monospace;
+  font-weight: 500;
+  color: var(--controls-gray-700);
+  font-size: 0.95rem;
+}
+
+/* Gap utility class */
+.controls-gap-3 {
+  gap: 1rem;
+}
+
+/* Joint control hover effect */
+.controls-form-group:hover .joint-slider::-webkit-slider-thumb {
+  background: var(--controls-brand-teal);
+}
+
+.controls-form-group:hover .joint-slider::-moz-range-thumb {
+  background: var(--controls-brand-teal);
+}
+
+/* ===================================
+   RANGE INPUT SLIDERS
+   =================================== */
+
+/* Style range input sliders */
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--controls-gray-300);
+  outline: none;
+  transition: background 0.3s;
+}
+
+input[type="range"]:hover {
+  background: var(--controls-gray-400);
+}
+
+/* Webkit browsers (Chrome, Safari, Edge) */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--controls-brand-teal);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  background: var(--controls-brand-dark-teal);
+  transform: scale(1.1);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
+}
+
+/* Firefox */
+input[type="range"]::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--controls-brand-teal);
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  background: var(--controls-brand-dark-teal);
+  transform: scale(1.1);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
+}
+
+/* Track styling for Firefox */
+input[type="range"]::-moz-range-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  background: var(--controls-gray-300);
+  border-radius: 3px;
+}
+
+/* Active/focus state */
+input[type="range"]:focus::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(0, 169, 157, 0.2);
+}
+
+input[type="range"]:focus::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(0, 169, 157, 0.2);
+}
+
+/* ===================================
+   SCROLLBAR STYLING
+   =================================== */
+
+/* Webkit Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--controls-gray-200);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--controls-gray-500);
+  border-radius: 5px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--controls-brand-teal);
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--controls-brand-dark-teal);
+}
+
+/* Firefox Scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--controls-gray-500) var(--controls-gray-200);
+}
+
+*:hover {
+  scrollbar-color: var(--controls-brand-teal) var(--controls-gray-200);
+}
+
+/* Specific scrollbar for controls panel */
+.controls-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.controls-panel::-webkit-scrollbar-track {
+  background: var(--controls-gray-100);
+  border-radius: 4px;
+}
+
+.controls-panel::-webkit-scrollbar-thumb {
+  background: var(--controls-gray-400);
+  border-radius: 4px;
+}
+
+.controls-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--controls-brand-teal);
 }

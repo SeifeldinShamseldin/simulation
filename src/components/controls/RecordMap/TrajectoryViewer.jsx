@@ -224,7 +224,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
           className="graph-button"
           onClick={() => setShowLiveGraph(true)}
           style={{
-            backgroundColor: '#1976d2',
+            backgroundColor: 'var(--controls-brand-teal)',
             color: 'white',
             padding: '10px 20px',
             borderRadius: '4px',
