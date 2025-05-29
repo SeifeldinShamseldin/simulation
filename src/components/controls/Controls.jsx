@@ -738,6 +738,7 @@ const Controls = ({
       
       {showIKControls && (
         <IKController
+          viewerRef={viewerRef}
           showIK={showIK}
           setShowIK={setShowIK}
           targetPosition={targetPosition}

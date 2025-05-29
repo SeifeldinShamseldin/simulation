@@ -413,20 +413,48 @@ class IKAPI {
    */
   async executeIK(robot, targetPosition, options = {}) {
     try {
+      // Configure solver with options
+      if (options.maxIterations) this.solverSettings.maxIterations = options.maxIterations;
+      if (options.tolerance) this.solverSettings.tolerance = options.tolerance;
+      if (options.dampingFactor) this.solverSettings.dampingFactor = options.dampingFactor;
+      
       // Solve using EventBus for real-time positions
       const solution = await this.solve(robot, targetPosition);
       if (!solution) {
         throw new Error('Failed to solve IK');
       }
 
-      // Animate the movement
-      await new Promise((resolve) => {
-        this.animate(robot, options.duration || 1000, () => {
-          // After animation, tell TCPProvider to update its cache
-          EventBus.emit('tcp:force-update');
-          resolve();
+      // Check if we actually need to move (goal is different from start)
+      let needsMovement = false;
+      for (const jointName in solution) {
+        if (Math.abs(solution[jointName] - this.startAngles[jointName]) > 0.001) {
+          needsMovement = true;
+          break;
+        }
+      }
+
+      if (!needsMovement) {
+        console.log('Already at target position');
+        return true;
+      }
+
+      // Store the solution as goal angles for animation
+      this.goalAngles = solution;
+
+      // Animate the movement if requested
+      if (options.animate !== false) {
+        await new Promise((resolve) => {
+          this.animate(robot, options.duration || 1000, () => {
+            // After animation, tell TCPProvider to update its cache
+            EventBus.emit('tcp:force-update');
+            resolve();
+          });
         });
-      });
+      } else {
+        // Apply immediately without animation
+        robot.setJointValues(solution);
+        EventBus.emit('tcp:force-update');
+      }
       
       return true;
     } catch (error) {
