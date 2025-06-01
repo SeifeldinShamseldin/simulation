@@ -1,6 +1,7 @@
 // src/components/controls/EnvironmentManager/EnvironmentManager.jsx
 import React, { useState, useEffect } from 'react';
 import EventBus from '../../../utils/EventBus';
+import humanController from '../../../core/Human/HumanController';
 import '../../../styles/ControlsTheme.css';
 
 // Predefined object library
@@ -67,6 +68,8 @@ const EnvironmentManager = ({ viewerRef, isOpen, onClose }) => {
   const [error, setError] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [humanLoaded, setHumanLoaded] = useState(false);
+  const [humanInfo, setHumanInfo] = useState(null);
   
   // Form state for editing
   const [editForm, setEditForm] = useState({
@@ -102,6 +105,22 @@ const EnvironmentManager = ({ viewerRef, isOpen, onClose }) => {
       unsubscribeRemoved();
     };
   }, [loadedObjects]);
+
+  // Add useEffect for human events
+  useEffect(() => {
+    const unsubscribeReady = EventBus.on('human:ready', () => {
+      setHumanLoaded(true);
+    });
+    
+    const unsubscribePosition = EventBus.on('human:position-update', (data) => {
+      setHumanInfo(data);
+    });
+    
+    return () => {
+      unsubscribeReady();
+      unsubscribePosition();
+    };
+  }, []);
 
   // Scan environment directory for available objects
   const scanEnvironment = async () => {
@@ -364,6 +383,24 @@ const EnvironmentManager = ({ viewerRef, isOpen, onClose }) => {
     }
   };
 
+  // Add spawnHuman function
+  const spawnHuman = async () => {
+    if (!viewerRef?.current || humanLoaded) return;
+    
+    const sceneSetup = viewerRef.current.getSceneSetup();
+    if (!sceneSetup) return;
+    
+    setLoading(true);
+    try {
+      await humanController.initialize(sceneSetup.scene, sceneSetup.world);
+      setSuccessMessage('Human character spawned! Use WASD to move, Shift to run.');
+    } catch (error) {
+      setError('Failed to spawn human: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   const filteredObjects = getFilteredObjects();
@@ -544,6 +581,37 @@ const EnvironmentManager = ({ viewerRef, isOpen, onClose }) => {
                     </div>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {!humanLoaded && (
+            <div className="controls-alert controls-alert-info controls-mb-3">
+              <button 
+                className="controls-btn controls-btn-primary"
+                onClick={spawnHuman}
+                disabled={loading}
+              >
+                🚶 Spawn Human Character
+              </button>
+              <small className="controls-text-muted controls-ml-2">
+                WASD to move, Shift to run
+              </small>
+            </div>
+          )}
+
+          {humanLoaded && humanInfo && (
+            <div className="controls-card controls-mb-3">
+              <div className="controls-card-body">
+                <h5>👤 Human Character</h5>
+                <div className="controls-text-sm">
+                  Position: X: {humanInfo.position[0].toFixed(2)}, 
+                  Y: {humanInfo.position[1].toFixed(2)}, 
+                  Z: {humanInfo.position[2].toFixed(2)}
+                </div>
+                <div className="controls-text-sm">
+                  Status: {humanInfo.isRunning ? '🏃 Running' : '🚶 Walking'}
+                </div>
               </div>
             </div>
           )}
