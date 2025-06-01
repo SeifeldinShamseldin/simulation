@@ -752,10 +752,7 @@ const Controls = ({
       )}
       
       {showTableVisualization && (
-        <>
-            <EnvironmentManager viewerRef={viewerRef} />
-            <FloorControls viewerRef={viewerRef} />
-        </>
+        <FloorControls viewerRef={viewerRef} />
       )}
       
       <TCPManager viewerRef={viewerRef} />

@@ -561,6 +561,148 @@ function saveTCPMetadata(tcpArray) {
   fs.writeFileSync(metadataPath, JSON.stringify(currentData, null, 2));
 }
 
+// Get available environment objects dynamically from hazard directory
+app.get('/api/environment/scan', (req, res) => {
+  try {
+    const hazardDir = path.join(__dirname, '..', '..', 'public', 'hazard');
+    
+    if (!fs.existsSync(hazardDir)) {
+      return res.json({ success: true, categories: [] });
+    }
+    
+    const categories = [];
+    
+    // Scan for category directories
+    const categoryDirs = fs.readdirSync(hazardDir, { withFileTypes: true })
+      .filter(dirent => dirent.isDirectory());
+    
+    categoryDirs.forEach(categoryDir => {
+      const categoryPath = path.join(hazardDir, categoryDir.name);
+      const objects = [];
+      
+      // Recursively scan for 3D files
+      const scanDirectory = (dirPath, baseName = '') => {
+        const items = fs.readdirSync(dirPath, { withFileTypes: true });
+        
+        items.forEach(item => {
+          if (item.isDirectory()) {
+            // Recurse into subdirectories
+            scanDirectory(
+              path.join(dirPath, item.name), 
+              baseName ? `${baseName}/${item.name}` : item.name
+            );
+          } else {
+            // Check if it's a supported 3D file
+            const ext = path.extname(item.name).toLowerCase();
+            const supportedExts = ['.dae', '.stl', '.obj', '.fbx', '.gltf', '.glb', '.ply'];
+            
+            if (supportedExts.includes(ext)) {
+              const fullPath = baseName ? `${baseName}/${item.name}` : item.name;
+              objects.push({
+                id: `${categoryDir.name}_${fullPath.replace(/[\/\s\.]/g, '_')}`,
+                name: item.name.replace(ext, '').replace(/_/g, ' '),
+                filename: item.name,
+                path: `/hazard/${categoryDir.name}/${fullPath}`,
+                type: ext.substring(1),
+                size: fs.statSync(path.join(dirPath, item.name)).size
+              });
+            }
+          }
+        });
+      };
+      
+      scanDirectory(categoryPath);
+      
+      if (objects.length > 0) {
+        categories.push({
+          id: categoryDir.name,
+          name: categoryDir.name.charAt(0).toUpperCase() + categoryDir.name.slice(1).replace(/([A-Z])/g, ' $1').trim(),
+          objects: objects,
+          icon: getIconForCategory(categoryDir.name)
+        });
+      }
+    });
+    
+    res.json({ success: true, categories });
+    
+  } catch (error) {
+    console.error('Error scanning environment directory:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error scanning environment directory' 
+    });
+  }
+});
+
+// Delete environment object file
+app.delete('/api/environment/delete', express.json(), (req, res) => {
+  try {
+    const { path: filePath } = req.body;
+    
+    if (!filePath || !filePath.startsWith('/hazard/')) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid path' 
+      });
+    }
+    
+    // Construct full path - FIX: use path module properly
+    const fullPath = path.join(__dirname, '..', '..', 'public', filePath);
+    
+    // Check if file exists
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'File not found' 
+      });
+    }
+    
+    // Check if it's a file (not directory)
+    const stats = fs.statSync(fullPath);
+    if (!stats.isFile()) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Path is not a file' 
+      });
+    }
+    
+    // Delete the file
+    fs.unlinkSync(fullPath);
+    
+    console.log(`Deleted environment file: ${filePath}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'File deleted successfully' 
+    });
+    
+  } catch (error) {
+    console.error('Error deleting environment file:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: `Error deleting file: ${error.message}` 
+    });
+  }
+});
+
+// Helper function to assign icons based on category name
+function getIconForCategory(categoryName) {
+  const iconMap = {
+    'furniture': '🪑',
+    'electricalhazard': '⚡',
+    'mechanicalhazard': '⚙️',
+    'safetysign': '⚠️',
+    'machinery': '🏭',
+    'tools': '🔧',
+    'safety': '🦺',
+    'storage': '📦',
+    'vehicle': '🚗',
+    'barrier': '🚧'
+  };
+  
+  return iconMap[categoryName.toLowerCase()] || '📦';
+}
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Global error handler:', err);

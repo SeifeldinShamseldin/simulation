@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
 import Navbar from './components/Navbar/Navbar';
+import EnvironmentManager from './components/controls/EnvironmentManager/EnvironmentManager';
 import { RobotProvider, useRobot } from './contexts/RobotContext';
 import './App.css';
 
@@ -10,6 +11,7 @@ const AppContent = () => {
   const { setViewer, isLoading, error } = useRobot();
   const viewerRef = useRef(null);
   const [showControls, setShowControls] = useState(false);
+  const [showEnvironment, setShowEnvironment] = useState(false);
   
   // Register the viewer ref with the context
   useEffect(() => {
@@ -31,8 +33,12 @@ const AppContent = () => {
       padding: 0,
       overflow: 'hidden'
     }}>
-      {/* Navbar with toggle function */}
-      <Navbar onToggleControls={() => setShowControls(!showControls)} isOpen={showControls} />
+      {/* Navbar with toggle functions */}
+      <Navbar 
+        onToggleControls={() => setShowControls(!showControls)} 
+        isOpen={showControls}
+        onToggleEnvironment={() => setShowEnvironment(!showEnvironment)}
+      />
       
       {/* Main content area */}
       <div className="app-container" style={{ 
@@ -181,6 +187,13 @@ const AppContent = () => {
           )}
         </div>
       </div>
+      
+      {/* Environment Manager Modal */}
+      <EnvironmentManager 
+        viewerRef={viewerRef}
+        isOpen={showEnvironment}
+        onClose={() => setShowEnvironment(false)}
+      />
       
       {/* Add loading animation */}
       <style jsx>{`

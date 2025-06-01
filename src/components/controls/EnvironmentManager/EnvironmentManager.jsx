@@ -1,6 +1,7 @@
 // src/components/controls/EnvironmentManager/EnvironmentManager.jsx
 import React, { useState, useEffect } from 'react';
 import EventBus from '../../../utils/EventBus';
+import '../../../styles/ControlsTheme.css';
 
 // Predefined object library
 const OBJECT_LIBRARY = [
@@ -57,13 +58,15 @@ const OBJECT_LIBRARY = [
   }
 ];
 
-const EnvironmentManager = ({ viewerRef, compact = false }) => {
-  const [isOpen, setIsOpen] = useState(false);
+const EnvironmentManager = ({ viewerRef, isOpen, onClose }) => {
+  const [categories, setCategories] = useState([]);
   const [loadedObjects, setLoadedObjects] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [editingObject, setEditingObject] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
   
   // Form state for editing
   const [editForm, setEditForm] = useState({
@@ -73,13 +76,12 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
     visible: true
   });
 
-  // Get unique categories
-  const categories = ['all', ...new Set(OBJECT_LIBRARY.map(obj => obj.category))];
-
-  // Filter objects by category
-  const filteredObjects = selectedCategory === 'all' 
-    ? OBJECT_LIBRARY 
-    : OBJECT_LIBRARY.filter(obj => obj.category === selectedCategory);
+  // Scan environment directory on mount and when refreshed
+  useEffect(() => {
+    if (isOpen) {
+      scanEnvironment();
+    }
+  }, [isOpen]);
 
   // Listen for external object additions/removals
   useEffect(() => {
@@ -101,6 +103,47 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
     };
   }, [loadedObjects]);
 
+  // Scan environment directory for available objects
+  const scanEnvironment = async () => {
+    setIsScanning(true);
+    setError(null);
+    
+    try {
+      const response = await fetch('/api/environment/scan');
+      const result = await response.json();
+      
+      if (result.success) {
+        setCategories(result.categories);
+      } else {
+        setError('Failed to scan environment directory');
+      }
+    } catch (err) {
+      console.error('Error scanning environment:', err);
+      setError('Error scanning environment directory');
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  // Get filtered objects based on selected category
+  const getFilteredObjects = () => {
+    if (selectedCategory === 'all') {
+      return categories.flatMap(cat => 
+        cat.objects.map(obj => ({ ...obj, category: cat.id, categoryName: cat.name, icon: cat.icon }))
+      );
+    }
+    
+    const category = categories.find(cat => cat.id === selectedCategory);
+    if (!category) return [];
+    
+    return category.objects.map(obj => ({ 
+      ...obj, 
+      category: category.id, 
+      categoryName: category.name,
+      icon: category.icon 
+    }));
+  };
+
   // Load object into scene
   const loadObject = async (objectConfig) => {
     if (!viewerRef?.current) return;
@@ -119,11 +162,7 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
         id: instanceId,
         castShadow: true,
         receiveShadow: true,
-        position: objectConfig.groundOffset ? {
-          x: 0,
-          y: objectConfig.groundOffset,
-          z: 0
-        } : undefined
+        material: getMaterialForCategory(objectConfig.category)
       });
       
       const actualPosition = object3D.position;
@@ -134,7 +173,9 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
         objectId: objectConfig.id,
         name: objectConfig.name,
         category: objectConfig.category,
-        thumbnail: objectConfig.thumbnail,
+        categoryName: objectConfig.categoryName,
+        icon: objectConfig.icon,
+        type: objectConfig.type,
         position: { 
           x: actualPosition.x, 
           y: actualPosition.y, 
@@ -145,8 +186,7 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
           y: actualRotation.y, 
           z: actualRotation.z 
         },
-        scale: { ...objectConfig.defaultScale },
-        groundOffset: objectConfig.groundOffset,
+        scale: { x: 1, y: 1, z: 1 },
         visible: true
       }]);
       
@@ -156,6 +196,84 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Delete object file from server
+  const deleteObjectFile = async (objectConfig) => {
+    if (!confirm(`Are you sure you want to permanently delete "${objectConfig.name}"?\n\nThis action cannot be undone.`)) {
+      return;
+    }
+    
+    setLoading(true);
+    setError(null);
+    setSuccessMessage('');
+    
+    try {
+      const response = await fetch('/api/environment/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ path: objectConfig.path })
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(result.message || `Server error: ${response.status}`);
+      }
+      
+      if (result.success) {
+        // Refresh the environment scan
+        await scanEnvironment();
+        
+        // Show success message
+        setSuccessMessage(`Successfully deleted: ${objectConfig.name}`);
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        setError(result.message || 'Failed to delete file');
+      }
+    } catch (err) {
+      console.error('Error deleting file:', err);
+      setError(`Error deleting file: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Get material configuration based on category
+  const getMaterialForCategory = (category) => {
+    const materials = {
+      furniture: {
+        type: 'phong',
+        color: 0x8b6f47,
+        shininess: 30,
+        specular: 0x222222
+      },
+      electricalhazard: {
+        type: 'phong',
+        color: 0xffff00,
+        shininess: 100,
+        emissive: 0x444400,
+        emissiveIntensity: 0.3
+      },
+      mechanicalhazard: {
+        type: 'standard',
+        color: 0x666666,
+        metalness: 0.8,
+        roughness: 0.2
+      },
+      safetysign: {
+        type: 'basic',
+        color: 0xff0000
+      }
+    };
+    
+    return materials[category] || {
+      type: 'phong',
+      color: 0x888888,
+      shininess: 50
+    };
   };
 
   // Remove object from scene
@@ -246,158 +364,196 @@ const EnvironmentManager = ({ viewerRef, compact = false }) => {
     }
   };
 
-  return (
-    <div className={`controls-section ${compact ? 'controls-compact' : ''}`}>
-      {/* Toggle Button */}
-      <button 
-        className="controls-btn controls-btn-info controls-btn-block"
-        onClick={() => setIsOpen(!isOpen)}
-        title="Environment Objects"
-      >
-        🏭 Environment Objects
-        {loadedObjects.length > 0 && (
-          <span className="controls-badge controls-badge-light controls-ml-2">
-            {loadedObjects.length}
-          </span>
-        )}
-      </button>
+  if (!isOpen) return null;
 
-      {/* Manager Panel */}
-      {isOpen && (
-        <div className="controls-modal-overlay">
-          <div className="controls-modal" style={{ maxWidth: '900px' }}>
-            <div className="controls-modal-header">
-              <h3 className="controls-h3 controls-mb-0">Environment Objects</h3>
+  const filteredObjects = getFilteredObjects();
+
+  return (
+    <div className="controls-modal-overlay" onClick={onClose}>
+      <div className="controls-modal" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
+        <div className="controls-modal-header">
+          <h3 className="controls-h3 controls-mb-0">Environment Manager</h3>
+          <button 
+            className="controls-close"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="controls-modal-body">
+          {error && (
+            <div className="controls-alert controls-alert-danger controls-mb-3">
+              {error}
               <button 
-                className="controls-close"
-                onClick={() => setIsOpen(false)}
+                className="controls-close controls-float-right"
+                onClick={() => setError(null)}
               >
                 ×
               </button>
             </div>
+          )}
 
-            <div className="controls-modal-body">
-              {error && (
-                <div className="controls-alert controls-alert-danger controls-mb-3">
-                  {error}
-                  <button 
-                    className="controls-close controls-float-right"
-                    onClick={() => setError(null)}
-                  >
-                    ×
-                  </button>
-                </div>
-              )}
+          {successMessage && (
+            <div className="controls-alert controls-alert-success controls-mb-3">
+              {successMessage}
+              <button 
+                className="controls-close controls-float-right"
+                onClick={() => setSuccessMessage('')}
+              >
+                ×
+              </button>
+            </div>
+          )}
 
-              {/* Category Filter */}
-              <div className="controls-pills controls-mb-3">
-                {categories.map(cat => (
-                  <button
-                    key={cat}
-                    className={`controls-pill ${selectedCategory === cat ? 'active' : ''}`}
-                    onClick={() => setSelectedCategory(cat)}
-                  >
-                    {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                  </button>
-                ))}
+          {/* Category Filter */}
+          <div className="controls-pills controls-mb-3">
+            <button
+              className={`controls-pill ${selectedCategory === 'all' ? 'active' : ''}`}
+              onClick={() => setSelectedCategory('all')}
+            >
+              All Categories
+            </button>
+            {categories.map(cat => (
+              <button
+                key={cat.id}
+                className={`controls-pill ${selectedCategory === cat.id ? 'active' : ''}`}
+                onClick={() => setSelectedCategory(cat.id)}
+              >
+                {cat.icon} {cat.name}
+              </button>
+            ))}
+            <button
+              className="controls-pill controls-pill-refresh"
+              onClick={scanEnvironment}
+              disabled={isScanning}
+              title="Rescan directory"
+            >
+              {isScanning ? '⏳' : '🔄'} Refresh
+            </button>
+          </div>
+
+          {/* Object Library */}
+          <div className="controls-mb-4">
+            <h4 className="controls-h4 controls-mb-3">Available Objects ({filteredObjects.length})</h4>
+            {filteredObjects.length === 0 ? (
+              <div className="controls-text-center controls-p-4">
+                <p className="controls-text-muted">No objects found in this category</p>
               </div>
-
-              {/* Object Library */}
-              <div className="controls-mb-4">
-                <h4 className="controls-h4 controls-mb-3">Available Objects</h4>
-                <div className="controls-grid controls-grid-cols-5">
-                  {filteredObjects.map(obj => (
-                    <div key={obj.id} className="controls-card">
-                      <div className="controls-card-body">
-                        <div 
-                          className="controls-card-icon" 
-                          role="img" 
-                          aria-label={obj.name}
-                        >
-                          {obj.thumbnail}
-                        </div>
-                        <h5 className="controls-card-title">{obj.name}</h5>
+            ) : (
+              <div className="controls-grid controls-grid-cols-4" style={{ gap: '1rem' }}>
+                {filteredObjects.map(obj => (
+                  <div key={obj.id} className="controls-card">
+                    <div className="controls-card-body">
+                      <div className="controls-card-icon" style={{ fontSize: '2rem' }}>
+                        {obj.icon}
+                      </div>
+                      <h5 className="controls-card-title">{obj.name}</h5>
+                      <div className="controls-text-muted controls-text-sm">
+                        <div>{obj.categoryName}</div>
+                        <div>{obj.type.toUpperCase()} • {(obj.size / 1024).toFixed(1)}KB</div>
+                      </div>
+                      <div className="controls-card-actions" style={{ 
+                        display: 'flex', 
+                        gap: '0.5rem', 
+                        marginTop: '0.5rem' 
+                      }}>
                         <button 
-                          className="controls-btn controls-btn-success controls-btn-sm controls-btn-block"
+                          className="controls-btn controls-btn-success controls-btn-sm"
                           onClick={() => loadObject(obj)}
                           disabled={loading}
+                          style={{ flex: 1 }}
                         >
-                          + Add
+                          + Add to Scene
+                        </button>
+                        <button 
+                          className="controls-btn controls-btn-danger controls-btn-sm"
+                          onClick={() => deleteObjectFile(obj)}
+                          disabled={loading}
+                          title="Delete file permanently"
+                          style={{ 
+                            width: '40px',
+                            padding: '0.25rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                        >
+                          🗑️
                         </button>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
-
-              {/* Loaded Objects */}
-              {loadedObjects.length > 0 && (
-                <div className="controls-section">
-                  <div className="controls-section-header">
-                    <h4 className="controls-h4 controls-mb-0">
-                      Scene Objects ({loadedObjects.length})
-                    </h4>
-                    <button 
-                      className="controls-btn controls-btn-danger controls-btn-sm"
-                      onClick={clearAll}
-                    >
-                      Clear All
-                    </button>
-                  </div>
-                  
-                  <div className="controls-list">
-                    {loadedObjects.map(obj => (
-                      <div key={obj.instanceId} className="controls-list-item">
-                        <span 
-                          className="controls-list-item-icon" 
-                          role="img" 
-                          aria-label={obj.name}
-                        >
-                          {obj.thumbnail}
-                        </span>
-                        <div className="controls-list-item-content">
-                          <h5 className="controls-list-item-title">{obj.name}</h5>
-                          <span className={`controls-badge ${obj.visible ? 'controls-badge-success' : 'controls-badge-secondary'}`}>
-                            {obj.visible ? 'Visible' : 'Hidden'}
-                          </span>
-                        </div>
-                        <div className="controls-list-item-actions">
-                          <button 
-                            className="controls-btn controls-btn-light controls-btn-sm"
-                            onClick={() => toggleVisibility(obj.instanceId)}
-                            title="Toggle Visibility"
-                          >
-                            {obj.visible ? 'Hide' : 'Show'}
-                          </button>
-                          <button 
-                            className="controls-btn controls-btn-warning controls-btn-sm"
-                            onClick={() => startEdit(obj)}
-                            title="Edit Properties"
-                          >
-                            Edit
-                          </button>
-                          <button 
-                            className="controls-btn controls-btn-danger controls-btn-sm"
-                            onClick={() => removeObject(obj.instanceId)}
-                            title="Remove"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+            )}
           </div>
+
+          {/* Loaded Objects */}
+          {loadedObjects.length > 0 && (
+            <div className="controls-section">
+              <div className="controls-section-header">
+                <h4 className="controls-h4 controls-mb-0">
+                  Scene Objects ({loadedObjects.length})
+                </h4>
+                <button 
+                  className="controls-btn controls-btn-danger controls-btn-sm"
+                  onClick={clearAll}
+                >
+                  Clear All
+                </button>
+              </div>
+              
+              <div className="controls-list">
+                {loadedObjects.map(obj => (
+                  <div key={obj.instanceId} className="controls-list-item">
+                    <span className="controls-list-item-icon">
+                      {obj.icon}
+                    </span>
+                    <div className="controls-list-item-content">
+                      <h5 className="controls-list-item-title">{obj.name}</h5>
+                      <div className="controls-text-muted controls-text-sm">
+                        {obj.categoryName} • {obj.type.toUpperCase()}
+                      </div>
+                      <span className={`controls-badge ${obj.visible ? 'controls-badge-success' : 'controls-badge-secondary'}`}>
+                        {obj.visible ? 'Visible' : 'Hidden'}
+                      </span>
+                    </div>
+                    <div className="controls-list-item-actions">
+                      <button 
+                        className="controls-btn controls-btn-light controls-btn-sm"
+                        onClick={() => toggleVisibility(obj.instanceId)}
+                        title="Toggle Visibility"
+                      >
+                        {obj.visible ? '👁️' : '🚫'}
+                      </button>
+                      <button 
+                        className="controls-btn controls-btn-warning controls-btn-sm"
+                        onClick={() => startEdit(obj)}
+                        title="Edit Properties"
+                      >
+                        ✏️
+                      </button>
+                      <button 
+                        className="controls-btn controls-btn-danger controls-btn-sm"
+                        onClick={() => removeObject(obj.instanceId)}
+                        title="Remove"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Edit Modal */}
       {editingObject && (
-        <div className="controls-modal-overlay">
-          <div className="controls-modal" style={{ maxWidth: '500px' }}>
+        <div className="controls-modal-overlay" onClick={() => setEditingObject(null)}>
+          <div className="controls-modal" style={{ maxWidth: '500px' }} onClick={(e) => e.stopPropagation()}>
             <div className="controls-modal-header">
               <h3 className="controls-h3 controls-mb-0">Edit {editingObject.name}</h3>
               <button 

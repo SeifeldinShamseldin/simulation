@@ -437,18 +437,28 @@
     border: var(--controls-border-width) solid rgba(0, 0, 0, 0.125);
     border-radius: var(--controls-border-radius);
     box-shadow: var(--controls-box-shadow-sm);
+    transition: all 0.2s ease;
+  }
+  
+  .controls-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   }
   
   .controls-card-body {
     flex: 1 1 auto;
     min-height: 1px;
     padding: 1.25rem;
+    position: relative;
   }
   
   .controls-card-title {
-    margin-bottom: 0.75rem;
+    margin: 0.5rem 0;
     font-size: 1.1rem;
     font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   
   .controls-card-subtitle {

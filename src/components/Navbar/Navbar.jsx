@@ -1,7 +1,7 @@
 // src/components/Navbar/Navbar.jsx
 import React, { useState } from 'react';
 
-const Navbar = ({ onToggleControls, isOpen }) => {
+const Navbar = ({ onToggleControls, isOpen, onToggleEnvironment }) => {
   const [logoError, setLogoError] = useState(false);
 
   return (
@@ -60,6 +60,23 @@ const Navbar = ({ onToggleControls, isOpen }) => {
             }}
           >
             Robot
+          </a>
+          
+          {/* Environment link */}
+          <a 
+            className="controls-nav-link"
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              onToggleEnvironment();
+            }}
+            style={{
+              cursor: 'pointer',
+              color: 'rgba(255,255,255,0.7)',
+              transition: 'color 0.3s ease'
+            }}
+          >
+            Environment
           </a>
           
           <a className="controls-nav-link" href="#">Simulation</a>
