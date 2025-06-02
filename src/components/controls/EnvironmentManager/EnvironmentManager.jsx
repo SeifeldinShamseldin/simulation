@@ -72,6 +72,8 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const [selectedHuman, setSelectedHuman] = useState(null);
   const [humanLoaded, setHumanLoaded] = useState(false);
   const [humanInfo, setHumanInfo] = useState(null);
+  const [expandedObjects, setExpandedObjects] = useState(new Set());
+  const [rotationAxis, setRotationAxis] = useState('y'); // default rotation axis
 
   // Scan environment directory on mount
   useEffect(() => {
@@ -219,6 +221,44 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const goBack = () => {
     setCurrentView('categories');
     setSelectedCategory(null);
+  };
+
+  const toggleObjectExpanded = (instanceId) => {
+    setExpandedObjects(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(instanceId)) {
+        newSet.delete(instanceId);
+      } else {
+        newSet.add(instanceId);
+      }
+      return newSet;
+    });
+  };
+
+  const updateObject = (instanceId, updates) => {
+    if (!viewerRef?.current) return;
+    
+    const sceneSetup = viewerRef.current.getSceneSetup();
+    if (!sceneSetup) return;
+    
+    sceneSetup.updateEnvironmentObject(instanceId, updates);
+  };
+
+  const removeObject = (instanceId) => {
+    if (!viewerRef?.current) return;
+    
+    const sceneSetup = viewerRef.current.getSceneSetup();
+    if (!sceneSetup) return;
+    
+    sceneSetup.removeEnvironmentObject(instanceId);
+    setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
+  };
+
+  const rotateObject = (instanceId, degrees) => {
+    const radians = degrees * Math.PI / 180;
+    const rotation = { x: 0, y: 0, z: 0 };
+    rotation[rotationAxis] = radians;
+    updateObject(instanceId, { rotation });
   };
 
   // Render category boxes
@@ -407,6 +447,164 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
     );
   };
 
+  const renderSpawnedObjects = () => {
+    if (loadedObjects.length === 0) return null;
+    
+    return (
+      <div style={{ marginTop: '2rem' }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '1rem'
+        }}>
+          <h3 style={{ margin: 0 }}>Spawned Objects ({loadedObjects.length})</h3>
+          <button
+            onClick={() => {
+              loadedObjects.forEach(obj => removeObject(obj.instanceId));
+            }}
+            className="controls-btn controls-btn-danger controls-btn-sm"
+          >
+            Clear All
+          </button>
+        </div>
+        
+        {loadedObjects.map(obj => {
+          const isExpanded = expandedObjects.has(obj.instanceId);
+          const objectData = viewerRef.current?.getSceneSetup()?.environmentObjects.get(obj.instanceId);
+          
+          return (
+            <div key={obj.instanceId} className="controls-card controls-mb-3">
+              <div 
+                className="controls-card-header"
+                onClick={() => toggleObjectExpanded(obj.instanceId)}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="controls-d-flex controls-justify-content-between controls-align-items-center">
+                  <div>
+                    <strong>{obj.name}</strong>
+                    <div className="controls-text-muted controls-small">
+                      {objectData ? `${objectData.position.x.toFixed(2)},${objectData.position.y.toFixed(2)},${objectData.position.z.toFixed(2)}` : 'Loading...'}
+                      {' • '}
+                      {objectData ? `${(objectData.rotation.x * 180/Math.PI).toFixed(0)}°,${(objectData.rotation.y * 180/Math.PI).toFixed(0)}°,${(objectData.rotation.z * 180/Math.PI).toFixed(0)}°` : ''}
+                      {' • '}
+                      {objectData ? objectData.scale.x.toFixed(2) : '1.00'}
+                    </div>
+                  </div>
+                  <div className="controls-d-flex controls-align-items-center controls-gap-2">
+                    <label className="controls-form-check controls-mb-0">
+                      <input
+                        type="checkbox"
+                        className="controls-form-check-input"
+                        checked={objectData?.visible !== false}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          updateObject(obj.instanceId, { visible: e.target.checked });
+                        }}
+                      />
+                      <span className="controls-form-check-label">👁️</span>
+                    </label>
+                    <span>{isExpanded ? '▼' : '▶'}</span>
+                  </div>
+                </div>
+              </div>
+              
+              {isExpanded && (
+                <div className="controls-card-body">
+                  {/* Position Controls */}
+                  <div className="controls-mb-3">
+                    <label className="controls-form-label">Position</label>
+                    <div className="controls-row">
+                      {['x', 'y', 'z'].map(axis => (
+                        <div key={axis} className="controls-col-4">
+                          <div className="controls-input-group controls-input-group-sm">
+                            <span className="controls-input-group-text">{axis.toUpperCase()}</span>
+                            <input
+                              type="number"
+                              className="controls-form-control"
+                              step="0.1"
+                              defaultValue={objectData?.position[axis] || 0}
+                              onChange={(e) => {
+                                const pos = { ...objectData.position };
+                                pos[axis] = parseFloat(e.target.value) || 0;
+                                updateObject(obj.instanceId, { position: pos });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Scale Controls */}
+                  <div className="controls-mb-3">
+                    <label className="controls-form-label">Scale</label>
+                    <div className="controls-row">
+                      {['x', 'y', 'z'].map(axis => (
+                        <div key={axis} className="controls-col-4">
+                          <div className="controls-input-group controls-input-group-sm">
+                            <span className="controls-input-group-text">{axis.toUpperCase()}</span>
+                            <input
+                              type="number"
+                              className="controls-form-control"
+                              step="0.1"
+                              min="0.1"
+                              defaultValue={objectData?.scale[axis] || 1}
+                              onChange={(e) => {
+                                const scale = { ...objectData.scale };
+                                scale[axis] = parseFloat(e.target.value) || 1;
+                                updateObject(obj.instanceId, { scale });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Rotation Controls */}
+                  <div className="controls-mb-3">
+                    <label className="controls-form-label">Rotation</label>
+                    <div className="controls-btn-group controls-btn-group-sm controls-mb-2">
+                      {['x', 'y', 'z'].map(axis => (
+                        <button
+                          key={axis}
+                          className={`controls-btn ${rotationAxis === axis ? 'controls-btn-primary' : 'controls-btn-outline-primary'}`}
+                          onClick={() => setRotationAxis(axis)}
+                        >
+                          {axis.toUpperCase()} Axis
+                        </button>
+                      ))}
+                    </div>
+                    <div className="controls-btn-group controls-btn-group-sm">
+                      {[45, 90, 135, 180].map(deg => (
+                        <button
+                          key={deg}
+                          className="controls-btn controls-btn-outline-secondary"
+                          onClick={() => rotateObject(obj.instanceId, deg)}
+                        >
+                          {deg}°
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Remove Button */}
+                  <button
+                    className="controls-btn controls-btn-danger controls-btn-sm controls-w-100"
+                    onClick={() => removeObject(obj.instanceId)}
+                  >
+                    Remove Object
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
@@ -490,6 +688,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       {/* Main content */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {currentView === 'categories' ? renderCategories() : renderObjects()}
+        {renderSpawnedObjects()}
       </div>
       
       {/* Refresh button */}
