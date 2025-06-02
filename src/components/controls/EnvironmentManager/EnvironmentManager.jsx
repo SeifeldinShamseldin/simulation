@@ -576,8 +576,8 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                         </button>
                       ))}
                     </div>
-                    <div className="controls-btn-group controls-btn-group-sm">
-                      {[45, 90, 135, 180].map(deg => (
+                    <div className="controls-btn-group controls-btn-group-sm controls-flex-wrap">
+                      {[0, 45, 90, 135, 180, 225, 270, 315, 360].map(deg => (
                         <button
                           key={deg}
                           className="controls-btn controls-btn-outline-secondary"
