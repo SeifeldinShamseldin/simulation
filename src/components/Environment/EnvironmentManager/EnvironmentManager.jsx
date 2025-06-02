@@ -133,7 +133,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const loadObject = async (objectConfig) => {
     if (!viewerRef?.current) return;
     
-    // Original loadObject code for other objects
     setLoading(true);
     setError(null);
     
@@ -147,15 +146,32 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
         ...objectConfig,
         id: instanceId,
         castShadow: true,
-        receiveShadow: true
+        receiveShadow: true,
+        isDynamic: objectConfig.category === 'human' || objectConfig.path?.includes('/human/')
       });
       
+      // Store all object information including path
       setLoadedObjects(prev => [...prev, {
         instanceId,
         objectId: objectConfig.id,
         name: objectConfig.name,
-        category: objectConfig.category
+        category: objectConfig.category,
+        path: objectConfig.path // Make sure path is stored
       }]);
+      
+      // If it's a human, track it separately
+      if (objectConfig.category === 'human' || objectConfig.path?.includes('/human/')) {
+        const humanData = {
+          id: instanceId,
+          name: objectConfig.name,
+          object3D: object3D,
+          position: object3D.position,
+          isActive: spawnedHumans.length === 0
+        };
+        
+        setSpawnedHumans(prev => [...prev, humanData]);
+        EventBus.emit('human:spawned', humanData);
+      }
       
       setSuccessMessage(`Added ${objectConfig.name} to scene`);
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -163,77 +179,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
     } catch (err) {
       console.error('Failed to load object:', err);
       setError(`Failed to load ${objectConfig.name}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const spawnHuman = async () => {
-    if (!viewerRef?.current) return;
-    
-    const sceneSetup = viewerRef.current.getSceneSetup();
-    if (!sceneSetup) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Create a unique ID for this human instance
-      const humanId = `human_${Date.now()}`;
-      
-      // Load human as an environment object
-      const humanConfig = {
-        id: humanId,
-        name: `Human ${spawnedHumans.length + 1}`,
-        path: '/hazard/human/Soldier.glb', // Path to the human model
-        category: 'human',
-        type: 'character',
-        castShadow: true,
-        receiveShadow: true,
-        isDynamic: true, // Human should have physics
-        scale: { x: 0.5, y: 0.5, z: 0.5 },
-        position: { 
-          x: Math.random() * 4 - 2, // Random spawn position
-          y: 0, 
-          z: Math.random() * 4 - 2 
-        }
-      };
-      
-      // Load using the standard environment object system
-      const human3D = await sceneSetup.loadEnvironmentObject(humanConfig);
-      
-      // Add human-specific properties
-      human3D.userData.isHuman = true;
-      human3D.userData.humanId = humanId;
-      
-      // Track this human
-      const humanData = {
-        id: humanId,
-        name: humanConfig.name,
-        object3D: human3D,
-        position: humanConfig.position,
-        isActive: spawnedHumans.length === 0 // First human is active by default
-      };
-      
-      setSpawnedHumans(prev => [...prev, humanData]);
-      
-      // Add to loaded objects for standard management
-      setLoadedObjects(prev => [...prev, {
-        instanceId: humanId,
-        objectId: 'human_character',
-        name: humanConfig.name,
-        category: 'human'
-      }]);
-      
-      // Emit spawn event
-      EventBus.emit('human:spawned', humanData);
-      
-      setSuccessMessage(`${humanConfig.name} spawned! Use WASD to move, Shift to run.`);
-      setTimeout(() => setSuccessMessage(''), 5000);
-      
-    } catch (error) {
-      console.error('Failed to spawn human:', error);
-      setError('Failed to spawn human: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -267,7 +212,71 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
     const sceneSetup = viewerRef.current.getSceneSetup();
     if (!sceneSetup) return;
     
+    // Get the actual object from the environment objects map
+    const object = sceneSetup.environmentObjects.get(instanceId);
+    if (!object) {
+      console.error('Object not found:', instanceId);
+      return;
+    }
+    
+    // Apply updates directly to the Three.js object
+    if (updates.position) {
+      object.position.set(
+        updates.position.x ?? object.position.x,
+        updates.position.y ?? object.position.y,
+        updates.position.z ?? object.position.z
+      );
+    }
+    
+    if (updates.rotation) {
+      object.rotation.set(
+        updates.rotation.x ?? object.rotation.x,
+        updates.rotation.y ?? object.rotation.y,
+        updates.rotation.z ?? object.rotation.z
+      );
+    }
+    
+    if (updates.scale) {
+      object.scale.set(
+        updates.scale.x ?? object.scale.x,
+        updates.scale.y ?? object.scale.y,
+        updates.scale.z ?? object.scale.z
+      );
+    }
+    
+    if (updates.visible !== undefined) {
+      object.visible = updates.visible;
+    }
+    
+    // Force update matrices
+    object.updateMatrix();
+    object.updateMatrixWorld(true);
+    
+    // Also update through sceneSetup for consistency
     sceneSetup.updateEnvironmentObject(instanceId, updates);
+  };
+
+  const rotateObject = (instanceId, degrees) => {
+    if (!viewerRef?.current) return;
+    
+    const sceneSetup = viewerRef.current.getSceneSetup();
+    if (!sceneSetup) return;
+    
+    const object = sceneSetup.environmentObjects.get(instanceId);
+    if (!object) return;
+    
+    const radians = degrees * Math.PI / 180;
+    const newRotation = { x: 0, y: 0, z: 0 };
+    
+    // Get current rotation
+    newRotation.x = object.rotation.x;
+    newRotation.y = object.rotation.y;
+    newRotation.z = object.rotation.z;
+    
+    // Set the selected axis
+    newRotation[rotationAxis] = radians;
+    
+    updateObject(instanceId, { rotation: newRotation });
   };
 
   const removeObject = (instanceId) => {
@@ -276,15 +285,30 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
     const sceneSetup = viewerRef.current.getSceneSetup();
     if (!sceneSetup) return;
     
+    // Check if it's a human being removed
+    const loadedObj = loadedObjects.find(obj => obj.instanceId === instanceId);
+    if (loadedObj && loadedObj.category === 'human') {
+      setSpawnedHumans(prev => prev.filter(h => h.id !== instanceId));
+      EventBus.emit('human:removed', { id: instanceId });
+    }
+    
+    // Use standard removal for all objects
     sceneSetup.removeEnvironmentObject(instanceId);
     setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
   };
 
-  const rotateObject = (instanceId, degrees) => {
-    const radians = degrees * Math.PI / 180;
-    const rotation = { x: 0, y: 0, z: 0 };
-    rotation[rotationAxis] = radians;
-    updateObject(instanceId, { rotation });
+  const handleMoveHuman = (humanId) => {
+    // Enable keyboard controls for this human
+    setSelectedHuman(humanId);
+    
+    // Emit event to activate human controls
+    EventBus.emit('human:activate-controls', {
+      id: humanId,
+      message: 'Use WASD to move, Shift to run'
+    });
+    
+    setSuccessMessage('Human controls activated! Use WASD to move, Shift to run.');
+    setTimeout(() => setSuccessMessage(''), 5000);
   };
 
   // Render category boxes
@@ -395,126 +419,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const renderObjects = () => {
     if (!selectedCategory) return null;
     
-    // Special UI for human category
-    if (selectedCategory.id === 'human') {
-      return (
-        <div>
-          <button
-            onClick={goBack}
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: '0.5rem 1rem',
-              marginBottom: '1rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              color: '#666',
-              fontSize: '1rem',
-              transition: 'color 0.2s'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.color = '#333'}
-            onMouseLeave={(e) => e.currentTarget.style.color = '#666'}
-          >
-            ← Back to Categories
-          </button>
-          
-          <h4 style={{ marginBottom: '1rem' }}>
-            👤 Human Characters
-          </h4>
-          
-          <div style={{
-            background: '#fff',
-            border: '1px solid #e0e0e0',
-            borderRadius: '8px',
-            padding: '2rem',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🚶‍♂️</div>
-            <h5 style={{ marginBottom: '1rem' }}>Spawn Human Character</h5>
-            <p style={{ marginBottom: '1.5rem', color: '#666' }}>
-              Spawn a controllable human character that can walk around the environment
-            </p>
-            
-            <button
-              onClick={spawnHuman}
-              disabled={loading}
-              style={{
-                padding: '1rem 2rem',
-                background: loading ? '#ccc' : '#4caf50',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                fontSize: '1.1rem',
-                fontWeight: '600',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (!loading) e.target.style.background = '#45a049';
-              }}
-              onMouseLeave={(e) => {
-                if (!loading) e.target.style.background = '#4caf50';
-              }}
-            >
-              {loading ? 'Spawning...' : '+ Spawn Human'}
-            </button>
-            
-            <div style={{ marginTop: '2rem', fontSize: '0.9rem', color: '#666' }}>
-              <div style={{ marginBottom: '0.5rem' }}>
-                <strong>Controls:</strong>
-              </div>
-              <div>WASD - Move | Shift - Run | Mouse - Look Around</div>
-            </div>
-          </div>
-          
-          {/* Show spawned humans */}
-          {spawnedHumans.length > 0 && (
-            <div style={{
-              marginTop: '2rem',
-              padding: '1rem',
-              background: '#f5f5f5',
-              borderRadius: '8px'
-            }}>
-              <h5 style={{ margin: '0 0 1rem 0' }}>Active Humans ({spawnedHumans.length})</h5>
-              {spawnedHumans.map((human, index) => (
-                <div key={human.id} style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '0.5rem',
-                  background: '#fff',
-                  marginBottom: '0.5rem',
-                  borderRadius: '4px',
-                  border: '1px solid #ddd'
-                }}>
-                  <span>Human {index + 1}</span>
-                  <button
-                    onClick={() => {
-                      removeHuman(human.id);
-                    }}
-                    style={{
-                      padding: '0.25rem 0.75rem',
-                      background: '#dc3545',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '0.875rem'
-                    }}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      );
-    }
-    
-    // Normal object rendering for other categories continues below...
     return (
       <div>
         <button
@@ -563,7 +467,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                 {obj.type.toUpperCase()} • {(obj.size / 1024).toFixed(1)}KB
               </div>
               <button
-                onClick={() => loadObject(obj)}
+                onClick={() => loadObject(obj)} // Same handler for ALL objects
                 disabled={loading}
                 style={{
                   width: '100%',
@@ -619,6 +523,14 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
           const isExpanded = expandedObjects.has(obj.instanceId);
           const objectData = viewerRef.current?.getSceneSetup()?.environmentObjects.get(obj.instanceId);
           
+          // More comprehensive check for human
+          const isHuman = obj.category === 'human' || 
+                         obj.path?.toLowerCase()?.includes('/human/') ||
+                         obj.name?.toLowerCase()?.includes('soldier') ||
+                         obj.name?.toLowerCase()?.includes('human');
+          
+          console.log('Object check:', obj.name, 'Path:', obj.path, 'Is Human:', isHuman); // Debug log
+          
           return (
             <div key={obj.instanceId} className="controls-card controls-mb-3">
               <div 
@@ -669,9 +581,22 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                               type="number"
                               className="controls-form-control"
                               step="0.1"
-                              defaultValue={objectData?.position[axis] || 0}
+                              value={(() => {
+                                const obj = viewerRef.current?.getSceneSetup()?.environmentObjects.get(obj.instanceId);
+                                return obj ? obj.position[axis].toFixed(2) : 0;
+                              })()}
                               onChange={(e) => {
-                                const pos = { ...objectData.position };
+                                const sceneSetup = viewerRef.current?.getSceneSetup();
+                                if (!sceneSetup) return;
+                                
+                                const currentObj = sceneSetup.environmentObjects.get(obj.instanceId);
+                                if (!currentObj) return;
+                                
+                                const pos = {
+                                  x: currentObj.position.x,
+                                  y: currentObj.position.y,
+                                  z: currentObj.position.z
+                                };
                                 pos[axis] = parseFloat(e.target.value) || 0;
                                 updateObject(obj.instanceId, { position: pos });
                               }}
@@ -734,6 +659,16 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                       ))}
                     </div>
                   </div>
+                  
+                  {/* Move Human Button - Only for human category */}
+                  {isHuman && (
+                    <button
+                      className="controls-btn controls-btn-success controls-btn-block controls-mb-3"
+                      onClick={() => handleMoveHuman(obj.instanceId)}
+                    >
+                      🚶 Move Human
+                    </button>
+                  )}
                   
                   {/* Remove Button */}
                   <button
