@@ -1,7 +1,7 @@
 // src/components/controls/EnvironmentManager/EnvironmentManager.jsx
 import React, { useState, useEffect } from 'react';
 import EventBus from '../../../utils/EventBus';
-import humanController from '../Human/HumanController';
+import humanManager from '../Human/HumanController';
 import '../../../styles/ControlsTheme.css';
 import fs from 'fs';
 import path from 'path';
@@ -77,6 +77,8 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const [expandedObjects, setExpandedObjects] = useState(new Set());
   const [rotationAxis, setRotationAxis] = useState('y'); // default rotation axis
   const [humanMovementEnabled, setHumanMovementEnabled] = useState(false);
+  const [inputValues, setInputValues] = useState({});
+  const [humanPositions, setHumanPositions] = useState({});
 
   // Scan environment directory on mount
   useEffect(() => {
@@ -102,13 +104,35 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
     const unsubscribeSelected = EventBus.on('human:selected', (data) => {
       setSelectedHuman(data.id);
     });
+
+    // Listen for position updates from all humans
+    const unsubscribePositions = [];
+    const handlePositionUpdate = (humanId) => (data) => {
+      if (data.position) {
+        setHumanPositions(prev => ({
+          ...prev,
+          [humanId]: {
+            x: data.position[0],
+            y: data.position[1],
+            z: data.position[2]
+          }
+        }));
+      }
+    };
+
+    // Set up position listeners for existing humans
+    spawnedHumans.forEach(human => {
+      const unsubscribe = EventBus.on(`human:position-update:${human.id}`, handlePositionUpdate(human.id));
+      unsubscribePositions.push(unsubscribe);
+    });
     
     return () => {
       unsubscribeSpawned();
       unsubscribeRemoved();
       unsubscribeSelected();
+      unsubscribePositions.forEach(unsubscribe => unsubscribe());
     };
-  }, [selectedHuman]);
+  }, [selectedHuman, spawnedHumans]);
 
   const scanEnvironment = async () => {
     setIsScanning(true);
@@ -141,25 +165,43 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       
       setLoading(true);
       try {
-        // Check if human controller is already initialized
-        if (humanLoaded) {
-          setError('Human is already spawned. Remove the existing one first.');
-          setLoading(false);
-          return;
-        }
+        // Random spawn position
+        const position = {
+          x: (Math.random() - 0.5) * 4,
+          y: 0,
+          z: (Math.random() - 0.5) * 4
+        };
         
-        // Initialize the human controller with scene and physics world
-        const success = await humanController.initialize(
+        // Spawn a new human
+        const result = await humanManager.spawnHuman(
           sceneSetup.scene, 
-          sceneSetup.world
+          sceneSetup.world,
+          position
         );
         
-        if (success) {
-          setHumanLoaded(true);
+        if (result) {
+          const { id, human } = result;
           
-          // Add to loaded objects list for consistency
+          // Set up position listener for this human
+          const unsubscribe = EventBus.on(`human:position-update:${id}`, (data) => {
+            if (data.position) {
+              setHumanPositions(prev => ({
+                ...prev,
+                [id]: {
+                  x: data.position[0],
+                  y: data.position[1],
+                  z: data.position[2]
+                }
+              }));
+            }
+          });
+          
+          // Store unsubscribe function (you might want to manage this better)
+          human._unsubscribePosition = unsubscribe;
+          
+          // Add to loaded objects list
           const humanInstance = {
-            instanceId: 'human_controller',
+            instanceId: id,
             objectId: objectConfig.id,
             name: objectConfig.name,
             category: 'human',
@@ -168,22 +210,20 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
           
           setLoadedObjects(prev => [...prev, humanInstance]);
           
-          // Only track one human in spawned humans
-          setSpawnedHumans([{
-            id: 'human_controller',
+          // Add to spawned humans
+          setSpawnedHumans(prev => [...prev, {
+            id: id,
             name: objectConfig.name,
-            isActive: true
+            isActive: false
           }]);
           
-          setSelectedHuman('human_controller');
-          
-          setSuccessMessage('Human spawned! Use WASD to move, Shift to run.');
+          setSuccessMessage('Human spawned! Click "Move Human" to control.');
           setTimeout(() => setSuccessMessage(''), 5000);
           
           EventBus.emit('human:spawned', {
-            id: 'human_controller',
+            id: id,
             name: objectConfig.name,
-            isActive: true
+            isActive: false
           });
         }
       } catch (error) {
@@ -258,6 +298,20 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
     const sceneSetup = viewerRef.current.getSceneSetup();
     if (!sceneSetup) return;
     
+    // Special handling for humans
+    const human = humanManager.getHuman(instanceId);
+    if (human) {
+      if (updates.position) {
+        human.setPosition(
+          updates.position.x,
+          updates.position.y,
+          updates.position.z
+        );
+      }
+      // For human, we don't update rotation/scale through normal means
+      return;
+    }
+    
     // Get the actual object from the environment objects map
     const object = sceneSetup.environmentObjects.get(instanceId);
     if (!object) {
@@ -328,19 +382,33 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const removeObject = (instanceId) => {
     if (!viewerRef?.current) return;
     
-    // Check if it's the human controller
-    if (instanceId === 'human_controller') {
-      humanController.dispose();
-      setHumanLoaded(false);
-      setSpawnedHumans([]);
+    // Check if it's a human
+    const human = humanManager.getHuman(instanceId);
+    if (human) {
+      // Unsubscribe from position updates
+      if (human._unsubscribePosition) {
+        human._unsubscribePosition();
+      }
+      
+      humanManager.removeHuman(instanceId);
+      setSpawnedHumans(prev => prev.filter(h => h.id !== instanceId));
       setSelectedHuman(null);
-      setHumanMovementEnabled(false); // Reset movement state
+      
       // Remove from loaded objects
       setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
+      
+      // Remove position tracking
+      setHumanPositions(prev => {
+        const newPositions = { ...prev };
+        delete newPositions[instanceId];
+        return newPositions;
+      });
+      
       EventBus.emit('human:removed', { id: instanceId });
       return;
     }
     
+    // Original code for non-human objects
     const sceneSetup = viewerRef.current.getSceneSetup();
     if (!sceneSetup) return;
     
@@ -349,20 +417,17 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   };
 
   const handleMoveHuman = (humanId) => {
-    // Toggle movement state
-    const newState = !humanMovementEnabled;
-    setHumanMovementEnabled(newState);
+    // Set this human as active
+    humanManager.setActiveHuman(humanId);
+    setSelectedHuman(humanId);
     
-    // Update human controller
-    humanController.setMovementEnabled(newState);
+    // Update spawned humans to reflect active state
+    setSpawnedHumans(prev => prev.map(h => ({
+      ...h,
+      isActive: h.id === humanId
+    })));
     
-    if (newState) {
-      setSelectedHuman(humanId);
-      setSuccessMessage('Human movement enabled! Use WASD to move, Shift to run.');
-    } else {
-      setSuccessMessage('Human movement disabled.');
-    }
-    
+    setSuccessMessage('Human movement enabled! Use WASD to move, Shift to run.');
     setTimeout(() => setSuccessMessage(''), 3000);
   };
 
@@ -573,7 +638,13 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                   <div>
                     <strong>{obj.name}</strong>
                     <div className="controls-text-muted controls-small">
-                      {objectData ? `${objectData.position.x.toFixed(2)},${objectData.position.y.toFixed(2)},${objectData.position.z.toFixed(2)}` : 'Loading...'}
+                      {isHuman ? 
+                        (() => {
+                          const pos = humanPositions[obj.instanceId] || { x: 0, y: 0, z: 0 };
+                          return `${pos.x.toFixed(2)},${pos.y.toFixed(2)},${pos.z.toFixed(2)}`;
+                        })() :
+                        objectData ? `${objectData.position.x.toFixed(2)},${objectData.position.y.toFixed(2)},${objectData.position.z.toFixed(2)}` : 'Loading...'
+                      }
                       {' • '}
                       {objectData ? `${(objectData.rotation.x * 180/Math.PI).toFixed(0)}°,${(objectData.rotation.y * 180/Math.PI).toFixed(0)}°,${(objectData.rotation.z * 180/Math.PI).toFixed(0)}°` : ''}
                       {' • '}
@@ -609,14 +680,44 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                           <div className="controls-input-group controls-input-group-sm">
                             <span className="controls-input-group-text">{axis.toUpperCase()}</span>
                             <input
+                              key={`${obj.instanceId}_${axis}_${humanPositions[obj.instanceId]?.[axis] || 0}`}
                               type="number"
                               className="controls-form-control"
                               step="0.1"
-                              value={(() => {
+                              defaultValue={(() => {
+                                if (isHuman) {
+                                  const pos = humanPositions[obj.instanceId] || { x: 0, y: 0, z: 0 };
+                                  return pos[axis].toFixed(2);
+                                }
                                 const currentObj = viewerRef.current?.getSceneSetup()?.environmentObjects.get(obj.instanceId);
                                 return currentObj ? currentObj.position[axis].toFixed(2) : 0;
                               })()}
                               onChange={(e) => {
+                                const value = e.target.value;
+                                const numValue = parseFloat(value);
+                                
+                                // Special handling for humans
+                                if (isHuman) {
+                                  // Get current position from state or humanManager
+                                  const human = humanManager.getHuman(obj.instanceId);
+                                  if (!human) return;
+                                  
+                                  const currentPos = human.getPosition();
+                                  const pos = {
+                                    x: currentPos.x,
+                                    y: currentPos.y,
+                                    z: currentPos.z
+                                  };
+                                  
+                                  // Update the specific axis
+                                  if (!isNaN(numValue)) {
+                                    pos[axis] = numValue;
+                                    updateObject(obj.instanceId, { position: pos });
+                                  }
+                                  return;
+                                }
+                                
+                                // Normal object handling
                                 const sceneSetup = viewerRef.current?.getSceneSetup();
                                 if (!sceneSetup) return;
                                 
@@ -628,8 +729,11 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                                   y: currentObj.position.y,
                                   z: currentObj.position.z
                                 };
-                                pos[axis] = parseFloat(e.target.value) || 0;
-                                updateObject(obj.instanceId, { position: pos });
+                                
+                                if (!isNaN(numValue)) {
+                                  pos[axis] = numValue;
+                                  updateObject(obj.instanceId, { position: pos });
+                                }
                               }}
                             />
                           </div>
@@ -694,10 +798,10 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                   {/* Move Human Button - Only for human category */}
                   {isHuman && (
                     <button
-                      className={`controls-btn ${humanMovementEnabled ? 'controls-btn-danger' : 'controls-btn-success'} controls-btn-block controls-mb-3`}
+                      className={`controls-btn ${spawnedHumans.find(h => h.id === obj.instanceId)?.isActive ? 'controls-btn-danger' : 'controls-btn-success'} controls-btn-block controls-mb-3`}
                       onClick={() => handleMoveHuman(obj.instanceId)}
                     >
-                      {humanMovementEnabled ? '🛑 Stop Human' : '🚶 Move Human'}
+                      {spawnedHumans.find(h => h.id === obj.instanceId)?.isActive ? '🛑 Stop Human' : '🚶 Move Human'}
                     </button>
                   )}
                   

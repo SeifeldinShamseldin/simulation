@@ -4,7 +4,8 @@ import * as CANNON from 'cannon-es';
 import EventBus from '../../../utils/EventBus';
 
 class HumanController {
-  constructor() {
+  constructor(id) {
+    this.id = id;
     this.model = null;
     this.mixer = null;
     this.animations = {};
@@ -37,15 +38,19 @@ class HumanController {
     
     // Animation frame
     this.animationId = null;
+    
+    // Bind methods
+    this.handleKeyDown = this.handleKeyDown.bind(this);
+    this.handleKeyUp = this.handleKeyUp.bind(this);
   }
   
-  async initialize(scene, world) {
+  async initialize(scene, world, position = { x: 0, y: 0, z: 0 }) {
     this.scene = scene;
     this.world = world;
     
     try {
       // Load human model
-      await this.loadModel();
+      await this.loadModel(position);
       
       // Set up physics
       this.setupPhysics();
@@ -59,22 +64,22 @@ class HumanController {
       // Emit ready event
       EventBus.emit('human:ready', {
         position: this.model.position.toArray(),
-        id: 'player_human'
+        id: this.id
       });
       
       return true;
     } catch (error) {
       console.error('Failed to initialize human controller:', error);
-      EventBus.emit('human:error', { message: error.message });
+      EventBus.emit('human:error', { message: error.message, id: this.id });
       return false;
     }
   }
   
-  async loadModel() {
+  async loadModel(initialPosition) {
     const loader = new GLTFLoader();
     
     // Use your local Soldier.glb file
-    const modelPath = '../../../../public/hazard/human/Soldier.glb';
+    const modelPath = '/hazard/human/Soldier.glb';
     
     try {
       const gltf = await new Promise((resolve, reject) => {
@@ -84,7 +89,8 @@ class HumanController {
           (progress) => {
             EventBus.emit('human:loading-progress', {
               loaded: progress.loaded,
-              total: progress.total
+              total: progress.total,
+              id: this.id
             });
           },
           (error) => reject(error)
@@ -121,8 +127,11 @@ class HumanController {
         }
       });
       
-      // Set initial position at ground level
-      this.model.position.set(0, 0, 0);
+      // Set initial position
+      this.model.position.set(initialPosition.x, initialPosition.y, initialPosition.z);
+      
+      // Add unique identifier to the model
+      this.model.userData.humanId = this.id;
       
       // Add to scene
       this.scene.add(this.model);
@@ -156,10 +165,10 @@ class HumanController {
         }
       }
       
-      console.log('Human model loaded successfully');
+      console.log(`Human model ${this.id} loaded successfully`);
       
     } catch (error) {
-      console.error('Failed to load human model:', error);
+      console.error(`Failed to load human model ${this.id}:`, error);
       throw error;
     }
   }
@@ -187,59 +196,45 @@ class HumanController {
     this.world.addBody(this.body);
   }
   
+  handleKeyDown(event) {
+    if (event.repeat || !this.movementEnabled) return;
+    
+    const key = event.key.toLowerCase();
+    this.keysPressed[key] = true;
+    
+    // Running
+    if (key === 'shift') {
+      this.isRunning = true;
+      this.currentSpeed = this.runSpeed;
+    }
+    
+    // Emit movement start
+    if (['w', 'a', 's', 'd'].includes(key)) {
+      EventBus.emit('human:movement-start', { key, id: this.id });
+    }
+  }
+  
+  handleKeyUp(event) {
+    const key = event.key.toLowerCase();
+    this.keysPressed[key] = false;
+    
+    // Stop running
+    if (key === 'shift') {
+      this.isRunning = false;
+      this.currentSpeed = this.walkSpeed;
+    }
+    
+    // Check if all movement keys are released
+    if (!this.keysPressed.w && !this.keysPressed.a && 
+        !this.keysPressed.s && !this.keysPressed.d) {
+      EventBus.emit('human:movement-stop', { id: this.id });
+      this.playAnimation('idle');
+    }
+  }
+  
   addEventListeners() {
-    // Bind methods using arrow functions to preserve context
-    this.handleKeyDown = (event) => {
-      if (event.repeat || !this.movementEnabled) return;
-      
-      const key = event.key.toLowerCase();
-      this.keysPressed[key] = true;
-      
-      // Running
-      if (key === 'shift') {
-        this.isRunning = true;
-        this.currentSpeed = this.runSpeed;
-      }
-      
-      // Emit movement start
-      if (['w', 'a', 's', 'd'].includes(key)) {
-        EventBus.emit('human:movement-start', { key });
-      }
-    };
-    
-    this.handleKeyUp = (event) => {
-      const key = event.key.toLowerCase();
-      this.keysPressed[key] = false;
-      
-      // Stop running
-      if (key === 'shift') {
-        this.isRunning = false;
-        this.currentSpeed = this.walkSpeed;
-      }
-      
-      // Check if all movement keys are released
-      if (!this.keysPressed.w && !this.keysPressed.a && 
-          !this.keysPressed.s && !this.keysPressed.d) {
-        EventBus.emit('human:movement-stop');
-        this.playAnimation('idle');
-      }
-    };
-    
-    window.addEventListener('keydown', this.handleKeyDown);
-    window.addEventListener('keyup', this.handleKeyUp);
-    
-    // Listen for external commands
-    EventBus.on('human:move-to', (data) => {
-      this.moveToPosition(data.position);
-    });
-    
-    EventBus.on('human:set-animation', (data) => {
-      this.playAnimation(data.animation);
-    });
-    
-    EventBus.on('human:teleport', (data) => {
-      this.teleport(data.position);
-    });
+    // Only add listeners when movement is enabled
+    // Listeners will be added/removed when setMovementEnabled is called
   }
   
   updateMovement(deltaTime) {
@@ -296,7 +291,8 @@ class HumanController {
     this.model.position.y = this.body.position.y - 0.5; // Adjust for body center vs feet
     
     // Emit position update
-    EventBus.emitThrottled('human:position-update', {
+    EventBus.emitThrottled(`human:position-update:${this.id}`, {
+      id: this.id,
       position: this.model.position.toArray(),
       rotation: this.model.rotation.y,
       velocity: this.moveDirection.toArray(),
@@ -322,7 +318,7 @@ class HumanController {
       newAction.reset().fadeIn(0.2).play();
       this.currentAction = newAction;
       
-      EventBus.emit('human:animation-change', { animation: name });
+      EventBus.emit('human:animation-change', { animation: name, id: this.id });
     }
   }
   
@@ -345,7 +341,7 @@ class HumanController {
     this.body.velocity.set(0, 0, 0);
     this.model.position.set(position.x, 0, position.z); // Model at ground level
     
-    EventBus.emit('human:teleported', { position });
+    EventBus.emit('human:teleported', { position, id: this.id });
   }
   
   startUpdateLoop() {
@@ -372,12 +368,36 @@ class HumanController {
     return this.model ? this.model.position.clone() : new THREE.Vector3();
   }
   
+  setPosition(x, y, z) {
+    if (!this.model || !this.body) return;
+    
+    // Update physics body position
+    this.body.position.x = x;
+    this.body.position.y = y + 0.5; // Add 0.5 to account for body center
+    this.body.position.z = z;
+    
+    // Reset velocity to prevent sliding
+    this.body.velocity.set(0, 0, 0);
+    
+    // Update visual model position
+    this.model.position.set(x, y, z);
+    
+    // Emit position update
+    EventBus.emit(`human:position-update:${this.id}`, {
+      id: this.id,
+      position: [x, y, z],
+      source: 'manual'
+    });
+  }
+  
   getInfo() {
     return {
+      id: this.id,
       position: this.model ? this.model.position.toArray() : [0, 0, 0],
       rotation: this.model ? this.model.rotation.y : 0,
       isRunning: this.isRunning,
-      currentAnimation: this.currentAction ? this.currentAction.getClip().name : 'none'
+      currentAnimation: this.currentAction ? this.currentAction.getClip().name : 'none',
+      movementEnabled: this.movementEnabled
     };
   }
   
@@ -388,8 +408,7 @@ class HumanController {
     }
     
     // Remove event listeners
-    window.removeEventListener('keydown', this.handleKeyDown);
-    window.removeEventListener('keyup', this.handleKeyUp);
+    this.setMovementEnabled(false);
     
     // Remove from scene
     if (this.model && this.scene) {
@@ -406,23 +425,94 @@ class HumanController {
       this.mixer.stopAllAction();
     }
     
-    EventBus.emit('human:disposed');
+    EventBus.emit('human:disposed', { id: this.id });
   }
   
   // Add method to enable/disable movement
   setMovementEnabled(enabled) {
     this.movementEnabled = enabled;
     
-    // Stop movement if disabling
-    if (!enabled) {
+    if (enabled) {
+      // Add event listeners
+      window.addEventListener('keydown', this.handleKeyDown);
+      window.addEventListener('keyup', this.handleKeyUp);
+    } else {
+      // Remove event listeners
+      window.removeEventListener('keydown', this.handleKeyDown);
+      window.removeEventListener('keyup', this.handleKeyUp);
+      
+      // Stop movement
       this.keysPressed = {};
       this.playAnimation('idle');
     }
     
-    EventBus.emit('human:movement-toggle', { enabled });
+    EventBus.emit('human:movement-toggle', { enabled, id: this.id });
   }
 }
 
-// Create singleton instance
-const humanController = new HumanController();
-export default humanController;
+// Human Manager to handle multiple humans
+class HumanManager {
+  constructor() {
+    this.humans = new Map();
+    this.activeHumanId = null;
+  }
+  
+  async spawnHuman(scene, world, position) {
+    const id = `human_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const human = new HumanController(id);
+    
+    const success = await human.initialize(scene, world, position);
+    if (success) {
+      this.humans.set(id, human);
+      return { id, human };
+    }
+    return null;
+  }
+  
+  getHuman(id) {
+    return this.humans.get(id);
+  }
+  
+  removeHuman(id) {
+    const human = this.humans.get(id);
+    if (human) {
+      human.dispose();
+      this.humans.delete(id);
+      if (this.activeHumanId === id) {
+        this.activeHumanId = null;
+      }
+    }
+  }
+  
+  setActiveHuman(id) {
+    // Disable movement on previous active human
+    if (this.activeHumanId && this.activeHumanId !== id) {
+      const prevHuman = this.humans.get(this.activeHumanId);
+      if (prevHuman) {
+        prevHuman.setMovementEnabled(false);
+      }
+    }
+    
+    this.activeHumanId = id;
+    const human = this.humans.get(id);
+    if (human) {
+      // Enable movement on new active human
+      human.setMovementEnabled(true);
+    }
+  }
+  
+  getAllHumans() {
+    return Array.from(this.humans.values());
+  }
+  
+  dispose() {
+    this.humans.forEach(human => human.dispose());
+    this.humans.clear();
+    this.activeHumanId = null;
+  }
+}
+
+// Create singleton manager
+const humanManager = new HumanManager();
+export default humanManager;
+export { HumanController };
