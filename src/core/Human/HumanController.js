@@ -5,391 +5,326 @@ import EventBus from '../../utils/EventBus';
 
 class HumanController {
   constructor() {
-    this.humans = new Map(); // Store multiple humans
-    this.activeHumanId = null; // Currently controlled human
-    this.humanCounter = 0; // For generating unique IDs
+    this.model = null;
+    this.mixer = null;
+    this.animations = {};
+    this.currentAction = null;
+    this.scene = null;
+    this.world = null;
+    this.body = null;
+    
+    // Movement state
+    this.moveDirection = new THREE.Vector3();
+    this.rotateAngle = new THREE.Vector3(0, 1, 0);
+    this.rotateQuaternion = new THREE.Quaternion();
+    this.cameraTarget = new THREE.Vector3();
+    
+    // Movement settings
+    this.walkSpeed = 4;
+    this.runSpeed = 8;
+    this.currentSpeed = this.walkSpeed;
+    this.isRunning = false;
     
     // Input state
     this.keysPressed = {};
     
-    // Shared loader
-    this.loader = new GLTFLoader();
-    this.modelCache = null; // Cache the loaded model
+    // Temporary vectors
+    this.tempVector = new THREE.Vector3();
+    this.upVector = new THREE.Vector3(0, 1, 0);
     
-    // Bind event handlers once
-    this.handleKeyDown = this.handleKeyDown.bind(this);
-    this.handleKeyUp = this.handleKeyUp.bind(this);
-    
-    // Add event listeners once
-    window.addEventListener('keydown', this.handleKeyDown);
-    window.addEventListener('keyup', this.handleKeyUp);
+    // Animation frame
+    this.animationId = null;
   }
   
-  async spawnHuman(scene, world, position = { x: 0, y: 0, z: 2 }) {
-    const humanId = `human_${++this.humanCounter}`;
+  async initialize(scene, world) {
+    this.scene = scene;
+    this.world = world;
     
     try {
-      // Load or clone model
-      let model;
-      if (this.modelCache) {
-        // Clone cached model
-        model = this.modelCache.clone();
-      } else {
-        // First time loading
-        const modelPath = '/hazard/human/Soldier.glb';
-        const gltf = await new Promise((resolve, reject) => {
-          this.loader.load(
-            modelPath,
-            (loaded) => resolve(loaded),
-            (progress) => {
-              EventBus.emit('human:loading-progress', {
-                loaded: progress.loaded,
-                total: progress.total,
-                humanId
-              });
-            },
-            (error) => reject(error)
-          );
-        });
-        
-        // Cache the scene for future clones
-        this.modelCache = gltf.scene;
-        model = gltf.scene.clone();
-        
-        // Store animations if available
-        if (gltf.animations && gltf.animations.length > 0) {
-          this.cachedAnimations = gltf.animations;
-        }
-      }
+      // Load human model
+      await this.loadModel();
       
-      // Configure model
-      model.scale.set(0.5, 0.5, 0.5);
-      model.position.set(position.x, position.y, position.z);
+      // Set up physics
+      this.setupPhysics();
       
-      // Fix materials
-      model.traverse((child) => {
+      // Add event listeners
+      this.addEventListeners();
+      
+      // Start update loop
+      this.startUpdateLoop();
+      
+      // Emit ready event
+      EventBus.emit('human:ready', {
+        position: this.model.position.toArray(),
+        id: 'player_human'
+      });
+      
+      return true;
+    } catch (error) {
+      console.error('Failed to initialize human controller:', error);
+      EventBus.emit('human:error', { message: error.message });
+      return false;
+    }
+  }
+  
+  async loadModel() {
+    const loader = new GLTFLoader();
+    
+    // Use your local Soldier.glb file
+    const modelPath = '/hazard/human/Soldier.glb';
+    
+    try {
+      const gltf = await new Promise((resolve, reject) => {
+        loader.load(
+          modelPath,
+          (loaded) => resolve(loaded),
+          (progress) => {
+            EventBus.emit('human:loading-progress', {
+              loaded: progress.loaded,
+              total: progress.total
+            });
+          },
+          (error) => reject(error)
+        );
+      });
+      
+      this.model = gltf.scene;
+      
+      // Scale the model appropriately
+      this.model.scale.set(0.5, 0.5, 0.5); // Adjust scale as needed
+      
+      // Fix materials and ensure visibility
+      this.model.traverse((child) => {
         if (child.isMesh) {
           child.castShadow = true;
           child.receiveShadow = true;
           
+          // Ensure materials are visible
           if (child.material) {
+            // Force material to be visible
             child.material.visible = true;
             child.material.side = THREE.DoubleSide;
+            
+            // Fix common material issues
             if (child.material.map) {
               child.material.map.encoding = THREE.sRGBEncoding;
             }
-            child.material.needsUpdate = true;
+            
+            // Ensure proper lighting response
+            if (child.material.isMeshStandardMaterial || child.material.isMeshPhongMaterial) {
+              child.material.needsUpdate = true;
+            }
           }
         }
       });
       
-      // Add to scene
-      scene.add(model);
+      // Set initial position above ground
+      this.model.position.set(0, 0, 2);
       
-      // Create physics body
-      const shape = new CANNON.Box(new CANNON.Vec3(0.25, 0.5, 0.25));
-      const body = new CANNON.Body({
-        mass: 70,
-        shape: shape,
-        fixedRotation: true,
-        linearDamping: 0.95,
-        position: new CANNON.Vec3(position.x, position.y + 0.5, position.z)
-      });
-      world.addBody(body);
+      // Add to scene
+      this.scene.add(this.model);
       
       // Set up animations
-      let mixer = null;
-      let animations = {};
-      let currentAction = null;
-      
-      if (this.cachedAnimations) {
-        mixer = new THREE.AnimationMixer(model);
+      if (gltf.animations && gltf.animations.length > 0) {
+        this.mixer = new THREE.AnimationMixer(this.model);
         
-        this.cachedAnimations.forEach((clip) => {
-          const action = mixer.clipAction(clip);
+        // Map animations by name
+        gltf.animations.forEach((clip) => {
+          const action = this.mixer.clipAction(clip);
+          // Try to identify animation type by name
           const clipName = clip.name.toLowerCase();
-          
           if (clipName.includes('idle')) {
-            animations.idle = action;
+            this.animations.idle = action;
           } else if (clipName.includes('walk')) {
-            animations.walk = action;
+            this.animations.walk = action;
           } else if (clipName.includes('run')) {
-            animations.run = action;
+            this.animations.run = action;
           } else {
-            animations[clipName] = action;
+            // Store by original name as fallback
+            this.animations[clipName] = action;
           }
         });
         
-        // Play idle animation
-        const idleAction = animations.idle || Object.values(animations)[0];
-        if (idleAction) {
-          currentAction = idleAction;
-          currentAction.play();
+        // Play first animation or idle
+        const firstAnimation = this.animations.idle || Object.values(this.animations)[0];
+        if (firstAnimation) {
+          this.currentAction = firstAnimation;
+          this.currentAction.play();
         }
       }
       
-      // Create human data object
-      const humanData = {
-        id: humanId,
-        model,
-        body,
-        mixer,
-        animations,
-        currentAction,
-        scene,
-        world,
-        isActive: this.humans.size === 0, // First human is active by default
-        moveDirection: new THREE.Vector3(),
-        rotateQuaternion: new THREE.Quaternion(),
-        walkSpeed: 4,
-        runSpeed: 8,
-        currentSpeed: 4,
-        isRunning: false,
-        color: this.getHumanColor(this.humans.size) // Assign unique color
-      };
-      
-      // Apply color to distinguish humans
-      this.applyHumanColor(model, humanData.color);
-      
-      // Store human
-      this.humans.set(humanId, humanData);
-      
-      // Set as active if first human
-      if (this.humans.size === 1) {
-        this.activeHumanId = humanId;
-      }
-      
-      // Start update loop if not already running
-      if (this.humans.size === 1) {
-        this.startUpdateLoop();
-      }
-      
-      // Emit events
-      EventBus.emit('human:spawned', {
-        id: humanId,
-        position: position,
-        isActive: humanData.isActive,
-        totalHumans: this.humans.size
-      });
-      
-      return humanId;
+      console.log('Human model loaded successfully');
       
     } catch (error) {
-      console.error('Failed to spawn human:', error);
-      EventBus.emit('human:error', { message: error.message, humanId });
+      console.error('Failed to load human model:', error);
       throw error;
     }
   }
   
-  getHumanColor(index) {
-    const colors = [
-      0x0080ff, // Blue
-      0xff0080, // Pink
-      0x00ff80, // Green
-      0xff8000, // Orange
-      0x8000ff, // Purple
-      0x80ff00, // Lime
-    ];
-    return colors[index % colors.length];
+  setupPhysics() {
+    // Create physics body for the human
+    const shape = new CANNON.Box(new CANNON.Vec3(0.25, 0.5, 0.25));
+    this.body = new CANNON.Body({
+      mass: 70, // 70kg human
+      shape: shape,
+      fixedRotation: true, // Prevent tipping
+      linearDamping: 0.95,
+      position: new CANNON.Vec3(
+        this.model.position.x,
+        this.model.position.y + 0.5,
+        this.model.position.z
+      )
+    });
+    
+    // Add to physics world
+    this.world.addBody(this.body);
   }
   
-  applyHumanColor(model, color) {
-    model.traverse((child) => {
-      if (child.isMesh && child.material) {
-        // Add colored emission to distinguish
-        if (child.material.emissive !== undefined) {
-          child.material.emissive = new THREE.Color(color);
-          child.material.emissiveIntensity = 0.2;
-        }
+  addEventListeners() {
+    // Bind methods using arrow functions to preserve context
+    this.handleKeyDown = (event) => {
+      if (event.repeat) return;
+      
+      const key = event.key.toLowerCase();
+      this.keysPressed[key] = true;
+      
+      // Running
+      if (key === 'shift') {
+        this.isRunning = true;
+        this.currentSpeed = this.runSpeed;
       }
+      
+      // Emit movement start
+      if (['w', 'a', 's', 'd'].includes(key)) {
+        EventBus.emit('human:movement-start', { key });
+      }
+    };
+    
+    this.handleKeyUp = (event) => {
+      const key = event.key.toLowerCase();
+      this.keysPressed[key] = false;
+      
+      // Stop running
+      if (key === 'shift') {
+        this.isRunning = false;
+        this.currentSpeed = this.walkSpeed;
+      }
+      
+      // Check if all movement keys are released
+      if (!this.keysPressed.w && !this.keysPressed.a && 
+          !this.keysPressed.s && !this.keysPressed.d) {
+        EventBus.emit('human:movement-stop');
+        this.playAnimation('idle');
+      }
+    };
+    
+    window.addEventListener('keydown', this.handleKeyDown);
+    window.addEventListener('keyup', this.handleKeyUp);
+    
+    // Listen for external commands
+    EventBus.on('human:move-to', (data) => {
+      this.moveToPosition(data.position);
+    });
+    
+    EventBus.on('human:set-animation', (data) => {
+      this.playAnimation(data.animation);
+    });
+    
+    EventBus.on('human:teleport', (data) => {
+      this.teleport(data.position);
     });
   }
   
-  selectHuman(humanId) {
-    if (!this.humans.has(humanId)) return false;
-    
-    // Deactivate previous
-    if (this.activeHumanId && this.humans.has(this.activeHumanId)) {
-      const prevHuman = this.humans.get(this.activeHumanId);
-      prevHuman.isActive = false;
-      
-      // Stop movement
-      prevHuman.body.velocity.set(0, 0, 0);
-      prevHuman.moveDirection.set(0, 0, 0);
-      
-      // Play idle animation
-      this.playAnimation(prevHuman, 'idle');
-    }
-    
-    // Activate new
-    this.activeHumanId = humanId;
-    const human = this.humans.get(humanId);
-    human.isActive = true;
-    
-    EventBus.emit('human:selected', {
-      id: humanId,
-      position: human.model.position.toArray()
-    });
-    
-    return true;
-  }
-  
-  removeHuman(humanId) {
-    const human = this.humans.get(humanId);
-    if (!human) return false;
-    
-    // Remove from scene
-    human.scene.remove(human.model);
-    
-    // Remove physics
-    human.world.removeBody(human.body);
-    
-    // Stop animations
-    if (human.mixer) {
-      human.mixer.stopAllAction();
-    }
-    
-    // Remove from map
-    this.humans.delete(humanId);
-    
-    // Select another human if this was active
-    if (this.activeHumanId === humanId) {
-      this.activeHumanId = null;
-      if (this.humans.size > 0) {
-        const firstId = this.humans.keys().next().value;
-        this.selectHuman(firstId);
-      }
-    }
-    
-    // Stop update loop if no humans left
-    if (this.humans.size === 0 && this.animationId) {
-      cancelAnimationFrame(this.animationId);
-      this.animationId = null;
-    }
-    
-    EventBus.emit('human:removed', { id: humanId });
-    
-    return true;
-  }
-  
-  handleKeyDown(event) {
-    if (event.repeat) return;
-    
-    const key = event.key.toLowerCase();
-    this.keysPressed[key] = true;
-    
-    // Number keys to select human
-    if (key >= '1' && key <= '9') {
-      const index = parseInt(key) - 1;
-      const humanIds = Array.from(this.humans.keys());
-      if (index < humanIds.length) {
-        this.selectHuman(humanIds[index]);
-      }
-      return;
-    }
-    
-    // Running
-    if (key === 'shift' && this.activeHumanId) {
-      const human = this.humans.get(this.activeHumanId);
-      if (human) {
-        human.isRunning = true;
-        human.currentSpeed = human.runSpeed;
-      }
-    }
-    
-    // Movement
-    if (['w', 'a', 's', 'd'].includes(key) && this.activeHumanId) {
-      EventBus.emit('human:movement-start', { 
-        key, 
-        humanId: this.activeHumanId 
-      });
-    }
-  }
-  
-  handleKeyUp(event) {
-    const key = event.key.toLowerCase();
-    this.keysPressed[key] = false;
-    
-    // Stop running
-    if (key === 'shift' && this.activeHumanId) {
-      const human = this.humans.get(this.activeHumanId);
-      if (human) {
-        human.isRunning = false;
-        human.currentSpeed = human.walkSpeed;
-      }
-    }
-    
-    // Check if all movement keys are released
-    if (!this.keysPressed.w && !this.keysPressed.a && 
-        !this.keysPressed.s && !this.keysPressed.d && this.activeHumanId) {
-      const human = this.humans.get(this.activeHumanId);
-      if (human) {
-        EventBus.emit('human:movement-stop', { humanId: this.activeHumanId });
-        this.playAnimation(human, 'idle');
-      }
-    }
-  }
-  
-  updateMovement(human, deltaTime) {
-    if (!human.isActive) return;
+  updateMovement(deltaTime) {
+    if (!this.model || !this.body) return;
     
     // Reset movement direction
-    human.moveDirection.set(0, 0, 0);
+    this.moveDirection.set(0, 0, 0);
     
     // Calculate movement direction based on keys
-    if (this.keysPressed.w) human.moveDirection.z -= 1;
-    if (this.keysPressed.s) human.moveDirection.z += 1;
-    if (this.keysPressed.a) human.moveDirection.x -= 1;
-    if (this.keysPressed.d) human.moveDirection.x += 1;
+    if (this.keysPressed.w) this.moveDirection.z -= 1;
+    if (this.keysPressed.s) this.moveDirection.z += 1;
+    if (this.keysPressed.a) this.moveDirection.x -= 1;
+    if (this.keysPressed.d) this.moveDirection.x += 1;
     
     // Normalize and apply speed
-    if (human.moveDirection.length() > 0) {
-      human.moveDirection.normalize();
-      human.moveDirection.multiplyScalar(human.currentSpeed);
+    if (this.moveDirection.length() > 0) {
+      this.moveDirection.normalize();
+      this.moveDirection.multiplyScalar(this.currentSpeed);
       
       // Play appropriate animation
-      this.playAnimation(human, human.isRunning ? 'run' : 'walk');
+      this.playAnimation(this.isRunning ? 'run' : 'walk');
       
       // Rotate model to face movement direction
-      if (human.moveDirection.x !== 0 || human.moveDirection.z !== 0) {
-        const angle = Math.atan2(human.moveDirection.x, -human.moveDirection.z);
-        human.rotateQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle);
-        human.model.quaternion.slerp(human.rotateQuaternion, 0.1);
+      if (this.moveDirection.x !== 0 || this.moveDirection.z !== 0) {
+        const angle = Math.atan2(this.moveDirection.x, -this.moveDirection.z);
+        this.rotateQuaternion.setFromAxisAngle(this.upVector, angle);
+        this.model.quaternion.slerp(this.rotateQuaternion, 0.1);
       }
     }
     
     // Apply movement to physics body
-    human.body.velocity.x = human.moveDirection.x;
-    human.body.velocity.z = human.moveDirection.z;
+    this.body.velocity.x = this.moveDirection.x;
+    this.body.velocity.z = this.moveDirection.z;
     
     // Sync model position with physics body
-    human.model.position.copy(human.body.position);
-    human.model.position.y -= 0.5; // Adjust for body center
+    this.model.position.copy(this.body.position);
+    this.model.position.y -= 0.5; // Adjust for body center
+    
+    // Emit position update
+    EventBus.emitThrottled('human:position-update', {
+      position: this.model.position.toArray(),
+      rotation: this.model.rotation.y,
+      velocity: this.moveDirection.toArray(),
+      isRunning: this.isRunning
+    }, 50);
   }
   
-  playAnimation(human, name) {
-    if (!human.mixer || !human.animations[name]) return;
+  playAnimation(name) {
+    if (!this.mixer || !this.animations[name]) {
+      // If specific animation doesn't exist, try to keep current
+      if (!this.animations[name] && this.currentAction) {
+        return;
+      }
+    }
     
-    const newAction = human.animations[name];
+    const newAction = this.animations[name];
     
-    if (newAction && newAction !== human.currentAction) {
-      if (human.currentAction) {
-        human.currentAction.fadeOut(0.2);
+    if (newAction && newAction !== this.currentAction) {
+      if (this.currentAction) {
+        this.currentAction.fadeOut(0.2);
       }
       
       newAction.reset().fadeIn(0.2).play();
-      human.currentAction = newAction;
+      this.currentAction = newAction;
       
-      EventBus.emit('human:animation-change', { 
-        animation: name,
-        humanId: human.id
-      });
+      EventBus.emit('human:animation-change', { animation: name });
     }
   }
   
-  startUpdateLoop() {
-    if (this.animationId) return; // Already running
+  moveToPosition(targetPosition) {
+    if (!this.model || !this.body) return;
     
+    // Simple move to position
+    const direction = new THREE.Vector3()
+      .subVectors(targetPosition, this.model.position)
+      .normalize();
+    
+    this.body.velocity.x = direction.x * this.currentSpeed;
+    this.body.velocity.z = direction.z * this.currentSpeed;
+  }
+  
+  teleport(position) {
+    if (!this.model || !this.body) return;
+    
+    this.body.position.set(position.x, position.y + 0.5, position.z);
+    this.body.velocity.set(0, 0, 0);
+    this.model.position.copy(position);
+    
+    EventBus.emit('human:teleported', { position });
+  }
+  
+  startUpdateLoop() {
     const clock = new THREE.Clock();
     
     const animate = () => {
@@ -397,53 +332,55 @@ class HumanController {
       
       const deltaTime = clock.getDelta();
       
-      // Update all humans
-      this.humans.forEach((human) => {
-        // Update movement for active human
-        this.updateMovement(human, deltaTime);
-        
-        // Update animations for all humans
-        if (human.mixer) {
-          human.mixer.update(deltaTime);
-        }
-        
-        // Emit position updates
-        EventBus.emitThrottled(`human:position-update:${human.id}`, {
-          humanId: human.id,
-          position: human.model.position.toArray(),
-          rotation: human.model.rotation.y,
-          velocity: human.moveDirection.toArray(),
-          isRunning: human.isRunning,
-          isActive: human.isActive
-        }, 50);
-      });
+      // Update movement
+      this.updateMovement(deltaTime);
+      
+      // Update animations
+      if (this.mixer) {
+        this.mixer.update(deltaTime);
+      }
     };
     
     animate();
   }
   
-  getAllHumans() {
-    return Array.from(this.humans.entries()).map(([id, human]) => ({
-      id,
-      position: human.model.position.toArray(),
-      isActive: human.isActive,
-      isRunning: human.isRunning,
-      color: human.color
-    }));
+  getPosition() {
+    return this.model ? this.model.position.clone() : new THREE.Vector3();
+  }
+  
+  getInfo() {
+    return {
+      position: this.model ? this.model.position.toArray() : [0, 0, 0],
+      rotation: this.model ? this.model.rotation.y : 0,
+      isRunning: this.isRunning,
+      currentAnimation: this.currentAction ? this.currentAction.getClip().name : 'none'
+    };
   }
   
   dispose() {
-    // Remove all humans
-    const humanIds = Array.from(this.humans.keys());
-    humanIds.forEach(id => this.removeHuman(id));
+    // Stop update loop
+    if (this.animationId) {
+      cancelAnimationFrame(this.animationId);
+    }
     
     // Remove event listeners
     window.removeEventListener('keydown', this.handleKeyDown);
     window.removeEventListener('keyup', this.handleKeyUp);
     
-    // Clear cache
-    this.modelCache = null;
-    this.cachedAnimations = null;
+    // Remove from scene
+    if (this.model && this.scene) {
+      this.scene.remove(this.model);
+    }
+    
+    // Remove physics body
+    if (this.body && this.world) {
+      this.world.removeBody(this.body);
+    }
+    
+    // Clean up
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+    }
     
     EventBus.emit('human:disposed');
   }
@@ -451,4 +388,4 @@ class HumanController {
 
 // Create singleton instance
 const humanController = new HumanController();
-export default humanController; 
+export default humanController;
