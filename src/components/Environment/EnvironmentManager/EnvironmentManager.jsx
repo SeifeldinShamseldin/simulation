@@ -582,8 +582,8 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                               className="controls-form-control"
                               step="0.1"
                               value={(() => {
-                                const obj = viewerRef.current?.getSceneSetup()?.environmentObjects.get(obj.instanceId);
-                                return obj ? obj.position[axis].toFixed(2) : 0;
+                                const currentObj = viewerRef.current?.getSceneSetup()?.environmentObjects.get(obj.instanceId);
+                                return currentObj ? currentObj.position[axis].toFixed(2) : 0;
                               })()}
                               onChange={(e) => {
                                 const sceneSetup = viewerRef.current?.getSceneSetup();

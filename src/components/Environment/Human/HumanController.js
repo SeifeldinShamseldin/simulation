@@ -269,7 +269,6 @@ class HumanController {
     
     // Sync model position with physics body
     this.model.position.copy(this.body.position);
-    this.model.position.y -= 0.5; // Adjust for body center
     
     // Emit position update
     EventBus.emitThrottled('human:position-update', {
