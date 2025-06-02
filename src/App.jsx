@@ -2,7 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
 import Navbar from './components/Navbar/Navbar';
-import EnvironmentManager from './components/controls/EnvironmentManager/EnvironmentManager';
+import EnvironmentManager from './components/Environment/EnvironmentManager/EnvironmentManager';
 import { RobotProvider, useRobot } from './contexts/RobotContext';
 import './App.css';
 

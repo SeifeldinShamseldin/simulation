@@ -12,7 +12,7 @@ import Reposition from './Reposition/Reposition';
 import TCPManager from '../controls/TCPDisplay/TCPManager';
 import IKController from './IKController/IKController';
 import TrajectoryViewer from './RecordMap/TrajectoryViewer';
-import EnvironmentManager from './EnvironmentManager/EnvironmentManager';
+import EnvironmentManager from '../Environment/EnvironmentManager/EnvironmentManager';
 import FloorControls from './FloorControls/FloorControls';
 import ikAPI from '../../core/IK/API/IKAPI';
 import tcpProvider from '../../core/IK/TCP/TCPProvider';

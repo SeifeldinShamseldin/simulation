@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as CANNON from 'cannon-es';
-import EventBus from '../../utils/EventBus';
+import EventBus from '../../../utils/EventBus';
 
 class HumanController {
   constructor() {
@@ -71,7 +71,7 @@ class HumanController {
     const loader = new GLTFLoader();
     
     // Use your local Soldier.glb file
-    const modelPath = '/hazard/human/Soldier.glb';
+    const modelPath = '../../../../public/hazard/human/Soldier.glb';
     
     try {
       const gltf = await new Promise((resolve, reject) => {

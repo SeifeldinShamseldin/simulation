@@ -1,7 +1,7 @@
 // src/components/controls/EnvironmentManager/EnvironmentManager.jsx
 import React, { useState, useEffect } from 'react';
 import EventBus from '../../../utils/EventBus';
-import humanController from '../../../core/Human/HumanController';
+import humanController from '../Human/HumanController';
 import '../../../styles/ControlsTheme.css';
 import fs from 'fs';
 import path from 'path';
