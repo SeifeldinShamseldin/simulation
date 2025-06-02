@@ -25,6 +25,9 @@ class HumanController {
     this.currentSpeed = this.walkSpeed;
     this.isRunning = false;
     
+    // Add movement enabled flag
+    this.movementEnabled = false;
+    
     // Input state
     this.keysPressed = {};
     
@@ -118,8 +121,8 @@ class HumanController {
         }
       });
       
-      // Set initial position above ground
-      this.model.position.set(0, 0, 2);
+      // Set initial position at ground level
+      this.model.position.set(0, 0, 0);
       
       // Add to scene
       this.scene.add(this.model);
@@ -171,10 +174,14 @@ class HumanController {
       linearDamping: 0.95,
       position: new CANNON.Vec3(
         this.model.position.x,
-        this.model.position.y + 0.5,
+        0.5, // Half the height of the shape to place feet on ground
         this.model.position.z
       )
     });
+    
+    // Constrain vertical movement
+    this.body.linearDamping = 0.95;
+    this.body.angularDamping = 0.99;
     
     // Add to physics world
     this.world.addBody(this.body);
@@ -183,7 +190,7 @@ class HumanController {
   addEventListeners() {
     // Bind methods using arrow functions to preserve context
     this.handleKeyDown = (event) => {
-      if (event.repeat) return;
+      if (event.repeat || !this.movementEnabled) return;
       
       const key = event.key.toLowerCase();
       this.keysPressed[key] = true;
@@ -236,7 +243,13 @@ class HumanController {
   }
   
   updateMovement(deltaTime) {
-    if (!this.model || !this.body) return;
+    if (!this.model || !this.body || !this.movementEnabled) {
+      // If movement disabled, ensure idle animation
+      if (!this.movementEnabled && this.currentAction && this.animations.idle) {
+        this.playAnimation('idle');
+      }
+      return;
+    }
     
     // Reset movement direction
     this.moveDirection.set(0, 0, 0);
@@ -263,12 +276,24 @@ class HumanController {
       }
     }
     
-    // Apply movement to physics body
+    // Apply movement to physics body (horizontal only)
     this.body.velocity.x = this.moveDirection.x;
     this.body.velocity.z = this.moveDirection.z;
     
+    // Keep the body on the ground (prevent floating)
+    // If body is too high, apply downward force
+    if (this.body.position.y > 0.5) {
+      this.body.velocity.y = -2; // Apply downward velocity
+    } else if (this.body.position.y < 0.5) {
+      // If below ground, push back up
+      this.body.position.y = 0.5;
+      this.body.velocity.y = 0;
+    }
+    
     // Sync model position with physics body
-    this.model.position.copy(this.body.position);
+    this.model.position.x = this.body.position.x;
+    this.model.position.z = this.body.position.z;
+    this.model.position.y = this.body.position.y - 0.5; // Adjust for body center vs feet
     
     // Emit position update
     EventBus.emitThrottled('human:position-update', {
@@ -316,9 +341,9 @@ class HumanController {
   teleport(position) {
     if (!this.model || !this.body) return;
     
-    this.body.position.set(position.x, position.y + 0.5, position.z);
+    this.body.position.set(position.x, 0.5, position.z); // Always at ground height
     this.body.velocity.set(0, 0, 0);
-    this.model.position.copy(position);
+    this.model.position.set(position.x, 0, position.z); // Model at ground level
     
     EventBus.emit('human:teleported', { position });
   }
@@ -382,6 +407,19 @@ class HumanController {
     }
     
     EventBus.emit('human:disposed');
+  }
+  
+  // Add method to enable/disable movement
+  setMovementEnabled(enabled) {
+    this.movementEnabled = enabled;
+    
+    // Stop movement if disabling
+    if (!enabled) {
+      this.keysPressed = {};
+      this.playAnimation('idle');
+    }
+    
+    EventBus.emit('human:movement-toggle', { enabled });
   }
 }
 

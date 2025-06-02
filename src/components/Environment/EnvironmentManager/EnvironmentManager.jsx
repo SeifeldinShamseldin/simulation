@@ -76,6 +76,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const [humanInfo, setHumanInfo] = useState(null);
   const [expandedObjects, setExpandedObjects] = useState(new Set());
   const [rotationAxis, setRotationAxis] = useState('y'); // default rotation axis
+  const [humanMovementEnabled, setHumanMovementEnabled] = useState(false);
 
   // Scan environment directory on mount
   useEffect(() => {
@@ -133,6 +134,67 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const loadObject = async (objectConfig) => {
     if (!viewerRef?.current) return;
     
+    // Special handling for human objects
+    if (objectConfig.category === 'human' || objectConfig.path?.includes('/human/')) {
+      const sceneSetup = viewerRef.current.getSceneSetup();
+      if (!sceneSetup) return;
+      
+      setLoading(true);
+      try {
+        // Check if human controller is already initialized
+        if (humanLoaded) {
+          setError('Human is already spawned. Remove the existing one first.');
+          setLoading(false);
+          return;
+        }
+        
+        // Initialize the human controller with scene and physics world
+        const success = await humanController.initialize(
+          sceneSetup.scene, 
+          sceneSetup.world
+        );
+        
+        if (success) {
+          setHumanLoaded(true);
+          
+          // Add to loaded objects list for consistency
+          const humanInstance = {
+            instanceId: 'human_controller',
+            objectId: objectConfig.id,
+            name: objectConfig.name,
+            category: 'human',
+            path: objectConfig.path
+          };
+          
+          setLoadedObjects(prev => [...prev, humanInstance]);
+          
+          // Only track one human in spawned humans
+          setSpawnedHumans([{
+            id: 'human_controller',
+            name: objectConfig.name,
+            isActive: true
+          }]);
+          
+          setSelectedHuman('human_controller');
+          
+          setSuccessMessage('Human spawned! Use WASD to move, Shift to run.');
+          setTimeout(() => setSuccessMessage(''), 5000);
+          
+          EventBus.emit('human:spawned', {
+            id: 'human_controller',
+            name: objectConfig.name,
+            isActive: true
+          });
+        }
+      } catch (error) {
+        setError('Failed to spawn human: ' + error.message);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    
+    // Original code for non-human objects
     setLoading(true);
     setError(null);
     
@@ -146,32 +208,16 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
         ...objectConfig,
         id: instanceId,
         castShadow: true,
-        receiveShadow: true,
-        isDynamic: objectConfig.category === 'human' || objectConfig.path?.includes('/human/')
+        receiveShadow: true
       });
       
-      // Store all object information including path
       setLoadedObjects(prev => [...prev, {
         instanceId,
         objectId: objectConfig.id,
         name: objectConfig.name,
         category: objectConfig.category,
-        path: objectConfig.path // Make sure path is stored
+        path: objectConfig.path
       }]);
-      
-      // If it's a human, track it separately
-      if (objectConfig.category === 'human' || objectConfig.path?.includes('/human/')) {
-        const humanData = {
-          id: instanceId,
-          name: objectConfig.name,
-          object3D: object3D,
-          position: object3D.position,
-          isActive: spawnedHumans.length === 0
-        };
-        
-        setSpawnedHumans(prev => [...prev, humanData]);
-        EventBus.emit('human:spawned', humanData);
-      }
       
       setSuccessMessage(`Added ${objectConfig.name} to scene`);
       setTimeout(() => setSuccessMessage(''), 3000);
@@ -282,33 +328,42 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const removeObject = (instanceId) => {
     if (!viewerRef?.current) return;
     
+    // Check if it's the human controller
+    if (instanceId === 'human_controller') {
+      humanController.dispose();
+      setHumanLoaded(false);
+      setSpawnedHumans([]);
+      setSelectedHuman(null);
+      setHumanMovementEnabled(false); // Reset movement state
+      // Remove from loaded objects
+      setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
+      EventBus.emit('human:removed', { id: instanceId });
+      return;
+    }
+    
     const sceneSetup = viewerRef.current.getSceneSetup();
     if (!sceneSetup) return;
     
-    // Check if it's a human being removed
-    const loadedObj = loadedObjects.find(obj => obj.instanceId === instanceId);
-    if (loadedObj && loadedObj.category === 'human') {
-      setSpawnedHumans(prev => prev.filter(h => h.id !== instanceId));
-      EventBus.emit('human:removed', { id: instanceId });
-    }
-    
-    // Use standard removal for all objects
     sceneSetup.removeEnvironmentObject(instanceId);
     setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
   };
 
   const handleMoveHuman = (humanId) => {
-    // Enable keyboard controls for this human
-    setSelectedHuman(humanId);
+    // Toggle movement state
+    const newState = !humanMovementEnabled;
+    setHumanMovementEnabled(newState);
     
-    // Emit event to activate human controls
-    EventBus.emit('human:activate-controls', {
-      id: humanId,
-      message: 'Use WASD to move, Shift to run'
-    });
+    // Update human controller
+    humanController.setMovementEnabled(newState);
     
-    setSuccessMessage('Human controls activated! Use WASD to move, Shift to run.');
-    setTimeout(() => setSuccessMessage(''), 5000);
+    if (newState) {
+      setSelectedHuman(humanId);
+      setSuccessMessage('Human movement enabled! Use WASD to move, Shift to run.');
+    } else {
+      setSuccessMessage('Human movement disabled.');
+    }
+    
+    setTimeout(() => setSuccessMessage(''), 3000);
   };
 
   // Render category boxes
@@ -359,56 +414,32 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       </div>
       
       {/* Human controls */}
-      {spawnedHumans.length > 0 && (
+      {humanLoaded && (
         <div style={{
           marginTop: '2rem',
           padding: '1rem',
           background: '#f5f5f5',
           borderRadius: '8px'
         }}>
-          <h4 style={{ margin: '0 0 1rem 0' }}>Spawned Humans ({spawnedHumans.length})</h4>
+          <h4 style={{ margin: '0 0 1rem 0' }}>Human Controls</h4>
           <div style={{ fontSize: '0.875rem', marginBottom: '1rem' }}>
-            Use number keys 1-{Math.min(spawnedHumans.length, 9)} to select • WASD to move • Shift to run
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-            {spawnedHumans.map((human, index) => (
-              <button
-                key={human.id}
-                onClick={() => humanController.selectHuman(human.id)}
-                style={{
-                  padding: '0.5rem 1rem',
-                  background: selectedHuman === human.id ? '#007bff' : '#fff',
-                  color: selectedHuman === human.id ? '#fff' : '#333',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '0.875rem',
-                  transition: 'all 0.2s'
-                }}
-              >
-                Human {index + 1}
-              </button>
-            ))}
+            {humanMovementEnabled ? 
+              '🟢 Movement Enabled - Use WASD to move • Shift to run' : 
+              '🔴 Movement Disabled - Click "Move Human" to enable'}
           </div>
           <button
-            onClick={() => {
-              if (selectedHuman) {
-                removeHuman(selectedHuman);
-              }
-            }}
-            disabled={!selectedHuman}
+            onClick={() => removeObject('human_controller')}
             style={{
-              marginTop: '0.5rem',
               padding: '0.5rem 1rem',
-              background: selectedHuman ? '#dc3545' : '#ccc',
+              background: '#dc3545',
               color: '#fff',
               border: 'none',
               borderRadius: '4px',
-              cursor: selectedHuman ? 'pointer' : 'not-allowed',
+              cursor: 'pointer',
               fontSize: '0.875rem'
             }}
           >
-            Remove Selected Human
+            Remove Human
           </button>
         </div>
       )}
@@ -663,10 +694,10 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                   {/* Move Human Button - Only for human category */}
                   {isHuman && (
                     <button
-                      className="controls-btn controls-btn-success controls-btn-block controls-mb-3"
+                      className={`controls-btn ${humanMovementEnabled ? 'controls-btn-danger' : 'controls-btn-success'} controls-btn-block controls-mb-3`}
                       onClick={() => handleMoveHuman(obj.instanceId)}
                     >
-                      🚶 Move Human
+                      {humanMovementEnabled ? '🛑 Stop Human' : '🚶 Move Human'}
                     </button>
                   )}
                   
