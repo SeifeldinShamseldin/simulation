@@ -59,70 +59,52 @@ const OBJECT_LIBRARY = [
   }
 ];
 
-const EnvironmentManager = ({ viewerRef, isOpen, onClose }) => {
+const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const [categories, setCategories] = useState([]);
   const [loadedObjects, setLoadedObjects] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [editingObject, setEditingObject] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [currentView, setCurrentView] = useState('categories'); // 'categories' or 'objects'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [spawnedHumans, setSpawnedHumans] = useState([]);
+  const [selectedHuman, setSelectedHuman] = useState(null);
   const [humanLoaded, setHumanLoaded] = useState(false);
   const [humanInfo, setHumanInfo] = useState(null);
-  
-  // Form state for editing
-  const [editForm, setEditForm] = useState({
-    position: { x: 0, y: 0, z: 0 },
-    rotation: { x: 0, y: 0, z: 0 },
-    scale: { x: 1, y: 1, z: 1 },
-    visible: true
-  });
 
-  // Scan environment directory on mount and when refreshed
+  // Scan environment directory on mount
   useEffect(() => {
-    if (isOpen) {
-      scanEnvironment();
-    }
-  }, [isOpen]);
-
-  // Listen for external object additions/removals
-  useEffect(() => {
-    const unsubscribeAdded = EventBus.on('scene:object-added', (data) => {
-      if (data.type === 'environment' && !loadedObjects.find(obj => obj.instanceId === data.objectId)) {
-        console.log('Environment object added externally:', data);
-      }
-    });
-    
-    const unsubscribeRemoved = EventBus.on('scene:object-removed', (data) => {
-      if (data.type === 'environment') {
-        setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== data.objectId));
-      }
-    });
-    
-    return () => {
-      unsubscribeAdded();
-      unsubscribeRemoved();
-    };
-  }, [loadedObjects]);
-
-  // Add useEffect for human events
-  useEffect(() => {
-    const unsubscribeReady = EventBus.on('human:ready', () => {
-      setHumanLoaded(true);
-    });
-    
-    const unsubscribePosition = EventBus.on('human:position-update', (data) => {
-      setHumanInfo(data);
-    });
-    
-    return () => {
-      unsubscribeReady();
-      unsubscribePosition();
-    };
+    scanEnvironment();
   }, []);
 
-  // Scan environment directory for available objects
+  // Listen for human events
+  useEffect(() => {
+    const unsubscribeSpawned = EventBus.on('human:spawned', (data) => {
+      setSpawnedHumans(prev => [...prev, data]);
+      if (data.isActive) {
+        setSelectedHuman(data.id);
+      }
+    });
+    
+    const unsubscribeRemoved = EventBus.on('human:removed', (data) => {
+      setSpawnedHumans(prev => prev.filter(h => h.id !== data.id));
+      if (selectedHuman === data.id) {
+        setSelectedHuman(null);
+      }
+    });
+    
+    const unsubscribeSelected = EventBus.on('human:selected', (data) => {
+      setSelectedHuman(data.id);
+    });
+    
+    return () => {
+      unsubscribeSpawned();
+      unsubscribeRemoved();
+      unsubscribeSelected();
+    };
+  }, [selectedHuman]);
+
   const scanEnvironment = async () => {
     setIsScanning(true);
     setError(null);
@@ -144,29 +126,40 @@ const EnvironmentManager = ({ viewerRef, isOpen, onClose }) => {
     }
   };
 
-  // Get filtered objects based on selected category
-  const getFilteredObjects = () => {
-    if (selectedCategory === 'all') {
-      return categories.flatMap(cat => 
-        cat.objects.map(obj => ({ ...obj, category: cat.id, categoryName: cat.name, icon: cat.icon }))
-      );
-    }
-    
-    const category = categories.find(cat => cat.id === selectedCategory);
-    if (!category) return [];
-    
-    return category.objects.map(obj => ({ 
-      ...obj, 
-      category: category.id, 
-      categoryName: category.name,
-      icon: category.icon 
-    }));
-  };
-
-  // Load object into scene
   const loadObject = async (objectConfig) => {
     if (!viewerRef?.current) return;
     
+    // Special handling for human
+    if (objectConfig.category === 'human') {
+      const sceneSetup = viewerRef.current.getSceneSetup();
+      if (!sceneSetup) return;
+      
+      setLoading(true);
+      try {
+        // Random spawn position
+        const position = {
+          x: (Math.random() - 0.5) * 4,
+          y: 0,
+          z: (Math.random() - 0.5) * 4
+        };
+        
+        await humanController.spawnHuman(
+          sceneSetup.scene, 
+          sceneSetup.world,
+          position
+        );
+        
+        setSuccessMessage('Human spawned! Press number keys (1-9) to select different humans.');
+        setTimeout(() => setSuccessMessage(''), 5000);
+      } catch (error) {
+        setError('Failed to spawn human: ' + error.message);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    
+    // Original loadObject code for other objects
     setLoading(true);
     setError(null);
     
@@ -180,34 +173,18 @@ const EnvironmentManager = ({ viewerRef, isOpen, onClose }) => {
         ...objectConfig,
         id: instanceId,
         castShadow: true,
-        receiveShadow: true,
-        material: getMaterialForCategory(objectConfig.category)
+        receiveShadow: true
       });
-      
-      const actualPosition = object3D.position;
-      const actualRotation = object3D.rotation;
       
       setLoadedObjects(prev => [...prev, {
         instanceId,
         objectId: objectConfig.id,
         name: objectConfig.name,
-        category: objectConfig.category,
-        categoryName: objectConfig.categoryName,
-        icon: objectConfig.icon,
-        type: objectConfig.type,
-        position: { 
-          x: actualPosition.x, 
-          y: actualPosition.y, 
-          z: actualPosition.z 
-        },
-        rotation: { 
-          x: actualRotation.x, 
-          y: actualRotation.y, 
-          z: actualRotation.z 
-        },
-        scale: { x: 1, y: 1, z: 1 },
-        visible: true
+        category: objectConfig.category
       }]);
+      
+      setSuccessMessage(`Added ${objectConfig.name} to scene`);
+      setTimeout(() => setSuccessMessage(''), 3000);
       
     } catch (err) {
       console.error('Failed to load object:', err);
@@ -217,173 +194,6 @@ const EnvironmentManager = ({ viewerRef, isOpen, onClose }) => {
     }
   };
 
-  // Delete object file from server
-  const deleteObjectFile = async (objectConfig) => {
-    if (!confirm(`Are you sure you want to permanently delete "${objectConfig.name}"?\n\nThis action cannot be undone.`)) {
-      return;
-    }
-    
-    setLoading(true);
-    setError(null);
-    setSuccessMessage('');
-    
-    try {
-      const response = await fetch('/api/environment/delete', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ path: objectConfig.path })
-      });
-      
-      const result = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(result.message || `Server error: ${response.status}`);
-      }
-      
-      if (result.success) {
-        // Refresh the environment scan
-        await scanEnvironment();
-        
-        // Show success message
-        setSuccessMessage(`Successfully deleted: ${objectConfig.name}`);
-        setTimeout(() => setSuccessMessage(''), 3000);
-      } else {
-        setError(result.message || 'Failed to delete file');
-      }
-    } catch (err) {
-      console.error('Error deleting file:', err);
-      setError(`Error deleting file: ${err.message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Get material configuration based on category
-  const getMaterialForCategory = (category) => {
-    const materials = {
-      furniture: {
-        type: 'phong',
-        color: 0x8b6f47,
-        shininess: 30,
-        specular: 0x222222
-      },
-      electricalhazard: {
-        type: 'phong',
-        color: 0xffff00,
-        shininess: 100,
-        emissive: 0x444400,
-        emissiveIntensity: 0.3
-      },
-      mechanicalhazard: {
-        type: 'standard',
-        color: 0x666666,
-        metalness: 0.8,
-        roughness: 0.2
-      },
-      safetysign: {
-        type: 'basic',
-        color: 0xff0000
-      }
-    };
-    
-    return materials[category] || {
-      type: 'phong',
-      color: 0x888888,
-      shininess: 50
-    };
-  };
-
-  // Remove object from scene
-  const removeObject = (instanceId) => {
-    if (!viewerRef?.current) return;
-    
-    const sceneSetup = viewerRef.current.getSceneSetup();
-    if (!sceneSetup) return;
-    
-    sceneSetup.removeEnvironmentObject(instanceId);
-    setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
-    
-    if (editingObject?.instanceId === instanceId) {
-      setEditingObject(null);
-    }
-  };
-
-  // Update object properties
-  const updateObject = () => {
-    if (!viewerRef?.current || !editingObject) return;
-    
-    const sceneSetup = viewerRef.current.getSceneSetup();
-    if (!sceneSetup) return;
-    
-    sceneSetup.updateEnvironmentObject(editingObject.instanceId, editForm);
-    
-    setLoadedObjects(prev => prev.map(obj => 
-      obj.instanceId === editingObject.instanceId 
-        ? { ...obj, ...editForm }
-        : obj
-    ));
-    
-    setEditingObject(null);
-  };
-
-  // Handle form input change
-  const handleFormChange = (property, axis, value) => {
-    setEditForm(prev => ({
-      ...prev,
-      [property]: {
-        ...prev[property],
-        [axis]: parseFloat(value) || 0
-      }
-    }));
-  };
-
-  // Start editing an object
-  const startEdit = (object) => {
-    setEditingObject(object);
-    setEditForm({
-      position: { ...object.position },
-      rotation: { ...object.rotation },
-      scale: { ...object.scale },
-      visible: object.visible
-    });
-  };
-
-  // Toggle visibility
-  const toggleVisibility = (instanceId) => {
-    const object = loadedObjects.find(obj => obj.instanceId === instanceId);
-    if (!object || !viewerRef?.current) return;
-    
-    const sceneSetup = viewerRef.current.getSceneSetup();
-    if (!sceneSetup) return;
-    
-    const newVisibility = !object.visible;
-    
-    sceneSetup.updateEnvironmentObject(instanceId, { visible: newVisibility });
-    
-    setLoadedObjects(prev => prev.map(obj => 
-      obj.instanceId === instanceId 
-        ? { ...obj, visible: newVisibility }
-        : obj
-    ));
-  };
-
-  // Clear all objects
-  const clearAll = () => {
-    if (!viewerRef?.current) return;
-    
-    if (confirm('Remove all environment objects?')) {
-      const sceneSetup = viewerRef.current.getSceneSetup();
-      if (!sceneSetup) return;
-      
-      sceneSetup.clearEnvironment();
-      setLoadedObjects([]);
-      setEditingObject(null);
-    }
-  };
-
-  // Add spawnHuman function
   const spawnHuman = async () => {
     if (!viewerRef?.current || humanLoaded) return;
     
@@ -401,352 +211,321 @@ const EnvironmentManager = ({ viewerRef, isOpen, onClose }) => {
     }
   };
 
-  if (!isOpen) return null;
+  const selectCategory = (category) => {
+    setSelectedCategory(category);
+    setCurrentView('objects');
+  };
 
-  const filteredObjects = getFilteredObjects();
+  const goBack = () => {
+    setCurrentView('categories');
+    setSelectedCategory(null);
+  };
 
-  return (
-    <div className="controls-modal-overlay" onClick={onClose}>
-      <div className="controls-modal" style={{ maxWidth: '1200px' }} onClick={(e) => e.stopPropagation()}>
-        <div className="controls-modal-header">
-          <h3 className="controls-h3 controls-mb-0">Environment Manager</h3>
-          <button 
-            className="controls-close"
-            onClick={onClose}
+  // Render category boxes
+  const renderCategories = () => (
+    <div>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, 1fr)',
+        gap: '1rem',
+        marginBottom: '1rem'
+      }}>
+        {categories.map(cat => (
+          <button
+            key={cat.id}
+            onClick={() => selectCategory(cat)}
+            style={{
+              background: '#fff',
+              border: '2px solid #e0e0e0',
+              borderRadius: '8px',
+              padding: '2rem',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              textAlign: 'center',
+              ':hover': {
+                borderColor: '#007bff',
+                transform: 'translateY(-2px)',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              }
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = '#007bff';
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#e0e0e0';
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
           >
-            ×
+            <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>{cat.icon}</div>
+            <div style={{ fontWeight: '600', color: '#333' }}>{cat.name}</div>
+            <div style={{ fontSize: '0.875rem', color: '#666', marginTop: '0.25rem' }}>
+              {cat.objects.length} items
+            </div>
           </button>
-        </div>
-
-        <div className="controls-modal-body">
-          {error && (
-            <div className="controls-alert controls-alert-danger controls-mb-3">
-              {error}
-              <button 
-                className="controls-close controls-float-right"
-                onClick={() => setError(null)}
-              >
-                ×
-              </button>
-            </div>
-          )}
-
-          {successMessage && (
-            <div className="controls-alert controls-alert-success controls-mb-3">
-              {successMessage}
-              <button 
-                className="controls-close controls-float-right"
-                onClick={() => setSuccessMessage('')}
-              >
-                ×
-              </button>
-            </div>
-          )}
-
-          {/* Category Filter */}
-          <div className="controls-pills controls-mb-3">
-            <button
-              className={`controls-pill ${selectedCategory === 'all' ? 'active' : ''}`}
-              onClick={() => setSelectedCategory('all')}
-            >
-              All Categories
-            </button>
-            {categories.map(cat => (
+        ))}
+      </div>
+      
+      {/* Human controls */}
+      {spawnedHumans.length > 0 && (
+        <div style={{
+          marginTop: '2rem',
+          padding: '1rem',
+          background: '#f5f5f5',
+          borderRadius: '8px'
+        }}>
+          <h4 style={{ margin: '0 0 1rem 0' }}>Spawned Humans ({spawnedHumans.length})</h4>
+          <div style={{ fontSize: '0.875rem', marginBottom: '1rem' }}>
+            Use number keys 1-{Math.min(spawnedHumans.length, 9)} to select • WASD to move • Shift to run
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {spawnedHumans.map((human, index) => (
               <button
-                key={cat.id}
-                className={`controls-pill ${selectedCategory === cat.id ? 'active' : ''}`}
-                onClick={() => setSelectedCategory(cat.id)}
+                key={human.id}
+                onClick={() => humanController.selectHuman(human.id)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  background: selectedHuman === human.id ? '#007bff' : '#fff',
+                  color: selectedHuman === human.id ? '#fff' : '#333',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '0.875rem',
+                  transition: 'all 0.2s'
+                }}
               >
-                {cat.icon} {cat.name}
+                Human {index + 1}
               </button>
             ))}
-            <button
-              className="controls-pill controls-pill-refresh"
-              onClick={scanEnvironment}
-              disabled={isScanning}
-              title="Rescan directory"
-            >
-              {isScanning ? '⏳' : '🔄'} Refresh
-            </button>
           </div>
-
-          {/* Object Library */}
-          <div className="controls-mb-4">
-            <h4 className="controls-h4 controls-mb-3">Available Objects ({filteredObjects.length})</h4>
-            {filteredObjects.length === 0 ? (
-              <div className="controls-text-center controls-p-4">
-                <p className="controls-text-muted">No objects found in this category</p>
-              </div>
-            ) : (
-              <div className="controls-grid controls-grid-cols-4" style={{ gap: '1rem' }}>
-                {filteredObjects.map(obj => (
-                  <div key={obj.id} className="controls-card">
-                    <div className="controls-card-body">
-                      <div className="controls-card-icon" style={{ fontSize: '2rem' }}>
-                        {obj.icon}
-                      </div>
-                      <h5 className="controls-card-title">{obj.name}</h5>
-                      <div className="controls-text-muted controls-text-sm">
-                        <div>{obj.categoryName}</div>
-                        <div>{obj.type.toUpperCase()} • {(obj.size / 1024).toFixed(1)}KB</div>
-                      </div>
-                      <div className="controls-card-actions" style={{ 
-                        display: 'flex', 
-                        gap: '0.5rem', 
-                        marginTop: '0.5rem' 
-                      }}>
-                        <button 
-                          className="controls-btn controls-btn-success controls-btn-sm"
-                          onClick={() => loadObject(obj)}
-                          disabled={loading}
-                          style={{ flex: 1 }}
-                        >
-                          + Add to Scene
-                        </button>
-                        <button 
-                          className="controls-btn controls-btn-danger controls-btn-sm"
-                          onClick={() => deleteObjectFile(obj)}
-                          disabled={loading}
-                          title="Delete file permanently"
-                          style={{ 
-                            width: '40px',
-                            padding: '0.25rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                          }}
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Loaded Objects */}
-          {loadedObjects.length > 0 && (
-            <div className="controls-section">
-              <div className="controls-section-header">
-                <h4 className="controls-h4 controls-mb-0">
-                  Scene Objects ({loadedObjects.length})
-                </h4>
-                <button 
-                  className="controls-btn controls-btn-danger controls-btn-sm"
-                  onClick={clearAll}
-                >
-                  Clear All
-                </button>
-              </div>
-              
-              <div className="controls-list">
-                {loadedObjects.map(obj => (
-                  <div key={obj.instanceId} className="controls-list-item">
-                    <span className="controls-list-item-icon">
-                      {obj.icon}
-                    </span>
-                    <div className="controls-list-item-content">
-                      <h5 className="controls-list-item-title">{obj.name}</h5>
-                      <div className="controls-text-muted controls-text-sm">
-                        {obj.categoryName} • {obj.type.toUpperCase()}
-                      </div>
-                      <span className={`controls-badge ${obj.visible ? 'controls-badge-success' : 'controls-badge-secondary'}`}>
-                        {obj.visible ? 'Visible' : 'Hidden'}
-                      </span>
-                    </div>
-                    <div className="controls-list-item-actions">
-                      <button 
-                        className="controls-btn controls-btn-light controls-btn-sm"
-                        onClick={() => toggleVisibility(obj.instanceId)}
-                        title="Toggle Visibility"
-                      >
-                        {obj.visible ? '👁️' : '🚫'}
-                      </button>
-                      <button 
-                        className="controls-btn controls-btn-warning controls-btn-sm"
-                        onClick={() => startEdit(obj)}
-                        title="Edit Properties"
-                      >
-                        ✏️
-                      </button>
-                      <button 
-                        className="controls-btn controls-btn-danger controls-btn-sm"
-                        onClick={() => removeObject(obj.instanceId)}
-                        title="Remove"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {!humanLoaded && (
-            <div className="controls-alert controls-alert-info controls-mb-3">
-              <button 
-                className="controls-btn controls-btn-primary"
-                onClick={spawnHuman}
-                disabled={loading}
-              >
-                🚶 Spawn Human Character
-              </button>
-              <small className="controls-text-muted controls-ml-2">
-                WASD to move, Shift to run
-              </small>
-            </div>
-          )}
-
-          {humanLoaded && humanInfo && (
-            <div className="controls-card controls-mb-3">
-              <div className="controls-card-body">
-                <h5>👤 Human Character</h5>
-                <div className="controls-text-sm">
-                  Position: X: {humanInfo.position[0].toFixed(2)}, 
-                  Y: {humanInfo.position[1].toFixed(2)}, 
-                  Z: {humanInfo.position[2].toFixed(2)}
-                </div>
-                <div className="controls-text-sm">
-                  Status: {humanInfo.isRunning ? '🏃 Running' : '🚶 Walking'}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Edit Modal */}
-      {editingObject && (
-        <div className="controls-modal-overlay" onClick={() => setEditingObject(null)}>
-          <div className="controls-modal" style={{ maxWidth: '500px' }} onClick={(e) => e.stopPropagation()}>
-            <div className="controls-modal-header">
-              <h3 className="controls-h3 controls-mb-0">Edit {editingObject.name}</h3>
-              <button 
-                className="controls-close"
-                onClick={() => setEditingObject(null)}
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="controls-modal-body">
-              {/* Position */}
-              <div className="controls-form-group">
-                <label className="controls-form-label">Position</label>
-                <div className="controls-grid controls-grid-cols-3">
-                  <input
-                    type="number"
-                    className="controls-form-control"
-                    step="0.1"
-                    value={editForm.position.x}
-                    onChange={(e) => handleFormChange('position', 'x', e.target.value)}
-                    placeholder="X"
-                  />
-                  <input
-                    type="number"
-                    className="controls-form-control"
-                    step="0.1"
-                    value={editForm.position.y}
-                    onChange={(e) => handleFormChange('position', 'y', e.target.value)}
-                    placeholder="Y"
-                  />
-                  <input
-                    type="number"
-                    className="controls-form-control"
-                    step="0.1"
-                    value={editForm.position.z}
-                    onChange={(e) => handleFormChange('position', 'z', e.target.value)}
-                    placeholder="Z"
-                  />
-                </div>
-              </div>
-
-              {/* Rotation */}
-              <div className="controls-form-group">
-                <label className="controls-form-label">Rotation (radians)</label>
-                <div className="controls-grid controls-grid-cols-3">
-                  <input
-                    type="number"
-                    className="controls-form-control"
-                    step="0.1"
-                    value={editForm.rotation.x}
-                    onChange={(e) => handleFormChange('rotation', 'x', e.target.value)}
-                    placeholder="X"
-                  />
-                  <input
-                    type="number"
-                    className="controls-form-control"
-                    step="0.1"
-                    value={editForm.rotation.y}
-                    onChange={(e) => handleFormChange('rotation', 'y', e.target.value)}
-                    placeholder="Y"
-                  />
-                  <input
-                    type="number"
-                    className="controls-form-control"
-                    step="0.1"
-                    value={editForm.rotation.z}
-                    onChange={(e) => handleFormChange('rotation', 'z', e.target.value)}
-                    placeholder="Z"
-                  />
-                </div>
-              </div>
-
-              {/* Scale */}
-              <div className="controls-form-group">
-                <label className="controls-form-label">Scale</label>
-                <div className="controls-grid controls-grid-cols-3">
-                  <input
-                    type="number"
-                    className="controls-form-control"
-                    step="0.1"
-                    min="0.1"
-                    value={editForm.scale.x}
-                    onChange={(e) => handleFormChange('scale', 'x', e.target.value)}
-                    placeholder="X"
-                  />
-                  <input
-                    type="number"
-                    className="controls-form-control"
-                    step="0.1"
-                    min="0.1"
-                    value={editForm.scale.y}
-                    onChange={(e) => handleFormChange('scale', 'y', e.target.value)}
-                    placeholder="Y"
-                  />
-                  <input
-                    type="number"
-                    className="controls-form-control"
-                    step="0.1"
-                    min="0.1"
-                    value={editForm.scale.z}
-                    onChange={(e) => handleFormChange('scale', 'z', e.target.value)}
-                    placeholder="Z"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="controls-modal-footer">
-              <button 
-                onClick={() => setEditingObject(null)}
-                className="controls-btn controls-btn-secondary"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={updateObject}
-                className="controls-btn controls-btn-primary"
-              >
-                Save Changes
-              </button>
-            </div>
-          </div>
+          <button
+            onClick={() => {
+              if (selectedHuman) {
+                humanController.removeHuman(selectedHuman);
+              }
+            }}
+            disabled={!selectedHuman}
+            style={{
+              marginTop: '0.5rem',
+              padding: '0.5rem 1rem',
+              background: selectedHuman ? '#dc3545' : '#ccc',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: selectedHuman ? 'pointer' : 'not-allowed',
+              fontSize: '0.875rem'
+            }}
+          >
+            Remove Selected Human
+          </button>
         </div>
       )}
+    </div>
+  );
+
+  // Render objects in selected category
+  const renderObjects = () => {
+    if (!selectedCategory) return null;
+    
+    return (
+      <div>
+        <button
+          onClick={goBack}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: '0.5rem 1rem',
+            marginBottom: '1rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            color: '#666',
+            fontSize: '1rem',
+            transition: 'color 0.2s'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = '#333'}
+          onMouseLeave={(e) => e.currentTarget.style.color = '#666'}
+        >
+          ← Back to Categories
+        </button>
+        
+        <h4 style={{ marginBottom: '1rem' }}>
+          {selectedCategory.icon} {selectedCategory.name}
+        </h4>
+        
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: '1rem'
+        }}>
+          {selectedCategory.objects.map(obj => (
+            <div
+              key={obj.id}
+              style={{
+                background: '#fff',
+                border: '1px solid #e0e0e0',
+                borderRadius: '8px',
+                padding: '1rem',
+                transition: 'all 0.2s'
+              }}
+            >
+              <h5 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem' }}>{obj.name}</h5>
+              <div style={{ fontSize: '0.875rem', color: '#666', marginBottom: '0.75rem' }}>
+                {obj.type.toUpperCase()} • {(obj.size / 1024).toFixed(1)}KB
+              </div>
+              <button
+                onClick={() => loadObject(obj)}
+                disabled={loading}
+                style={{
+                  width: '100%',
+                  padding: '0.5rem',
+                  background: loading ? '#ccc' : '#4caf50',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  fontSize: '0.875rem',
+                  fontWeight: '500',
+                  transition: 'background 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (!loading) e.currentTarget.style.background = '#45a049';
+                }}
+                onMouseLeave={(e) => {
+                  if (!loading) e.currentTarget.style.background = '#4caf50';
+                }}
+              >
+                {loading ? 'Loading...' : '+ Add to Scene'}
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '1rem',
+        paddingBottom: '1rem',
+        borderBottom: '1px solid #dee2e6'
+      }}>
+        <h2 style={{ margin: 0, fontSize: '1.5rem' }}>Environment Objects</h2>
+        <button
+          onClick={onClose}
+          style={{
+            background: 'none',
+            border: 'none',
+            fontSize: '1.8rem',
+            cursor: 'pointer',
+            color: '#6c757d',
+            padding: '0.25rem 0.5rem',
+            borderRadius: '4px',
+            transition: 'all 0.2s ease',
+            lineHeight: 1
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.background = '#e9ecef';
+            e.target.style.color = '#495057';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.background = 'none';
+            e.target.style.color = '#6c757d';
+          }}
+        >
+          ×
+        </button>
+      </div>
+      
+      {/* Messages */}
+      {error && (
+        <div style={{
+          padding: '0.75rem',
+          marginBottom: '1rem',
+          background: '#ffebee',
+          color: '#c62828',
+          borderRadius: '4px',
+          fontSize: '0.875rem'
+        }}>
+          {error}
+        </div>
+      )}
+      
+      {successMessage && (
+        <div style={{
+          padding: '0.75rem',
+          marginBottom: '1rem',
+          background: '#e8f5e9',
+          color: '#2e7d32',
+          borderRadius: '4px',
+          fontSize: '0.875rem'
+        }}>
+          {successMessage}
+        </div>
+      )}
+      
+      {/* Human info */}
+      {humanLoaded && humanInfo && (
+        <div style={{
+          padding: '0.75rem',
+          marginBottom: '1rem',
+          background: '#e3f2fd',
+          borderRadius: '4px',
+          fontSize: '0.875rem'
+        }}>
+          <strong>👤 Human:</strong> {humanInfo.isRunning ? '🏃 Running' : '🚶 Walking'} at 
+          X: {humanInfo.position[0].toFixed(1)}, 
+          Z: {humanInfo.position[2].toFixed(1)}
+        </div>
+      )}
+      
+      {/* Main content */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {currentView === 'categories' ? renderCategories() : renderObjects()}
+      </div>
+      
+      {/* Refresh button */}
+      <div style={{
+        marginTop: '1rem',
+        paddingTop: '1rem',
+        borderTop: '1px solid #e0e0e0'
+      }}>
+        <button
+          onClick={scanEnvironment}
+          disabled={isScanning}
+          style={{
+            width: '100%',
+            padding: '0.75rem',
+            background: '#f5f5f5',
+            border: '1px solid #ddd',
+            borderRadius: '4px',
+            cursor: isScanning ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '0.5rem',
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={(e) => {
+            if (!isScanning) {
+              e.currentTarget.style.background = '#e0e0e0';
+            }
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = '#f5f5f5';
+          }}
+        >
+          {isScanning ? '⏳' : '🔄'} Refresh Objects
+        </button>
+      </div>
     </div>
   );
 };

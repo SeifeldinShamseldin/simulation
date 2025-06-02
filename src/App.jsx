@@ -47,7 +47,7 @@ const AppContent = () => {
         overflow: 'hidden',
         position: 'relative'
       }}>
-        {/* Controls panel - now slideable without blocking */}
+        {/* Controls panel - robot controls */}
         <div className="controls-panel" style={{ 
           position: 'absolute',
           left: showControls ? 0 : '-500px',
@@ -109,13 +109,38 @@ const AppContent = () => {
           />
         </div>
         
-        {/* Viewer panel - adjusted to not be hidden behind menu */}
+        {/* Environment panel */}
+        <div className="environment-panel" style={{ 
+          position: 'absolute',
+          left: showEnvironment ? 0 : '-500px',
+          top: 0,
+          bottom: 0,
+          width: '500px',
+          height: '100%', 
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          borderRight: '1px solid #ccc',
+          padding: '20px 10px',
+          boxSizing: 'border-box',
+          backgroundColor: '#f8f8f8',
+          transition: 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          zIndex: 100,
+          boxShadow: showEnvironment ? '4px 0 20px rgba(0,0,0,0.15)' : 'none'
+        }}>
+          <EnvironmentManager 
+            viewerRef={viewerRef}
+            isPanel={true}
+            onClose={() => setShowEnvironment(false)}
+          />
+        </div>
+        
+        {/* Viewer panel - adjusted to handle both panels */}
         <div className="viewer-panel" style={{ 
           flex: 1,
           position: 'relative',
           height: '100%',
           backgroundColor: '#e6f2ff',
-          marginLeft: showControls ? '500px' : 0,
+          marginLeft: showControls || showEnvironment ? '500px' : 0,
           transition: 'margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
         }}>
           <URDFViewer
@@ -187,13 +212,6 @@ const AppContent = () => {
           )}
         </div>
       </div>
-      
-      {/* Environment Manager Modal */}
-      <EnvironmentManager 
-        viewerRef={viewerRef}
-        isOpen={showEnvironment}
-        onClose={() => setShowEnvironment(false)}
-      />
       
       {/* Add loading animation */}
       <style jsx>{`
