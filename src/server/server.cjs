@@ -580,19 +580,7 @@ app.get('/api/environment/scan', (req, res) => {
       const categoryPath = path.join(hazardDir, categoryDir.name);
       const objects = [];
       
-      // Special handling for human category
-      if (categoryDir.name === 'human') {
-        categories.push({
-          id: 'human',
-          name: 'Human Characters',
-          objects: [], // Empty objects array for human
-          icon: '👤',
-          isSpecial: true // Mark as special category
-        });
-        return; // Skip normal object scanning for human
-      }
-      
-      // Normal object scanning for other categories
+      // Recursively scan for 3D files
       const scanDirectory = (dirPath, baseName = '') => {
         const items = fs.readdirSync(dirPath, { withFileTypes: true });
         

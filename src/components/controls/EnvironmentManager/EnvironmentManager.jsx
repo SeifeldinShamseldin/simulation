@@ -1,10 +1,8 @@
 // src/components/controls/EnvironmentManager/EnvironmentManager.jsx
 import React, { useState, useEffect } from 'react';
 import EventBus from '../../../utils/EventBus';
-import humanController from '../Human/HumanController';
+import humanController from '../../../core/Human/HumanController';
 import '../../../styles/ControlsTheme.css';
-import fs from 'fs';
-import path from 'path';
 
 // Predefined object library
 const OBJECT_LIBRARY = [
@@ -133,6 +131,36 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const loadObject = async (objectConfig) => {
     if (!viewerRef?.current) return;
     
+    // Special handling for human
+    if (objectConfig.category === 'human') {
+      const sceneSetup = viewerRef.current.getSceneSetup();
+      if (!sceneSetup) return;
+      
+      setLoading(true);
+      try {
+        // Random spawn position
+        const position = {
+          x: (Math.random() - 0.5) * 4,
+          y: 0,
+          z: (Math.random() - 0.5) * 4
+        };
+        
+        await humanController.spawnHuman(
+          sceneSetup.scene, 
+          sceneSetup.world,
+          position
+        );
+        
+        setSuccessMessage('Human spawned! Press number keys (1-9) to select different humans.');
+        setTimeout(() => setSuccessMessage(''), 5000);
+      } catch (error) {
+        setError('Failed to spawn human: ' + error.message);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    
     // Original loadObject code for other objects
     setLoading(true);
     setError(null);
@@ -169,70 +197,16 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   };
 
   const spawnHuman = async () => {
-    if (!viewerRef?.current) return;
+    if (!viewerRef?.current || humanLoaded) return;
     
     const sceneSetup = viewerRef.current.getSceneSetup();
     if (!sceneSetup) return;
     
     setLoading(true);
-    setError(null);
-    
     try {
-      // Create a unique ID for this human instance
-      const humanId = `human_${Date.now()}`;
-      
-      // Load human as an environment object
-      const humanConfig = {
-        id: humanId,
-        name: `Human ${spawnedHumans.length + 1}`,
-        path: '/hazard/human/Soldier.glb', // Path to the human model
-        category: 'human',
-        type: 'character',
-        castShadow: true,
-        receiveShadow: true,
-        isDynamic: true, // Human should have physics
-        scale: { x: 0.5, y: 0.5, z: 0.5 },
-        position: { 
-          x: Math.random() * 4 - 2, // Random spawn position
-          y: 0, 
-          z: Math.random() * 4 - 2 
-        }
-      };
-      
-      // Load using the standard environment object system
-      const human3D = await sceneSetup.loadEnvironmentObject(humanConfig);
-      
-      // Add human-specific properties
-      human3D.userData.isHuman = true;
-      human3D.userData.humanId = humanId;
-      
-      // Track this human
-      const humanData = {
-        id: humanId,
-        name: humanConfig.name,
-        object3D: human3D,
-        position: humanConfig.position,
-        isActive: spawnedHumans.length === 0 // First human is active by default
-      };
-      
-      setSpawnedHumans(prev => [...prev, humanData]);
-      
-      // Add to loaded objects for standard management
-      setLoadedObjects(prev => [...prev, {
-        instanceId: humanId,
-        objectId: 'human_character',
-        name: humanConfig.name,
-        category: 'human'
-      }]);
-      
-      // Emit spawn event
-      EventBus.emit('human:spawned', humanData);
-      
-      setSuccessMessage(`${humanConfig.name} spawned! Use WASD to move, Shift to run.`);
-      setTimeout(() => setSuccessMessage(''), 5000);
-      
+      await humanController.initialize(sceneSetup.scene, sceneSetup.world);
+      setSuccessMessage('Human character spawned! Use WASD to move, Shift to run.');
     } catch (error) {
-      console.error('Failed to spawn human:', error);
       setError('Failed to spawn human: ' + error.message);
     } finally {
       setLoading(false);
@@ -241,7 +215,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
 
   const selectCategory = (category) => {
     setSelectedCategory(category);
-    setCurrentView('objects'); // Always change to objects view
+    setCurrentView('objects');
   };
 
   const goBack = () => {
@@ -369,7 +343,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
           <button
             onClick={() => {
               if (selectedHuman) {
-                removeHuman(selectedHuman);
+                humanController.removeHuman(selectedHuman);
               }
             }}
             disabled={!selectedHuman}
@@ -395,126 +369,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const renderObjects = () => {
     if (!selectedCategory) return null;
     
-    // Special UI for human category
-    if (selectedCategory.id === 'human') {
-      return (
-        <div>
-          <button
-            onClick={goBack}
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: '0.5rem 1rem',
-              marginBottom: '1rem',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              color: '#666',
-              fontSize: '1rem',
-              transition: 'color 0.2s'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.color = '#333'}
-            onMouseLeave={(e) => e.currentTarget.style.color = '#666'}
-          >
-            ← Back to Categories
-          </button>
-          
-          <h4 style={{ marginBottom: '1rem' }}>
-            👤 Human Characters
-          </h4>
-          
-          <div style={{
-            background: '#fff',
-            border: '1px solid #e0e0e0',
-            borderRadius: '8px',
-            padding: '2rem',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>🚶‍♂️</div>
-            <h5 style={{ marginBottom: '1rem' }}>Spawn Human Character</h5>
-            <p style={{ marginBottom: '1.5rem', color: '#666' }}>
-              Spawn a controllable human character that can walk around the environment
-            </p>
-            
-            <button
-              onClick={spawnHuman}
-              disabled={loading}
-              style={{
-                padding: '1rem 2rem',
-                background: loading ? '#ccc' : '#4caf50',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                fontSize: '1.1rem',
-                fontWeight: '600',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => {
-                if (!loading) e.target.style.background = '#45a049';
-              }}
-              onMouseLeave={(e) => {
-                if (!loading) e.target.style.background = '#4caf50';
-              }}
-            >
-              {loading ? 'Spawning...' : '+ Spawn Human'}
-            </button>
-            
-            <div style={{ marginTop: '2rem', fontSize: '0.9rem', color: '#666' }}>
-              <div style={{ marginBottom: '0.5rem' }}>
-                <strong>Controls:</strong>
-              </div>
-              <div>WASD - Move | Shift - Run | Mouse - Look Around</div>
-            </div>
-          </div>
-          
-          {/* Show spawned humans */}
-          {spawnedHumans.length > 0 && (
-            <div style={{
-              marginTop: '2rem',
-              padding: '1rem',
-              background: '#f5f5f5',
-              borderRadius: '8px'
-            }}>
-              <h5 style={{ margin: '0 0 1rem 0' }}>Active Humans ({spawnedHumans.length})</h5>
-              {spawnedHumans.map((human, index) => (
-                <div key={human.id} style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '0.5rem',
-                  background: '#fff',
-                  marginBottom: '0.5rem',
-                  borderRadius: '4px',
-                  border: '1px solid #ddd'
-                }}>
-                  <span>Human {index + 1}</span>
-                  <button
-                    onClick={() => {
-                      removeHuman(human.id);
-                    }}
-                    style={{
-                      padding: '0.25rem 0.75rem',
-                      background: '#dc3545',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '0.875rem'
-                    }}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      );
-    }
-    
-    // Normal object rendering for other categories continues below...
     return (
       <div>
         <button
@@ -749,22 +603,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
         })}
       </div>
     );
-  };
-
-  const removeHuman = (humanId) => {
-    // Remove using standard environment object removal
-    removeObject(humanId);
-    
-    // Update spawned humans list
-    setSpawnedHumans(prev => prev.filter(h => h.id !== humanId));
-    
-    // Clear selection if this was the selected human
-    if (selectedHuman === humanId) {
-      setSelectedHuman(null);
-    }
-    
-    // Emit removal event
-    EventBus.emit('human:removed', { id: humanId });
   };
 
   return (
