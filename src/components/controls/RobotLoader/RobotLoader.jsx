@@ -1,19 +1,19 @@
+// src/components/controls/RobotLoader/RobotLoader.jsx
 import React, { useState, useEffect } from 'react';
 import { useRobot } from '../../../contexts/RobotContext';
+import EventBus from '../../../utils/EventBus';
 import NewRobot from '../../NewRobot/NewRobot';
 
-/**
- * Component for loading and selecting robot models
- */
-const RobotLoader = () => {
-  const { categories, availableRobots, loadRobot, isLoading } = useRobot();
+const RobotLoader = ({ viewerRef }) => {
+  const { categories, availableRobots, isLoading, error } = useRobot();
   const [activeTab, setActiveTab] = useState('load');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedRobot, setSelectedRobot] = useState('');
   const [categoryRobots, setCategoryRobots] = useState([]);
   const [showAddRobot, setShowAddRobot] = useState(false);
-  const [error, setError] = useState(null);
-  
+  const [loadError, setLoadError] = useState(null);
+  const [currentRobotName, setCurrentRobotName] = useState('');
+
   // Update available robots when category changes
   useEffect(() => {
     if (selectedCategory) {
@@ -28,33 +28,44 @@ const RobotLoader = () => {
       setSelectedRobot('');
     }
   }, [selectedCategory, availableRobots, selectedRobot]);
-  
+
   // Auto-select first category when data loads
   useEffect(() => {
     if (categories.length > 0 && !selectedCategory) {
       setSelectedCategory(categories[0].id);
     }
   }, [categories, selectedCategory]);
-  
-  const handleCategoryChange = (e) => {
-    setSelectedCategory(e.target.value);
-    setError(null);
-  };
-  
-  const handleRobotChange = (e) => {
-    setSelectedRobot(e.target.value);
-    setError(null);
-  };
-  
+
+  // Listen for robot loaded events
+  useEffect(() => {
+    const unsubscribe = EventBus.on('robot:loaded', (data) => {
+      setCurrentRobotName(data.robotName);
+    });
+
+    return unsubscribe;
+  }, []);
+
   const handleLoadRobot = async () => {
-    if (!selectedCategory || !selectedRobot) return;
+    if (!selectedCategory || !selectedRobot || !viewerRef?.current) return;
     
     try {
-      setError(null);
-      await loadRobot(selectedRobot, selectedCategory);
+      setLoadError(null);
+      
+      // Use the robot context to load
+      const robot = availableRobots.find(r => r.id === selectedRobot);
+      if (!robot) throw new Error('Robot not found');
+
+      await viewerRef.current.loadRobot(selectedRobot, robot.urdfPath);
+      
+      // Emit robot loaded event
+      EventBus.emit('robot:loaded', {
+        robotName: selectedRobot,
+        category: selectedCategory
+      });
+      
     } catch (error) {
       console.error("Failed to load robot:", error);
-      setError(error.message || "Failed to load robot");
+      setLoadError(error.message || "Failed to load robot");
     }
   };
 
@@ -68,9 +79,9 @@ const RobotLoader = () => {
   
   const renderLoadForm = () => (
     <>
-      {error && (
+      {(loadError || error) && (
         <div className="controls-alert controls-alert-danger controls-mb-3">
-          {error}
+          {loadError || error}
         </div>
       )}
       
@@ -79,7 +90,10 @@ const RobotLoader = () => {
         <select
           id="category-select"
           value={selectedCategory}
-          onChange={handleCategoryChange}
+          onChange={(e) => {
+            setSelectedCategory(e.target.value);
+            setLoadError(null);
+          }}
           className="controls-form-select"
         >
           <option value="" disabled>Select Manufacturer</option>
@@ -96,7 +110,10 @@ const RobotLoader = () => {
         <select
           id="robot-select"
           value={selectedRobot}
-          onChange={handleRobotChange}
+          onChange={(e) => {
+            setSelectedRobot(e.target.value);
+            setLoadError(null);
+          }}
           className="controls-form-select"
           disabled={!selectedCategory || categoryRobots.length === 0}
         >
@@ -116,6 +133,14 @@ const RobotLoader = () => {
       >
         {isLoading ? 'Loading...' : 'Load Robot'}
       </button>
+      
+      {currentRobotName && (
+        <div className="controls-info-block controls-mt-3">
+          <small className="controls-text-muted">
+            Current Robot: <strong>{currentRobotName}</strong>
+          </small>
+        </div>
+      )}
     </>
   );
 
@@ -166,4 +191,4 @@ const RobotLoader = () => {
   );
 };
 
-export default RobotLoader; 
+export default RobotLoader;
