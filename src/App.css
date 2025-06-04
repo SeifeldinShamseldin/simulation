@@ -1,168 +1,53 @@
-/* App.css */
-:root {
-  --primary-color: #3498db;
-  --primary-light: #5dade2;
-  --primary-dark: #2874a6;
-  --secondary-color: #2ecc71;
-  --text-color: #333;
-  --light-gray: #f5f5f5;
-  --mid-gray: #e0e0e0;
-  --dark-gray: #9e9e9e;
-  --shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
-
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-body {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  line-height: 1.6;
-  color: var(--text-color);
-  background-color: var(--light-gray);
+/* src/App.css */
+.app-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .app-container {
-  margin: 0;
-  width: 100vw;
-  height: 100vh;
-}
-
-header {
-  margin-bottom: 30px;
-  text-align: center;
-}
-
-header h1 {
-  font-size: 2.5rem;
-  color: var(--primary-dark);
-  margin-bottom: 10px;
-}
-
-header p {
-  font-size: 1.2rem;
-  color: var(--dark-gray);
-}
-
-main {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 30px;
-}
-
-.viewer-container {
-  background-color: white;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: var(--shadow);
-}
-
-.robot-viewer-container .robot-selection {
-  margin-bottom: 20px;
-}
-
-.robot-viewer-container select {
-  padding: 8px 12px;
-  border-radius: 4px;
-  border: 1px solid var(--mid-gray);
-  font-size: 1rem;
-  background-color: white;
-  width: 100%;
-  max-width: 300px;
-}
-
-.settings-panel {
-  background-color: white;
-  border-radius: 8px;
-  padding: 20px;
-  box-shadow: var(--shadow);
-}
-
-.settings-panel h2 {
-  font-size: 1.5rem;
-  color: var(--primary-dark);
-  margin-bottom: 20px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--mid-gray);
-}
-
-.setting-group {
-  margin-bottom: 25px;
-}
-
-.setting-group h3 {
-  font-size: 1.2rem;
-  color: var(--primary-dark);
-  margin-bottom: 15px;
-}
-
-.setting-item {
-  margin-bottom: 12px;
   display: flex;
-  align-items: center;
+  flex: 1;
+  position: relative;
+  overflow: hidden;
 }
 
-.setting-item label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 1rem;
-  cursor: pointer;
+.viewer-panel {
+  flex: 1;
+  position: relative;
+  transition: margin-left 0.3s ease;
 }
 
-.setting-item input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
+.viewer-panel.viewer-shifted {
+  margin-left: 300px;
 }
 
-.setting-item input[type="color"] {
-  width: 40px;
-  height: 25px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  margin-left: 10px;
+.controls-panel,
+.environment-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 300px;
+  height: 100%;
+  background: white;
+  box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+  transition: transform 0.3s ease;
+  z-index: 100;
+  overflow-y: auto;
 }
 
-.setting-item select {
-  padding: 6px 10px;
-  border-radius: 4px;
-  border: 1px solid var(--mid-gray);
-  font-size: 0.9rem;
-  background-color: white;
-  margin-left: 10px;
+.panel-closed {
+  transform: translateX(-100%);
 }
 
-footer {
-  margin-top: 40px;
-  text-align: center;
-  padding: 20px;
-  font-size: 0.9rem;
-  color: var(--dark-gray);
-  border-top: 1px solid var(--mid-gray);
+.panel-open {
+  transform: translateX(0);
 }
 
-footer code {
-  background-color: var(--mid-gray);
-  padding: 2px 5px;
-  border-radius: 3px;
-  font-family: 'Courier New', Courier, monospace;
-}
-
-/* Mobile Responsive */
-@media (max-width: 768px) {
-  main {
-    grid-template-columns: 1fr;
-  }
-  
-  .settings-panel {
-    margin-top: 20px;
-  }
-  
-  header h1 {
-    font-size: 2rem;
-  }
+/* Ensure navbar stays at top */
+.controls-navbar {
+  flex-shrink: 0;
+  z-index: 1000;
+  min-height: 60px; /* Ensure minimum height */
 }

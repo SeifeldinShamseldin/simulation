@@ -1,15 +1,11 @@
-// src/components/controls/Environment.jsx
+// src/components/controls/Environment.jsx - NO ControlsTheme.css import
 import React from 'react';
 import EnvironmentManager from '../Environment/EnvironmentManager/EnvironmentManager';
+// NO import for ControlsTheme.css here!
 
-/**
- * Environment container component
- * Displays the environment manager section
- */
 const Environment = ({ viewerRef, isPanel = false, onClose }) => {
   return (
     <div className="controls">
-      {/* Environment Management Section */}
       <section className="controls-section-wrapper">
         <EnvironmentManager 
           viewerRef={viewerRef} 
@@ -21,4 +17,4 @@ const Environment = ({ viewerRef, isPanel = false, onClose }) => {
   );
 };
 
-export default Environment; 
+export default Environment;
