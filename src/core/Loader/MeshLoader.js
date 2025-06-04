@@ -1,7 +1,13 @@
 import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { ColladaLoader } from 'three/examples/jsm/loaders/ColladaLoader.js';
-import { Logger } from '../../utils/GlobalVariables';
+
+const Logger = {
+  info: (...args) => console.log('[INFO]', ...args),
+  warn: (...args) => console.warn('[WARN]', ...args),
+  error: (...args) => console.error('[ERROR]', ...args),
+  debug: (...args) => console.debug('[DEBUG]', ...args)
+};
 
 /**
  * Enhanced mesh loader with better error handling and support for multiple formats

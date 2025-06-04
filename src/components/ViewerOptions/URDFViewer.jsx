@@ -2,10 +2,30 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import SceneSetup from '../../core/Scene/SceneSetup';
 import RobotManager from '../robot/RobotManager';
-import RobotState from '../robot/RobotState';
 import { PointerURDFDragControls } from '../../core/Loader/URDFControls';
-import { GLOBAL_CONFIG, ROBOT_EVENTS, Logger } from '../../utils/GlobalVariables';
 import EventBus from '../../utils/EventBus';
+
+const DEFAULT_CONFIG = {
+  backgroundColor: '#f5f5f5',
+  enableShadows: true,
+  ambientColor: '#8ea0a8',
+  upAxis: '+Z',
+  highlightColor: '#ff0000'
+};
+
+const EVENTS = {
+  onLoadStart: 'robot:load-start',
+  onLoadComplete: 'robot:load-complete',
+  onLoadError: 'robot:load-error',
+  onJointChange: 'robot:joint-change'
+};
+
+const Logger = {
+  info: (...args) => console.log('[INFO]', ...args),
+  warn: (...args) => console.warn('[WARN]', ...args),
+  error: (...args) => console.error('[ERROR]', ...args),
+  debug: (...args) => console.debug('[DEBUG]', ...args)
+};
 
 /**
  * URDF Viewer component for displaying and interacting with robot models
@@ -15,12 +35,12 @@ const URDFViewer = ({
   urdfPath = '',
   width = '100%',
   height = '100%',
-  backgroundColor = GLOBAL_CONFIG.backgroundColor,
-  enableShadows = GLOBAL_CONFIG.enableShadows,
-  showCollision = GLOBAL_CONFIG.showCollisions,
-  upAxis = GLOBAL_CONFIG.upAxis,
-  enableDragging = GLOBAL_CONFIG.enableDragging,
-  highlightColor = GLOBAL_CONFIG.highlightColor,
+  backgroundColor = DEFAULT_CONFIG.backgroundColor,
+  enableShadows = DEFAULT_CONFIG.enableShadows,
+  showCollision = DEFAULT_CONFIG.showCollisions,
+  upAxis = DEFAULT_CONFIG.upAxis,
+  enableDragging = DEFAULT_CONFIG.enableDragging,
+  highlightColor = DEFAULT_CONFIG.highlightColor,
   onRobotLoad,
   onJointChange
 }, ref) => {
@@ -28,7 +48,6 @@ const URDFViewer = ({
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
   const robotManagerRef = useRef(null);
-  const robotStateRef = useRef(null);
   const dragControlsRef = useRef(null);
   
   // State for tracking loading status and joint info
@@ -52,7 +71,7 @@ const URDFViewer = ({
       container: containerRef.current,
       backgroundColor,
       enableShadows,
-      ambientColor: GLOBAL_CONFIG.ambientColor
+      ambientColor: DEFAULT_CONFIG.ambientColor
     });
     
     // Adjust camera for better view
@@ -69,13 +88,8 @@ const URDFViewer = ({
     const robotManager = new RobotManager(sceneSetup);
     robotManagerRef.current = robotManager;
     
-    // Create robot state manager
-    const robotState = new RobotState(robotManager);
-    robotStateRef.current = robotState;
-    
     // Configure UI options
-    robotState.setUpAxis(upAxis);
-    robotState.setShowCollision(showCollision);
+    sceneSetup.setUpAxis(upAxis);
     
     // Set up event handlers
     setupEventHandlers();
@@ -98,11 +112,6 @@ const URDFViewer = ({
       if (dragControlsRef.current) {
         dragControlsRef.current.dispose();
         dragControlsRef.current = null;
-      }
-      
-      if (robotStateRef.current) {
-        robotStateRef.current.dispose();
-        robotStateRef.current = null;
       }
       
       if (robotManagerRef.current) {
@@ -180,13 +189,13 @@ const URDFViewer = ({
    */
   const setupEventHandlers = () => {
     // Register load events
-    ROBOT_EVENTS.onLoadStart = (name) => {
+    EVENTS.onLoadStart = (name) => {
       Logger.info(`Loading robot: ${name}`);
       setIsLoading(true);
       setError(null);
     };
     
-    ROBOT_EVENTS.onLoadComplete = (name, robot) => {
+    EVENTS.onLoadComplete = (name, robot) => {
       Logger.info(`Robot loaded: ${name}`);
       setIsLoading(false);
       setLoadedRobot(robot);
@@ -197,14 +206,14 @@ const URDFViewer = ({
       }
     };
     
-    ROBOT_EVENTS.onLoadError = (name, err) => {
+    EVENTS.onLoadError = (name, err) => {
       Logger.error(`Error loading robot ${name}:`, err);
       setIsLoading(false);
       setError(err.message || 'Failed to load robot');
     };
     
     // Register joint change events
-    ROBOT_EVENTS.onJointChange = (jointName, values) => {
+    EVENTS.onJointChange = (jointName, values) => {
       // Update local state with a new object to ensure React detects the change
       setJointValues({...values});
       
@@ -387,9 +396,9 @@ const URDFViewer = ({
    * Reset all joints to their zero position
    */
   const resetJoints = () => {
-    if (!robotStateRef.current) return;
+    if (!robotManagerRef.current) return;
     
-    robotStateRef.current.resetJoints();
+    robotManagerRef.current.resetJoints();
   };
   
   /**
@@ -397,9 +406,9 @@ const URDFViewer = ({
    * @returns {Object|null} The current robot state
    */
   const getRobotState = () => {
-    if (!robotStateRef.current) return null;
+    if (!robotManagerRef.current) return null;
     
-    return robotStateRef.current.saveState();
+    return robotManagerRef.current.saveState();
   };
   
   /**
@@ -407,9 +416,9 @@ const URDFViewer = ({
    * @returns {Object|null} Information about the robot
    */
   const getRobotInfo = () => {
-    if (!robotStateRef.current) return null;
+    if (!robotManagerRef.current) return null;
     
-    return robotStateRef.current.getRobotInfo();
+    return robotManagerRef.current.getRobotInfo();
   };
   
   /**
@@ -489,7 +498,7 @@ const URDFViewer = ({
         right: 0,
         bottom: 0,
         overflow: 'hidden',
-        backgroundColor: backgroundColor || GLOBAL_CONFIG.backgroundColor
+        backgroundColor: backgroundColor || DEFAULT_CONFIG.backgroundColor
       }}
     >
       {isLoading && (

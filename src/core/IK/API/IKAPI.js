@@ -1,8 +1,14 @@
 // src/core/IK/API/IKAPI.js - Updated to integrate with TCP Provider
 import * as THREE from 'three';
-import { Logger } from '../../../utils/GlobalVariables';
 import tcpProvider from '../TCP/TCPProvider';
 import EventBus from '../../../utils/EventBus';
+
+const Logger = {
+  info: (...args) => console.log('[INFO]', ...args),
+  warn: (...args) => console.warn('[WARN]', ...args),
+  error: (...args) => console.error('[ERROR]', ...args),
+  debug: (...args) => console.debug('[DEBUG]', ...args)
+};
 
 /**
  * Unified API for Inverse Kinematics functionality

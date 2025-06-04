@@ -7,9 +7,16 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import * as CANNON from 'cannon-es';
-import { GLOBAL_CONFIG } from '../../utils/GlobalVariables';
 import { createStandardGrids } from '../../utils/threeHelpers';
 import EventBus from '../../utils/EventBus';
+
+const DEFAULT_CONFIG = {
+  backgroundColor: '#f5f5f5',
+  enableShadows: true,
+  ambientColor: '#8ea0a8',
+  groundSize: 40,
+  upAxis: '+Z'
+};
 
 /**
  * Class for setting up and managing a Three.js scene for URDF viewing
@@ -25,10 +32,11 @@ class SceneSetup {
      */
     constructor(options = {}) {
         this.container = options.container || document.body;
-        this.backgroundColor = options.backgroundColor || GLOBAL_CONFIG.backgroundColor || '#f5f5f5';
-        this.enableShadows = options.enableShadows !== undefined ? options.enableShadows : 
-                            (GLOBAL_CONFIG.enableShadows !== undefined ? GLOBAL_CONFIG.enableShadows : true);
-        this.ambientColor = options.ambientColor || GLOBAL_CONFIG.ambientColor || '#8ea0a8';
+        this.backgroundColor = options.backgroundColor || DEFAULT_CONFIG.backgroundColor;
+        this.enableShadows = options.enableShadows ?? DEFAULT_CONFIG.enableShadows;
+        this.ambientColor = options.ambientColor || DEFAULT_CONFIG.ambientColor;
+        this.groundSize = options.groundSize || DEFAULT_CONFIG.groundSize;
+        this.upAxis = options.upAxis || DEFAULT_CONFIG.upAxis;
         
         // Dynamic environment system
         this.environmentObjects = new Map(); // Store all dynamic objects
@@ -221,8 +229,8 @@ class SceneSetup {
     initGround() {
         // Visual ground
         const planeGeometry = new THREE.PlaneGeometry(
-            GLOBAL_CONFIG.groundSize || 40, 
-            GLOBAL_CONFIG.groundSize || 40
+            this.groundSize, 
+            this.groundSize
         );
         
         const planeMaterial = new THREE.MeshStandardMaterial({
@@ -247,9 +255,9 @@ class SceneSetup {
         // Physics ground
         const groundShape = new CANNON.Box(
             new CANNON.Vec3(
-                GLOBAL_CONFIG.groundSize / 2 || 20,
+                this.groundSize / 2,
                 0.1, // Very thin but solid
-                GLOBAL_CONFIG.groundSize / 2 || 20
+                this.groundSize / 2
             )
         );
         
@@ -264,8 +272,8 @@ class SceneSetup {
         
         // Grid helper
         this.gridHelper = new THREE.GridHelper(
-            GLOBAL_CONFIG.groundSize || 40, 
-            GLOBAL_CONFIG.groundSize || 40, 
+            this.groundSize, 
+            this.groundSize, 
             0x888888, 
             0xdddddd
         );
