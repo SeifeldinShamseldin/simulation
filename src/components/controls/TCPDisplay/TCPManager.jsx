@@ -1,9 +1,11 @@
 // src/components/controls/TCPDisplay/TCPManager.jsx - MERGED WITH DISPLAY FUNCTIONALITY
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import tcpProvider from '../../../core/IK/TCP/TCPProvider';
 import EventBus from '../../../utils/EventBus';
+import { useRobot } from '../../../contexts/RobotContext';
 
 /**
  * Comprehensive TCP Component - Combines display and management functionality
@@ -866,26 +868,41 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
       </div>
 
       {/* Add/Edit Modal */}
-      {(isAddModalOpen || editingTcp) && (
+      {(isAddModalOpen || editingTcp) && createPortal(
         <div className="controls-modal-overlay">
           <div className="controls-modal" style={{ maxWidth: '500px' }}>
             <div className="controls-modal-header">
-              <h3 className="controls-h3 controls-mb-0">{editingTcp ? 'Edit TCP' : 'Add New TCP'}</h3>
+              <h2 style={{ margin: 0, fontSize: '1.5rem' }}>{editingTcp ? 'Edit TCP' : 'Add New TCP'}</h2>
               <button 
                 className="controls-close"
                 onClick={() => {
                   setIsAddModalOpen(false);
                   handleCancelEdit();
                 }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '2rem',
+                  cursor: 'pointer',
+                  color: '#999',
+                  padding: '0',
+                  width: '40px',
+                  height: '40px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '4px',
+                  transition: 'all 0.2s'
+                }}
               >
                 ×
               </button>
             </div>
 
-            <div className="controls-modal-body">
+            <div className="controls-modal-body" style={{ padding: '2rem' }}>
               {/* TCP Type Selector */}
               <div className="controls-form-group">
-                <label className="controls-form-label">TCP Type:</label>
+                <label className="controls-form-label" style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>TCP Type:</label>
                 <select
                   className="controls-form-select"
                   value={tcpType}
@@ -919,24 +936,26 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
 
               {/* TCP Name */}
               <div className="controls-form-group">
-                <label className="controls-form-label">TCP Name:</label>
+                <label className="controls-form-label" style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>TCP Name:</label>
                 <input
                   type="text"
                   className="controls-form-control"
                   value={newTcpForm.name}
                   onChange={(e) => handleFormChange('name', e.target.value)}
                   placeholder="Enter TCP name"
+                  style={{ fontSize: '1rem' }}
                 />
               </div>
 
-              {/* Rest of the form */}
-              <div className="controls-grid controls-grid-cols-3" style={{ gap: '0.5rem' }}>
+              {/* Settings Grid */}
+              <div className="controls-grid controls-grid-cols-3" style={{ gap: '1rem', marginBottom: '1.5rem' }}>
                 <div className="controls-form-group">
                   <label className="controls-form-label">
                     <input
                       type="checkbox"
                       checked={newTcpForm.visible}
                       onChange={(e) => handleFormChange('visible', e.target.checked)}
+                      style={{ marginRight: '0.5rem' }}
                     />
                     Visible
                   </label>
@@ -960,14 +979,15 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
                     className="controls-form-control"
                     value={newTcpForm.color}
                     onChange={(e) => handleFormChange('color', e.target.value)}
-                    style={{ height: '40px' }}
+                    style={{ height: '40px', cursor: 'pointer' }}
                   />
                 </div>
               </div>
 
+              {/* TCP Offset */}
               <div className="controls-form-group">
-                <label className="controls-form-label">TCP Offset:</label>
-                <div className="controls-grid controls-grid-cols-3" style={{ gap: '0.5rem' }}>
+                <label className="controls-form-label" style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>TCP Offset:</label>
+                <div className="controls-grid controls-grid-cols-3" style={{ gap: '1rem' }}>
                   <div>
                     <label className="controls-form-label">X:</label>
                     <input
@@ -1002,7 +1022,13 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
               </div>
             </div>
 
-            <div className="controls-modal-footer">
+            <div className="controls-modal-footer" style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '1rem',
+              padding: '1.5rem 2rem',
+              borderTop: '1px solid #e0e0e0'
+            }}>
               <button 
                 className="controls-btn controls-btn-secondary"
                 onClick={() => {
@@ -1020,7 +1046,8 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

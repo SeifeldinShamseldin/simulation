@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useRobot } from '../../../contexts/RobotContext';
 
 const RobotPanel = ({ viewerRef }) => {
@@ -187,7 +188,7 @@ const RobotPanel = ({ viewerRef }) => {
       )}
 
       {/* Add Robot Modal */}
-      {showAddModal && (
+      {showAddModal && createPortal(
         <div className="controls-modal-overlay">
           <div className="controls-modal" style={{ maxWidth: '700px', minHeight: '500px' }}>
             <div className="controls-modal-header">
@@ -484,7 +485,8 @@ const RobotPanel = ({ viewerRef }) => {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

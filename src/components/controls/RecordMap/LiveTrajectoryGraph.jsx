@@ -1,10 +1,10 @@
 // src/components/controls/RecordMap/LiveTrajectoryGraph.jsx
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
 import EventBus from '../../../utils/EventBus';
-import './LiveTrajectoryGraph.css';
 import { createStandardGrids } from '../../../utils/threeHelpers';
 
 const LiveTrajectoryGraph = ({ isOpen, onClose }) => {
@@ -327,51 +327,122 @@ const LiveTrajectoryGraph = ({ isOpen, onClose }) => {
 
   if (!isOpen) return null;
 
-  return (
-    <div className="trajectory-modal-overlay">
-      <div className="trajectory-modal">
-        <div className="trajectory-modal-header">
-          <h2>Trajectory 3D Visualization</h2>
-          <button className="close-button" onClick={onClose}>×</button>
+  return createPortal(
+    <div className="controls-modal-overlay">
+      <div className="controls-modal" style={{ maxWidth: '1200px', width: '90%', height: '85vh' }}>
+        <div className="controls-modal-header">
+          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>Trajectory 3D Visualization</h2>
+          <button 
+            className="controls-close"
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: '2rem',
+              cursor: 'pointer',
+              color: '#999',
+              padding: '0',
+              width: '40px',
+              height: '40px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '4px',
+              transition: 'all 0.2s'
+            }}
+          >
+            ×
+          </button>
         </div>
-
-        <div className="trajectory-modal-steps">
-          <div className={`step ${step >= 1 ? 'active' : ''}`}>
-            <span className="step-number">1</span>
-            <span className="step-label">Select Trajectory</span>
+        
+        {/* Step Indicators */}
+        <div style={{
+          display: 'flex',
+          padding: '1.5rem 2rem',
+          borderBottom: '1px solid #e0e0e0',
+          background: '#f8f9fa'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            color: step >= 1 ? '#1976d2' : '#999',
+            marginRight: '3rem'
+          }}>
+            <span style={{
+              width: '30px',
+              height: '30px',
+              borderRadius: '50%',
+              background: step >= 1 ? '#1976d2' : '#e0e0e0',
+              color: step >= 1 ? '#fff' : '#999',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: '600',
+              marginRight: '0.5rem'
+            }}>1</span>
+            <span style={{ fontWeight: '500' }}>Select Trajectory</span>
           </div>
-          <div className={`step ${step >= 2 ? 'active' : ''}`}>
-            <span className="step-number">2</span>
-            <span className="step-label">3D Graph</span>
+          
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            color: step >= 2 ? '#1976d2' : '#999'
+          }}>
+            <span style={{
+              width: '30px',
+              height: '30px',
+              borderRadius: '50%',
+              background: step >= 2 ? '#1976d2' : '#e0e0e0',
+              color: step >= 2 ? '#fff' : '#999',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: '600',
+              marginRight: '0.5rem'
+            }}>2</span>
+            <span style={{ fontWeight: '500' }}>3D Graph</span>
           </div>
         </div>
-
-        <div className="trajectory-modal-content">
+        
+        <div className="controls-modal-body" style={{ padding: '2rem', minHeight: '300px' }}>
+          {/* Step 1: Selection */}
           {step === 1 ? (
-            <div className="trajectory-selection">
-              <h3>Select Trajectory to Visualize</h3>
+            <div>
+              <h3 style={{ marginBottom: '1.5rem' }}>Select Trajectory to Visualize</h3>
               
-              <div className="selection-option">
+              <div style={{
+                border: '1px solid #e0e0e0',
+                borderRadius: '8px',
+                padding: '1.5rem',
+                marginBottom: '1rem',
+                background: !isLive ? '#e3f2fd' : '#fff',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onClick={() => setIsLive(false)}>
                 <input
                   type="radio"
                   id="recorded"
                   name="source"
                   checked={!isLive}
                   onChange={() => setIsLive(false)}
+                  style={{ marginRight: '0.5rem' }}
                 />
-                <label htmlFor="recorded">
-                  <div className="option-content">
-                    <strong>Recorded Trajectory</strong>
-                    <p>View a previously recorded trajectory</p>
-                  </div>
+                <label htmlFor="recorded" style={{ cursor: 'pointer' }}>
+                  <strong>Recorded Trajectory</strong>
+                  <p style={{ margin: '0.5rem 0 0 0', color: '#666' }}>
+                    View a previously recorded trajectory
+                  </p>
                 </label>
               </div>
 
               {!isLive && (
-                <div className="trajectory-dropdown">
+                <div style={{ marginLeft: '2rem', marginBottom: '1rem' }}>
                   <select
                     value={selectedTrajectory}
                     onChange={(e) => setSelectedTrajectory(e.target.value)}
+                    className="controls-form-select"
+                    style={{ width: '100%', maxWidth: '400px' }}
                   >
                     {trajectories.length === 0 ? (
                       <option value="">No trajectories available</option>
@@ -384,98 +455,121 @@ const LiveTrajectoryGraph = ({ isOpen, onClose }) => {
                 </div>
               )}
 
-              <div className="selection-option">
+              <div style={{
+                border: '1px solid #e0e0e0',
+                borderRadius: '8px',
+                padding: '1.5rem',
+                background: isLive ? '#e3f2fd' : '#fff',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onClick={() => setIsLive(true)}>
                 <input
                   type="radio"
                   id="live"
                   name="source"
                   checked={isLive}
                   onChange={() => setIsLive(true)}
+                  style={{ marginRight: '0.5rem' }}
                 />
-                <label htmlFor="live">
-                  <div className="option-content">
-                    <strong>Live Tracking</strong>
-                    <p>View real-time TCP movement</p>
-                  </div>
+                <label htmlFor="live" style={{ cursor: 'pointer' }}>
+                  <strong>Live Tracking</strong>
+                  <p style={{ margin: '0.5rem 0 0 0', color: '#666' }}>
+                    View real-time TCP movement
+                  </p>
                 </label>
               </div>
             </div>
           ) : (
-            <div className="trajectory-display">
-              <div className="display-header">
-                <h3>{isLive ? 'Live TCP Tracking' : selectedTrajectory}</h3>
-                <div className="display-controls">
-                  <label className="checkbox-label">
+            /* Step 2: Display */
+            <div>
+              <h3 style={{ marginBottom: '1.5rem' }}>{isLive ? 'Live TCP Tracking' : selectedTrajectory}</h3>
+              
+              <div className="controls-form-group">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <label className="controls-form-check controls-mb-0">
                     <input
                       type="checkbox"
+                      className="controls-form-check-input"
                       checked={isLive}
                       onChange={(e) => setIsLive(e.target.checked)}
                     />
-                    Live Update
+                    <span className="controls-form-check-label" style={{ marginLeft: '0.5rem' }}>Live Update</span>
                   </label>
-                  <button onClick={exportData} className="export-button">
+                  <button onClick={exportData} className="controls-btn controls-btn-secondary controls-btn-sm">
                     Export Data
                   </button>
                 </div>
               </div>
 
               {!isLive && (
-                <div className="trajectory-stats">
-                  <div className="stat-item">
-                    <label>Points:</label>
-                    <span>{statistics.points}</span>
-                  </div>
-                  <div className="stat-item">
-                    <label>Length:</label>
-                    <span>{statistics.length.toFixed(3)} m</span>
-                  </div>
-                  <div className="stat-item">
-                    <label>Duration:</label>
-                    <span>{statistics.duration.toFixed(1)} s</span>
-                  </div>
-                  <div className="stat-item">
-                    <label>Current:</label>
-                    <span>
-                      X: {currentPosition.x.toFixed(3)}, 
-                      Y: {currentPosition.y.toFixed(3)}, 
-                      Z: {currentPosition.z.toFixed(3)}
-                    </span>
-                  </div>
+                <div style={{
+                  padding: '1rem',
+                  background: '#f8f9fa',
+                  borderRadius: '4px',
+                  marginBottom: '1rem',
+                  display: 'flex',
+                  gap: '2rem'
+                }}>
+                  <div><strong>Points:</strong> {statistics.points}</div>
+                  <div><strong>Length:</strong> {statistics.length.toFixed(3)} m</div>
+                  <div><strong>Duration:</strong> {statistics.duration.toFixed(1)} s</div>
+                  <div><strong>Current:</strong> X: {currentPosition.x.toFixed(3)}, Y: {currentPosition.y.toFixed(3)}, Z: {currentPosition.z.toFixed(3)}</div>
                 </div>
               )}
 
-              <div ref={containerRef} className="graph-container"></div>
+              <div ref={containerRef} style={{
+                height: '400px',
+                border: '1px solid #e0e0e0',
+                borderRadius: '4px',
+                background: '#fafafa',
+                marginBottom: '1rem'
+              }}></div>
 
-              <div className="bounds-info">
-                <strong>Bounds:</strong>
-                <span>
-                  X: [{statistics.bounds.min.x.toFixed(3)}, {statistics.bounds.max.x.toFixed(3)}] 
-                  Y: [{statistics.bounds.min.y.toFixed(3)}, {statistics.bounds.max.y.toFixed(3)}] 
-                  Z: [{statistics.bounds.min.z.toFixed(3)}, {statistics.bounds.max.z.toFixed(3)}]
-                </span>
+              <div style={{
+                padding: '0.75rem',
+                background: '#f8f9fa',
+                borderRadius: '4px',
+                fontSize: '0.9rem',
+                color: '#666'
+              }}>
+                <strong>Bounds:</strong> X: [{statistics.bounds.min.x.toFixed(3)}, {statistics.bounds.max.x.toFixed(3)}] 
+                Y: [{statistics.bounds.min.y.toFixed(3)}, {statistics.bounds.max.y.toFixed(3)}] 
+                Z: [{statistics.bounds.min.z.toFixed(3)}, {statistics.bounds.max.z.toFixed(3)}]
               </div>
             </div>
           )}
         </div>
-
-        <div className="trajectory-modal-footer">
-          {step === 2 && (
-            <button onClick={handleBack} className="back-button">
-              Back
-            </button>
-          )}
-          {step === 1 && (
-            <button 
-              onClick={handleNext} 
-              className="next-button"
-              disabled={!isLive && (!selectedTrajectory || trajectories.length === 0)}
-            >
-              Next
-            </button>
-          )}
+        
+        <div className="controls-modal-footer" style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          padding: '1.5rem 2rem',
+          borderTop: '1px solid #e0e0e0'
+        }}>
+          <button 
+            onClick={handleBack}
+            className="controls-btn controls-btn-secondary"
+            style={{ visibility: step > 1 ? 'visible' : 'hidden' }}
+          >
+            Previous
+          </button>
+          
+          <div style={{ marginLeft: 'auto' }}>
+            {step < 2 && (
+              <button 
+                onClick={handleNext}
+                className="controls-btn controls-btn-primary"
+                disabled={!isLive && (!selectedTrajectory || trajectories.length === 0)}
+              >
+                Next
+              </button>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
