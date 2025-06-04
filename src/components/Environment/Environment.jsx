@@ -1,6 +1,6 @@
 // src/components/controls/Environment.jsx - NO ControlsTheme.css import
 import React from 'react';
-import EnvironmentManager from '../Environment/EnvironmentManager/EnvironmentManager';
+import EnvironmentManager from './EnvironmentManager/EnvironmentManager';
 // NO import for ControlsTheme.css here!
 
 const Environment = ({ viewerRef, isPanel = false, onClose }) => {
