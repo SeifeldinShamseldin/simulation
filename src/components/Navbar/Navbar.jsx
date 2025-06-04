@@ -43,7 +43,6 @@ const Navbar = ({ onToggleControls, isOpen, onToggleEnvironment }) => {
           display: 'flex',
           gap: '1rem'
         }}>
-          <a className="controls-nav-link active" href="#">Workspace</a>
           
           {/* Robot link - triggers menu toggle */}
           <a 
@@ -79,9 +78,7 @@ const Navbar = ({ onToggleControls, isOpen, onToggleEnvironment }) => {
             Environment
           </a>
           
-          <a className="controls-nav-link" href="#">Simulation</a>
-          <a className="controls-nav-link" href="#">Analytics</a>
-          <a className="controls-nav-link" href="#">Documentation</a>
+ 
         </div>
       </div>
     </nav>

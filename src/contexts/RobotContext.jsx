@@ -1,4 +1,4 @@
-// src/contexts/RobotContext.jsx
+// src/contexts/RobotContext.jsx this is for robot panel
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import EventBus from '../utils/EventBus';
 

@@ -94,6 +94,9 @@ class RobotManager {
             this.robotMap.set(robotName, robot);
             this.currentRobot = robot;
             
+            // Clear any existing robot before adding new one
+            this.sceneSetup.clearRobot();
+            
             // Add to scene
             this.sceneSetup.addRobotObject(robot);
             
