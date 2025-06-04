@@ -1651,3 +1651,67 @@ input[type="range"]:focus::-moz-range-thumb {
 .controls-panel::-webkit-scrollbar-thumb:hover {
   background: var(--controls-brand-teal);
 }
+
+/* Enhance navbar responsiveness */
+@media (max-width: 768px) {
+  .controls-navbar-nav {
+    gap: 0.5rem;
+  }
+  
+  .controls-nav-link {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+  }
+}
+
+/* Panel content responsiveness */
+@media (max-width: 576px) {
+  /* Stack buttons vertically on small screens */
+  .controls-btn-group {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .controls-btn-group > .controls-btn {
+    width: 100%;
+    border-radius: var(--controls-border-radius) !important;
+    margin-bottom: 0.25rem;
+  }
+  
+  /* Full width inputs on mobile */
+  .controls-input-group {
+    flex-direction: column;
+  }
+  
+  .controls-input-group > .controls-form-control {
+    width: 100%;
+    margin-bottom: 0.5rem;
+  }
+}
+
+/* Optimize form layouts for tablets */
+@media (min-width: 577px) and (max-width: 991px) {
+  .controls-grid-cols-3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .controls-grid-cols-4,
+  .controls-grid-cols-5,
+  .controls-grid-cols-6 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Adjust modals for different screens */
+@media (max-width: 768px) {
+  .controls-modal {
+    width: 95vw;
+    margin: 2.5vh auto;
+    max-height: 95vh;
+  }
+  
+  .controls-modal-body {
+    max-height: calc(95vh - 120px);
+    overflow-y: auto;
+  }
+}

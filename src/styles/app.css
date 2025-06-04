@@ -1,0 +1,137 @@
+/* Base fullscreen setup */
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Base panel styles with viewport-based width */
+.controls-panel,
+.environment-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 28vw; /* Constant 28% of viewport width */
+  height: 100%;
+  background: white;
+  box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+  transition: transform 0.3s ease;
+  z-index: 100;
+  overflow-y: auto;
+}
+
+/* Viewer panel adjustment to match */
+.viewer-panel.viewer-shifted {
+  width: 72vw; /* Remaining 72% of viewport */
+  margin-left: 28vw;
+}
+
+/* Media queries for consistent ratio */
+
+/* Small desktops and laptops (1024px - 1366px) */
+@media (min-width: 1024px) and (max-width: 1366px) {
+  .controls-panel,
+  .environment-panel {
+    width: 28vw;
+    min-width: 350px; /* Minimum width for readability */
+    max-width: 450px; /* Maximum to prevent too wide on smaller screens */
+  }
+  
+  .viewer-panel.viewer-shifted {
+    width: 72vw;
+    margin-left: 28vw;
+  }
+}
+
+/* Standard desktops (1367px - 1920px) */
+@media (min-width: 1367px) and (max-width: 1920px) {
+  .controls-panel,
+  .environment-panel {
+    width: 28vw;
+    min-width: 400px;
+    max-width: 550px;
+  }
+  
+  .viewer-panel.viewer-shifted {
+    width: 72vw;
+    margin-left: 28vw;
+  }
+}
+
+/* Large desktops and 4K (1921px+) */
+@media (min-width: 1921px) {
+  .controls-panel,
+  .environment-panel {
+    width: 28vw;
+    min-width: 500px;
+    max-width: 700px; /* Cap at 700px for ultra-wide screens */
+  }
+  
+  .viewer-panel.viewer-shifted {
+    width: 72vw;
+    margin-left: 28vw;
+  }
+}
+
+/* Mobile and tablet overrides - different behavior */
+@media (max-width: 1023px) {
+  .controls-panel,
+  .environment-panel {
+    width: 85vw; /* Larger percentage on mobile/tablet */
+    max-width: 500px;
+  }
+  
+  .viewer-panel.viewer-shifted {
+    opacity: 0.3;
+  }
+}
+
+/* Full screen mobile */
+@media (max-width: 768px) {
+  .controls-panel,
+  .environment-panel {
+    width: 100vw;
+  }
+  
+  .viewer-panel.viewer-shifted {
+    display: none;
+  }
+}
+
+/* Height-based queries for horizontal layouts */
+@media (max-height: 600px) {
+  .controls-navbar {
+    min-height: 48px;
+  }
+  
+  .app-container {
+    height: calc(100vh - 48px);
+  }
+  
+  .controls-section {
+    padding: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+}
+
+/* Touch devices */
+@media (hover: none) {
+  .controls-panel,
+  .environment-panel {
+    /* Add touch-friendly scrolling */
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Fullscreen mode */
+@media (display-mode: fullscreen) {
+  .app-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+  }
+} 
