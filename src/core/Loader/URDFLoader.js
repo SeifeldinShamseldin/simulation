@@ -59,115 +59,93 @@ class URDFLoader {
      */
     constructor(manager) {
         this.manager = manager || THREE.DefaultLoadingManager;
-        this.parseVisual = true;         // Whether to parse visual elements
-        this.parseCollision = false;     // Whether to parse collision elements
-        this.packages = '';              // Path to packages or map of package names to paths
-        this.workingPath = '';           // Current working path
-        this.fetchOptions = {};          // Options for fetch() calls
-        this.currentRobotName = '';      // Current robot being loaded
+        this.parseVisual = true;
+        this.parseCollision = false;
+        this.packages = '';
+        this.workingPath = '';
+        this.fetchOptions = {};
+        this.currentRobotName = '';
         
-        // Event handlers
-        this.onProgress = null;
-        this.onError = null;
-        this.onLoad = null;
+        // Clear any existing URL modifier
+        this.manager.setURLModifier(null);
+    }
 
-        // Enhanced URL modifier
-        this.manager.setURLModifier(url => {
+    /**
+     * Reset the loader state and reconfigure URL handling
+     */
+    resetLoader() {
+        this.packages = '';
+        this.workingPath = '';
+        this.currentRobotName = '';
+        
+        // Reset URL modifier
+        this.manager.setURLModifier((url) => {
             Logger.debug('URDFLoader URL modifier - Original URL:', url);
             
+            // Handle package:// URLs
             if (url.startsWith('package://')) {
-                // Basic resolution
-                const file = url.split('/').pop();
-                const newUrl = `${this.packages.replace(/\/?$/, '/')}${file}`;
-                Logger.debug('URDFLoader URL modifier - Basic resolution:', url, '->', newUrl);
+                const packageUrl = url.substring(10); // Remove 'package://'
+                const parts = packageUrl.split('/');
+                const filename = parts[parts.length - 1];
+                
+                // Use the current packages path
+                const newUrl = `${this.packages}/${filename}`;
+                Logger.debug('Package URL resolved:', url, '->', newUrl);
+                return newUrl;
+            }
+            
+            // Handle mesh references in URDF
+            if (url.includes('/meshes/') || url.endsWith('.stl') || url.endsWith('.dae')) {
+                const filename = url.split('/').pop();
+                const newUrl = `${this.packages}/${filename}`;
+                Logger.debug('Mesh URL resolved:', url, '->', newUrl);
                 return newUrl;
             }
             
             return url;
         });
-
-        // Enhanced mesh callback
+        
+        // Reset loadMeshCb
         this.loadMeshCb = (path, manager, done, material) => {
-            Logger.debug('URDFLoader loading mesh from:', path);
+            Logger.debug('Loading mesh:', path);
             
             let resolvedPath = path;
             
-            // Basic resolution
-            const file = path.split('/').pop().toLowerCase();
-            const packagePath = this.packages;
-            resolvedPath = `${packagePath.replace(/\/?$/, '/')}${file}`;
-            Logger.debug('URDFLoader mesh basic resolution:', path, '->', resolvedPath);
+            // Get just the filename
+            const filename = path.split('/').pop();
             
-            // Use the enhanced MeshLoader with better error handling
+            // Use current packages path
+            if (this.packages) {
+                resolvedPath = `${this.packages}/${filename}`;
+            }
+            
+            Logger.debug('Resolved mesh path:', resolvedPath);
+            
             MeshLoader.load(resolvedPath, manager, (obj, err) => {
                 if (err) {
-                    Logger.error('URDFLoader: Error loading mesh.', err);
+                    Logger.error('Error loading mesh:', err);
                     done(null, err);
                     return;
                 }
                 
                 if (obj) {
-                    // Only apply URDF material if mesh has no material or has a default material
-                    if (!obj.material || obj.material.isMeshBasicMaterial || obj.material.name === '' || obj.material.name === 'default') {
-                        obj.material = material;
-                        Logger.debug('Applied URDF material to single mesh:', path);
-                    } else {
-                        Logger.debug('Preserved original mesh material for:', path);
-                    }
-                    
-                    // Reset position and orientation
-                    obj.position.set(0, 0, 0);
-                    obj.quaternion.identity();
-                    
-                    // Enable shadows for all meshes
+                    // Apply material if needed
                     obj.traverse(child => {
                         if (child instanceof THREE.Mesh) {
+                            if (!child.material || child.material.name === '' || child.material.name === 'default') {
+                                child.material = material;
+                            }
                             child.castShadow = true;
                             child.receiveShadow = true;
                         }
                     });
                     
-                    Logger.debug('Successfully loaded and processed mesh:', path);
                     done(obj);
                 } else {
-                    Logger.warn('URDFLoader: No mesh object returned from loader');
                     done(null, new Error('No mesh object returned'));
                 }
             }, material);
         };
-    }
-
-    /**
-     * Create a fallback geometry when mesh loading fails
-     * @private
-     */
-    _createFallbackGeometry(done, material) {
-        const geometry = new THREE.BoxGeometry(0.001, 0.001, 0.001);
-        const mesh = new THREE.Mesh(
-            geometry,
-            material || new THREE.MeshPhongMaterial({ 
-                color: 0x808080,
-                opacity: 0.1,
-                transparent: true
-            })
-        );
-        mesh.castShadow = false;
-        mesh.receiveShadow = false;
-        mesh.visible = false;
-        
-        Logger.warn('Created invisible fallback geometry for missing mesh');
-        done(mesh);
-    }
-
-    /**
-     * Load a URDF file asynchronously
-     * @param {string} urdf - The URL or path to the URDF file
-     * @returns {Promise<URDFRobot>} A promise that resolves to the loaded robot
-     */
-    loadAsync(urdf) {
-        return new Promise((resolve, reject) => {
-            this.load(urdf, resolve, null, reject);
-        });
     }
 
     /**
@@ -182,6 +160,13 @@ class URDFLoader {
         if (!this.currentRobotName) {
             this.currentRobotName = urdf.split('/').pop().replace('.urdf', '');
         }
+        
+        // Extract package path - this is the key fix
+        const packagePath = urdf.substring(0, urdf.lastIndexOf('/'));
+        this.packages = packagePath;
+        
+        Logger.info(`Loading robot: ${this.currentRobotName}`);
+        Logger.info(`Package path: ${this.packages}`);
         
         // Check if a full URI is specified before prepending the package info
         const manager = this.manager;

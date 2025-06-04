@@ -33,15 +33,23 @@ class RobotManager {
             // Clear current robot
             if (this.currentRobot) {
                 this.sceneSetup.clearRobot();
+                this.currentRobot = null;
             }
             
             // Extract package path from urdf path
             const packagePath = urdfPath.substring(0, urdfPath.lastIndexOf('/'));
+            
+            // Reset loader state
             this.loader.packages = packagePath;
             this.loader.currentRobotName = robotId;
             
-            // Load URDF
-            const robot = await this.loader.loadAsync(urdfPath);
+            console.log(`Loading robot ${robotId} from ${urdfPath}`);
+            console.log(`Package path: ${packagePath}`);
+            
+            // Load URDF using a promise wrapper since loadAsync might not exist
+            const robot = await new Promise((resolve, reject) => {
+                this.loader.load(urdfPath, resolve, null, reject);
+            });
             
             // Store and add to scene
             this.robots.set(robotId, robot);
