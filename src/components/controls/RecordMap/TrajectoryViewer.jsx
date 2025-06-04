@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
 import RecordMap from './RecordMap';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
+import EventBus from '../../../utils/EventBus';
 
 /**
  * Integrated component for trajectory control and visualization
@@ -25,8 +26,8 @@ const TrajectoryViewer = ({ viewerRef }) => {
   useEffect(() => {
     updateTrajectoryList();
     
-    // Set up callbacks
-    trajectoryAPI.registerPlaybackUpdateCallback((info) => {
+    // Use EventBus instead of deprecated method
+    const unsubscribe = EventBus.on('trajectory:playback-update', (info) => {
       setPlaybackProgress(info.progress * 100);
     });
     
@@ -34,6 +35,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
       // Clean up
       if (playing) trajectoryAPI.stopPlayback();
       if (recording) trajectoryAPI.stopRecording();
+      unsubscribe();
     };
   }, []);
   
@@ -45,7 +47,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
     if (!newTrajectoryName.trim()) return;
     
     // Get robot
-    const robot = viewerRef?.current?.getCurrentRobot();
+    const robot = viewerRef?.current?.getCurrentRobot?.();
     if (!robot) {
       alert('No robot loaded');
       return;
@@ -70,7 +72,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
   };
   
   const handlePlayTrajectory = (name) => {
-    if (!viewerRef?.current) return;
+    if (!viewerRef?.current || !viewerRef.current.getCurrentRobot) return;
     
     const robot = viewerRef.current.getCurrentRobot();
     if (!robot) {

@@ -16,8 +16,8 @@ const useTCP = () => {
   
   // Subscribe to EventBus instead of direct TCP provider
   useEffect(() => {
-    // Set up robot connection
-    if (viewerRef?.current) {
+    // Check if viewer is ready before trying to use it
+    if (viewerRef?.current && viewerRef.current.getCurrentRobot) {
       const robot = viewerRef.current.getCurrentRobot();
       if (robot) {
         tcpProvider.setRobot(robot);
@@ -58,7 +58,7 @@ const useTCP = () => {
   
   // Monitor robot changes and update TCP Provider
   useEffect(() => {
-    if (!viewerRef?.current) return;
+    if (!viewerRef?.current || !viewerRef.current.getCurrentRobot) return;
 
     const checkRobot = () => {
       const robot = viewerRef.current.getCurrentRobot();
@@ -101,7 +101,7 @@ const useTCP = () => {
   // Move TCP to a target position using IK
   const moveToPosition = async (targetPosition) => {
     try {
-      if (!viewerRef.current) {
+      if (!viewerRef?.current || !viewerRef.current.getCurrentRobot) {
         throw new Error("Viewer not initialized");
       }
       
@@ -131,4 +131,4 @@ const useTCP = () => {
   };
 };
 
-export default useTCP; 
+export default useTCP;

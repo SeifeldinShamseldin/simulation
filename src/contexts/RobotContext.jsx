@@ -10,7 +10,7 @@ export const RobotProvider = ({ children }) => {
   const [currentRobot, setCurrentRobot] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const viewerRef = useRef(null);
+  const [viewer, setViewer] = useState(null); // Store the actual viewer instance
   
   // Discover robots from server
   const discoverRobots = async () => {
@@ -51,7 +51,7 @@ export const RobotProvider = ({ children }) => {
   
   // Load robot using viewer
   const loadRobot = async (robotId, urdfPath) => {
-    if (!viewerRef.current) {
+    if (!viewer) {
       throw new Error('Viewer not initialized');
     }
     
@@ -59,7 +59,7 @@ export const RobotProvider = ({ children }) => {
       setIsLoading(true);
       setError(null);
       
-      const robot = await viewerRef.current.loadRobot(robotId, urdfPath);
+      const robot = await viewer.loadRobot(robotId, urdfPath);
       setCurrentRobot(robot);
       
       EventBus.emit('robot:loaded', { robotId, robot });
@@ -118,9 +118,9 @@ export const RobotProvider = ({ children }) => {
     addRobot,
     refresh: discoverRobots,
     
-    // Refs
-    viewerRef,
-    setViewer: (ref) => { viewerRef.current = ref; }
+    // Viewer access
+    viewerRef: viewer, // For backward compatibility
+    setViewer // Set the actual viewer instance
   };
   
   return (
