@@ -6,6 +6,7 @@ import '../../../styles/ControlsTheme.css';
 import fs from 'fs';
 import path from 'path';
 import { useScene, useSceneObject, useSmartPlacement } from '../../../contexts/hooks/useScene';
+import AddEnvironment from '../AddEnvironment/AddEnvironment';
 
 // Predefined object library
 const OBJECT_LIBRARY = [
@@ -82,6 +83,10 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const [humanMovementEnabled, setHumanMovementEnabled] = useState(false);
   const [inputValues, setInputValues] = useState({});
   const [humanPositions, setHumanPositions] = useState({});
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedItems, setSelectedItems] = useState(new Set());
+  const [selectedCategories, setSelectedCategories] = useState(new Set());
 
   // Scan environment directory on mount
   useEffect(() => {
@@ -450,6 +455,129 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
     setTimeout(() => setSuccessMessage(''), 3000);
   };
 
+  const deleteObject = async (objectPath, objectName) => {
+    if (!window.confirm(`Are you sure you want to delete "${objectName}"?`)) {
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/environment/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ path: objectPath })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setSuccessMessage(`${objectName} deleted successfully`);
+        setTimeout(() => setSuccessMessage(''), 3000);
+        scanEnvironment(); // Refresh the list
+      } else {
+        setError(result.message || 'Failed to delete object');
+      }
+    } catch (error) {
+      setError('Error deleting object: ' + error.message);
+    }
+  };
+
+  const deleteCategory = async (categoryId, categoryName) => {
+    const objectCount = categories.find(cat => cat.id === categoryId)?.objects.length || 0;
+    
+    if (!window.confirm(
+      `Are you sure you want to delete the entire "${categoryName}" category?\n` +
+      `This will permanently delete ${objectCount} object(s).`
+    )) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`/api/environment/category/${categoryId}`, {
+        method: 'DELETE'
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setSuccessMessage(`Category "${categoryName}" deleted successfully`);
+        setTimeout(() => setSuccessMessage(''), 3000);
+        setCurrentView('categories'); // Go back to categories view
+        setSelectedCategory(null);
+        scanEnvironment(); // Refresh the list
+      } else {
+        setError(result.message || 'Failed to delete category');
+      }
+    } catch (error) {
+      setError('Error deleting category: ' + error.message);
+    }
+  };
+
+  const toggleSelectionMode = () => {
+    setIsSelectionMode(!isSelectionMode);
+    setSelectedItems(new Set());
+    setSelectedCategories(new Set());
+  };
+
+  const toggleItemSelection = (itemId) => {
+    const newSelected = new Set(selectedItems);
+    if (newSelected.has(itemId)) {
+      newSelected.delete(itemId);
+    } else {
+      newSelected.add(itemId);
+    }
+    setSelectedItems(newSelected);
+  };
+
+  const toggleCategorySelection = (categoryId) => {
+    const newSelected = new Set(selectedCategories);
+    if (newSelected.has(categoryId)) {
+      newSelected.delete(categoryId);
+    } else {
+      newSelected.add(categoryId);
+    }
+    setSelectedCategories(newSelected);
+  };
+
+  const deleteSelectedItems = async () => {
+    const totalItems = selectedItems.size + selectedCategories.size;
+    if (totalItems === 0) {
+      setError('No items selected');
+      return;
+    }
+
+    if (!window.confirm(`Delete ${totalItems} selected item(s)?`)) {
+      return;
+    }
+
+    try {
+      // Delete selected objects
+      for (const itemPath of selectedItems) {
+        const obj = selectedCategory.objects.find(o => o.path === itemPath);
+        if (obj) {
+          await deleteObject(obj.path, obj.name);
+        }
+      }
+
+      // Delete selected categories
+      for (const categoryId of selectedCategories) {
+        const cat = categories.find(c => c.id === categoryId);
+        if (cat) {
+          await deleteCategory(cat.id, cat.name);
+        }
+      }
+
+      // Reset selection
+      setIsSelectionMode(false);
+      setSelectedItems(new Set());
+      setSelectedCategories(new Set());
+      scanEnvironment();
+    } catch (error) {
+      setError('Error deleting selected items: ' + error.message);
+    }
+  };
+
   // Render category boxes
   const renderCategories = () => (
     <div>
@@ -459,46 +587,135 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
         gap: '1rem',
         marginBottom: '1rem'
       }}>
+        {/* Existing categories */}
         {categories.map(cat => (
-          <button
+          <div
             key={cat.id}
-            onClick={() => selectCategory(cat)}
             style={{
+              position: 'relative',
               background: '#fff',
-              border: '2px solid #e0e0e0',
+              border: `2px solid ${selectedCategories.has(cat.id) ? '#007bff' : '#e0e0e0'}`,
               borderRadius: '8px',
               padding: '2rem',
-              cursor: 'pointer',
               transition: 'all 0.2s',
               textAlign: 'center',
-              ':hover': {
-                borderColor: '#007bff',
-                transform: 'translateY(-2px)',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              cursor: isSelectionMode ? 'pointer' : 'default'
+            }}
+            onClick={() => {
+              if (isSelectionMode) {
+                toggleCategorySelection(cat.id);
+              } else {
+                selectCategory(cat);
               }
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = '#007bff';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = '#e0e0e0';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
-            }}
           >
+            {/* Selection checkbox */}
+            {isSelectionMode && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '0.5rem',
+                  left: '0.5rem',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '50%',
+                  border: '2px solid #007bff',
+                  background: selectedCategories.has(cat.id) ? '#007bff' : '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#fff',
+                  fontSize: '16px',
+                  fontWeight: 'bold'
+                }}
+              >
+                {selectedCategories.has(cat.id) && '✓'}
+              </div>
+            )}
+            
+            {/* Delete button - only show when not in selection mode */}
+            {!isSelectionMode && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  deleteCategory(cat.id, cat.name);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: '0.5rem',
+                  right: '0.5rem',
+                  background: '#dc3545',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '30px',
+                  height: '30px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  fontSize: '1.2rem',
+                  fontWeight: 'bold',
+                  opacity: 0.8,
+                  transition: 'opacity 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = '0.8'}
+                title={`Delete ${cat.name} category`}
+              >
+                ×
+              </button>
+            )}
+            
             <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>{cat.icon}</div>
             <div style={{ fontWeight: '600', color: '#333' }}>{cat.name}</div>
             <div style={{ fontSize: '0.875rem', color: '#666', marginTop: '0.25rem' }}>
               {cat.objects.length} items
             </div>
-          </button>
+          </div>
         ))}
+        
+        {/* Add New Object Card - Only show when not in selection mode */}
+        {!isSelectionMode && (
+          <button
+            onClick={() => setShowAddModal(true)}
+            style={{
+              background: '#fff',
+              border: '2px dashed #00a99d',
+              borderRadius: '8px',
+              padding: '2rem',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              textAlign: 'center',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = '#008077';
+              e.currentTarget.style.transform = 'translateY(-2px)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+              e.currentTarget.style.background = '#f0fffe';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#00a99d';
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = 'none';
+              e.currentTarget.style.background = '#fff';
+            }}
+          >
+            <div style={{ 
+              fontSize: '3rem', 
+              marginBottom: '0.5rem',
+              color: '#00a99d'
+            }}>+</div>
+            <div style={{ fontWeight: '600', color: '#333' }}>Add New</div>
+            <div style={{ fontSize: '0.875rem', color: '#666', marginTop: '0.25rem' }}>
+              Object
+            </div>
+          </button>
+        )}
       </div>
       
-      {/* Human controls */}
-      {humanLoaded && (
+      {/* Human controls - if needed */}
+      {humanLoaded && !isSelectionMode && (
         <div style={{
           marginTop: '2rem',
           padding: '1rem',
@@ -571,40 +788,77 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
               key={obj.id}
               style={{
                 background: '#fff',
-                border: '1px solid #e0e0e0',
+                border: `1px solid ${selectedItems.has(obj.path) ? '#007bff' : '#e0e0e0'}`,
                 borderRadius: '8px',
                 padding: '1rem',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                position: 'relative',
+                cursor: isSelectionMode ? 'pointer' : 'default'
+              }}
+              onClick={() => {
+                if (isSelectionMode) {
+                  toggleItemSelection(obj.path);
+                }
               }}
             >
-              <h5 style={{ margin: '0 0 0.5rem 0', fontSize: '1rem' }}>{obj.name}</h5>
+              {/* Selection checkbox */}
+              {isSelectionMode && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '0.5rem',
+                    left: '0.5rem',
+                    width: '20px',
+                    height: '20px',
+                    borderRadius: '50%',
+                    border: '2px solid #007bff',
+                    background: selectedItems.has(obj.path) ? '#007bff' : '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontSize: '14px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  {selectedItems.has(obj.path) && '✓'}
+                </div>
+              )}
+              
+              <h5 style={{ 
+                margin: '0 0 0.5rem 0', 
+                fontSize: '1rem',
+                paddingLeft: isSelectionMode ? '2rem' : '0'
+              }}>{obj.name}</h5>
               <div style={{ fontSize: '0.875rem', color: '#666', marginBottom: '0.75rem' }}>
                 {obj.type.toUpperCase()} • {(obj.size / 1024).toFixed(1)}KB
               </div>
-              <button
-                onClick={() => loadObject(obj)} // Same handler for ALL objects
-                disabled={loading}
-                style={{
-                  width: '100%',
-                  padding: '0.5rem',
-                  background: loading ? '#ccc' : '#4caf50',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  fontSize: '0.875rem',
-                  fontWeight: '500',
-                  transition: 'background 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (!loading) e.currentTarget.style.background = '#45a049';
-                }}
-                onMouseLeave={(e) => {
-                  if (!loading) e.currentTarget.style.background = '#4caf50';
-                }}
-              >
-                {loading ? 'Loading...' : '+ Add to Scene'}
-              </button>
+              {!isSelectionMode && (
+                <button
+                  onClick={() => loadObject(obj)}
+                  disabled={loading}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem',
+                    background: loading ? '#ccc' : '#4caf50',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    fontSize: '0.875rem',
+                    fontWeight: '500',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!loading) e.currentTarget.style.background = '#45a049';
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!loading) e.currentTarget.style.background = '#4caf50';
+                  }}
+                >
+                  {loading ? 'Loading...' : '+ Add to Scene'}
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -867,31 +1121,57 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
         paddingBottom: '1rem',
         borderBottom: '1px solid #dee2e6'
       }}>
-        <h2 style={{ margin: 0, fontSize: '1.5rem' }}>Environment Objects</h2>
-        <button
-          onClick={onClose}
-          style={{
-            background: 'none',
-            border: 'none',
-            fontSize: '1.8rem',
-            cursor: 'pointer',
-            color: '#6c757d',
-            padding: '0.25rem 0.5rem',
-            borderRadius: '4px',
-            transition: 'all 0.2s ease',
-            lineHeight: 1
-          }}
-          onMouseEnter={(e) => {
-            e.target.style.background = '#e9ecef';
-            e.target.style.color = '#495057';
-          }}
-          onMouseLeave={(e) => {
-            e.target.style.background = 'none';
-            e.target.style.color = '#6c757d';
-          }}
-        >
-          ×
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>Environment Objects</h2>
+          <button
+            onClick={toggleSelectionMode}
+            className="controls-btn controls-btn-sm controls-btn-outline-primary"
+            style={{
+              padding: '0.25rem 0.75rem',
+              fontSize: '0.875rem'
+            }}
+          >
+            {isSelectionMode ? 'Cancel' : 'Select'}
+          </button>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {isSelectionMode && (selectedItems.size > 0 || selectedCategories.size > 0) && (
+            <button
+              onClick={deleteSelectedItems}
+              className="controls-btn controls-btn-danger controls-btn-sm"
+              style={{
+                padding: '0.25rem 0.75rem',
+                fontSize: '0.875rem'
+              }}
+            >
+              Delete ({selectedItems.size + selectedCategories.size})
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: '1.8rem',
+              cursor: 'pointer',
+              color: '#6c757d',
+              padding: '0.25rem 0.5rem',
+              borderRadius: '4px',
+              transition: 'all 0.2s ease',
+              lineHeight: 1
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#e9ecef';
+              e.target.style.color = '#495057';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+              e.target.style.color = '#6c757d';
+            }}
+          >
+            ×
+          </button>
+        </div>
       </div>
       
       {/* Messages */}
@@ -976,6 +1256,19 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
           {isScanning ? '⏳' : '🔄'} Refresh Objects
         </button>
       </div>
+
+      {/* Add Environment Modal */}
+      <AddEnvironment
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSuccess={(result) => {
+          setShowAddModal(false);
+          scanEnvironment(); // Refresh the list
+          setSuccessMessage(`${result.object.name} added successfully!`);
+          setTimeout(() => setSuccessMessage(''), 3000);
+        }}
+        existingCategories={categories}
+      />
     </div>
   );
 };

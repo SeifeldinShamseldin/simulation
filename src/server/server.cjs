@@ -561,6 +561,130 @@ function saveTCPMetadata(tcpArray) {
   fs.writeFileSync(metadataPath, JSON.stringify(currentData, null, 2));
 }
 
+// Configure multer for environment uploads
+const envStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    // Get category from form data
+    const category = req.body.category || 'uncategorized';
+    
+    // Create safe directory name
+    const safeCategory = category.toLowerCase().replace(/[^a-zA-Z0-9]/g, '');
+    
+    const uploadPath = path.join(__dirname, '..', '..', 'public', 'hazard', safeCategory);
+    
+    console.log('Creating environment upload path:', uploadPath);
+    
+    // Create directory if it doesn't exist
+    try {
+      fs.mkdirSync(uploadPath, { recursive: true });
+      cb(null, uploadPath);
+    } catch (error) {
+      console.error('Error creating directory:', error);
+      cb(error);
+    }
+  },
+  filename: function (req, file, cb) {
+    // Create filename based on object name
+    const objectName = req.body.objectName || 'object';
+    const safeName = objectName.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+    const timestamp = Date.now();
+    const ext = path.extname(file.originalname).toLowerCase();
+    const filename = `${safeName}_${timestamp}${ext}`;
+    
+    console.log('Saving environment file:', filename);
+    cb(null, filename);
+  }
+});
+
+const envUpload = multer({
+  storage: envStorage,
+  fileFilter: function (req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase();
+    // Allow all 3D file formats that Three.js supports
+    const allowedExtensions = ['.dae', '.stl', '.obj', '.fbx', '.gltf', '.glb', '.ply'];
+    
+    if (allowedExtensions.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${ext} not allowed. Allowed types: ${allowedExtensions.join(', ')}`), false);
+    }
+  },
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB limit
+  }
+});
+
+// Update the add environment endpoint
+app.post('/api/environment/add', (req, res) => {
+  console.log('=== ADD ENVIRONMENT OBJECT REQUEST ===');
+  
+  envUpload.single('modelFile')(req, res, function (err) { // Changed from 'stlFile' to 'modelFile'
+    if (err) {
+      console.error('Environment upload error:', err);
+      return res.status(400).json({ 
+        success: false, 
+        message: `Upload error: ${err.message}` 
+      });
+    }
+    
+    try {
+      const { category, objectName, description } = req.body;
+      
+      console.log('Processing environment object:', { category, objectName });
+      
+      if (!category || !objectName) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Category and object name are required' 
+        });
+      }
+      
+      if (!req.file) {
+        return res.status(400).json({ 
+          success: false, 
+          message: '3D model file is required' 
+        });
+      }
+      
+      const safeCategory = category.toLowerCase().replace(/[^a-zA-Z0-9]/g, '');
+      const filePath = `/hazard/${safeCategory}/${req.file.filename}`;
+      const fileExt = path.extname(req.file.filename).toLowerCase().substring(1); // Get extension without dot
+      
+      console.log(`Successfully added environment object: ${objectName} in ${category}`);
+      console.log(`File: ${req.file.filename} (${fileExt.toUpperCase()})`);
+      
+      res.json({
+        success: true,
+        message: 'Environment object added successfully',
+        object: {
+          id: `${safeCategory}_${objectName.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`,
+          name: objectName,
+          category: safeCategory,
+          filename: req.file.filename,
+          path: filePath,
+          type: fileExt, // Include file type for the scanner
+          size: req.file.size,
+          description: description || ''
+        }
+      });
+      
+    } catch (error) {
+      console.error('Error processing environment upload:', error);
+      // Clean up any uploaded files if there was an error
+      if (req.file) {
+        const uploadPath = req.file.path;
+        if (fs.existsSync(uploadPath)) {
+          fs.unlinkSync(uploadPath);
+        }
+      }
+      res.status(500).json({ 
+        success: false, 
+        message: `Server error: ${error.message}` 
+      });
+    }
+  });
+});
+
 // Get available environment objects dynamically from hazard directory
 app.get('/api/environment/scan', (req, res) => {
   try {
@@ -681,6 +805,56 @@ app.delete('/api/environment/delete', express.json(), (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: `Error deleting file: ${error.message}` 
+    });
+  }
+});
+
+// Delete entire category
+app.delete('/api/environment/category/:category', express.json(), (req, res) => {
+  try {
+    const { category } = req.params;
+    
+    if (!category) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Category name is required' 
+      });
+    }
+    
+    const categoryPath = path.join(__dirname, '..', '..', 'public', 'hazard', category);
+    
+    // Check if category exists
+    if (!fs.existsSync(categoryPath)) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Category not found' 
+      });
+    }
+    
+    // Check if it's a directory
+    const stats = fs.statSync(categoryPath);
+    if (!stats.isDirectory()) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Not a valid category' 
+      });
+    }
+    
+    // Delete the entire category directory
+    fs.rmSync(categoryPath, { recursive: true, force: true });
+    
+    console.log(`Deleted category: ${category}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'Category deleted successfully' 
+    });
+    
+  } catch (error) {
+    console.error('Error deleting category:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: `Error deleting category: ${error.message}` 
     });
   }
 });
