@@ -1,87 +1,72 @@
 // src/components/Navbar/Navbar.jsx
 import React, { useState } from 'react';
 
-const Navbar = ({ onToggleControls, isOpen, onToggleEnvironment }) => {
+const Navbar = ({ children }) => {
   const [logoError, setLogoError] = useState(false);
+  const [activePanel, setActivePanel] = useState(null); // null, 'robot', or 'environment'
+
+  const togglePanel = (panel) => {
+    setActivePanel(activePanel === panel ? null : panel);
+  };
 
   return (
-    <nav className="controls-navbar controls-navbar-dark controls-bg-primary" style={{
-      position: 'relative',
-      zIndex: 1000
-    }}>
-      <div className="controls-container-fluid">
-        {/* Logo */}
-        <a className="controls-navbar-brand" href="#" style={{ 
-          display: 'flex',
-          alignItems: 'center',
-          textDecoration: 'none'
-        }}>
-          {!logoError ? (
-            <img 
-              src="/logo/LOGO-Botfellows.webp" 
-              alt="Botfellows Logo"
-              style={{
-                height: '36px',
-                width: 'auto',
-                objectFit: 'contain'
+    <>
+      <nav className="controls-navbar controls-navbar-dark controls-bg-primary">
+        <div className="controls-container-fluid">
+          {/* Logo */}
+          <a className="controls-navbar-brand" href="#">
+            {!logoError ? (
+              <img 
+                src="/logo/LOGO-Botfellows.webp" 
+                alt="Botfellows Logo"
+                style={{
+                  height: '36px',
+                  width: 'auto',
+                  objectFit: 'contain'
+                }}
+                onError={() => setLogoError(true)}
+              />
+            ) : (
+              <span style={{ 
+                fontSize: '1.25rem',
+                fontWeight: '600',
+                color: 'white'
+              }}>
+                BOTFELLOWS
+              </span>
+            )}
+          </a>
+          
+          {/* Navigation links */}
+          <div className="controls-navbar-nav controls-ms-auto">
+            <a 
+              className={`controls-nav-link ${activePanel === 'robot' ? 'active' : ''}`}
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                togglePanel('robot');
               }}
-              onError={() => setLogoError(true)}
-            />
-          ) : (
-            <span style={{ 
-              fontSize: '1.25rem',
-              fontWeight: '600',
-              color: 'white'
-            }}>
-              BOTFELLOWS
-            </span>
-          )}
-        </a>
-        
-        {/* Navigation links */}
-        <div className="controls-navbar-nav controls-ms-auto" style={{
-          display: 'flex',
-          gap: '1rem'
-        }}>
-          
-          {/* Robot link - triggers menu toggle */}
-          <a 
-            className={`controls-nav-link ${isOpen ? 'active' : ''}`}
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              onToggleControls();
-            }}
-            style={{
-              cursor: 'pointer',
-              color: isOpen ? '#fff' : 'rgba(255,255,255,0.7)',
-              transition: 'color 0.3s ease'
-            }}
-          >
-            Robot
-          </a>
-          
-          {/* Environment link */}
-          <a 
-            className="controls-nav-link"
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              onToggleEnvironment();
-            }}
-            style={{
-              cursor: 'pointer',
-              color: 'rgba(255,255,255,0.7)',
-              transition: 'color 0.3s ease'
-            }}
-          >
-            Environment
-          </a>
-          
- 
+            >
+              Robot
+            </a>
+            
+            <a 
+              className={`controls-nav-link ${activePanel === 'environment' ? 'active' : ''}`}
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                togglePanel('environment');
+              }}
+            >
+              Environment
+            </a>
+          </div>
         </div>
-      </div>
-    </nav>
+      </nav>
+      
+      {/* Render children with activePanel prop */}
+      {React.cloneElement(children, { activePanel, setActivePanel })}
+    </>
   );
 };
 
