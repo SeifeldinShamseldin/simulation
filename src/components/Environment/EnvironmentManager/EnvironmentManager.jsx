@@ -1,68 +1,11 @@
-// src/components/controls/EnvironmentManager/EnvironmentManager.jsx
+// src/components/Environment/EnvironmentManager/EnvironmentManager.jsx
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import EventBus from '../../../utils/EventBus';
 import humanManager from '../Human/HumanController';
-import '../../../styles/ControlsTheme.css';
-import fs from 'fs';
-import path from 'path';
-import { useScene, useSceneObject, useSmartPlacement } from '../../../contexts/hooks/useScene';
+import Grid from '../Grid/Grid';
 import AddEnvironment from '../AddEnvironment/AddEnvironment';
-
-// Predefined object library
-const OBJECT_LIBRARY = [
-  {
-    id: 'workshop_table',
-    name: 'Workshop Table',
-    path: '/objects/table/complete_table.dae',
-    category: 'furniture',
-    thumbnail: '🪑',
-    defaultScale: { x: 1, y: 1, z: 1 },
-    groundOffset: 0,
-    material: {
-      type: 'phong',
-      color: 0x8e9fa3,
-      shininess: 100,
-      specular: 0x222222
-    }
-  },
-  {
-    id: 'conveyor_belt',
-    name: 'Conveyor Belt',
-    path: '/objects/conveyor/conveyor.dae',
-    category: 'industrial',
-    thumbnail: '📦',
-    defaultScale: { x: 1, y: 1, z: 1 },
-    groundOffset: 0.1
-  },
-  {
-    id: 'tool_rack',
-    name: 'Tool Rack',
-    path: '/objects/tools/rack.dae',
-    category: 'storage',
-    thumbnail: '🔧',
-    defaultScale: { x: 1, y: 1, z: 1 },
-    groundOffset: 0
-  },
-  {
-    id: 'safety_fence',
-    name: 'Safety Fence',
-    path: '/objects/safety/fence.dae',
-    category: 'safety',
-    thumbnail: '🚧',
-    defaultScale: { x: 1, y: 1, z: 1 },
-    groundOffset: 0
-  },
-  {
-    id: 'control_panel',
-    name: 'Control Panel',
-    path: '/objects/controls/panel.dae',
-    category: 'controls',
-    thumbnail: '🎛️',
-    defaultScale: { x: 1, y: 1, z: 1 },
-    groundOffset: 0.8
-  }
-];
+import { useScene, useSceneObject, useSmartPlacement } from '../../../contexts/hooks/useScene';
 
 const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const { registerObject, unregisterObject } = useScene();
@@ -70,7 +13,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const [categories, setCategories] = useState([]);
   const [loadedObjects, setLoadedObjects] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [currentView, setCurrentView] = useState('categories'); // 'categories' or 'objects'
+  const [currentView, setCurrentView] = useState('categories');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -80,7 +23,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const [humanLoaded, setHumanLoaded] = useState(false);
   const [humanInfo, setHumanInfo] = useState(null);
   const [expandedObjects, setExpandedObjects] = useState(new Set());
-  const [rotationAxis, setRotationAxis] = useState('y'); // default rotation axis
+  const [rotationAxis, setRotationAxis] = useState('y');
   const [humanMovementEnabled, setHumanMovementEnabled] = useState(false);
   const [inputValues, setInputValues] = useState({});
   const [humanPositions, setHumanPositions] = useState({});
@@ -116,7 +59,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       setSelectedHuman(data.id);
     });
 
-    // Listen for position updates from all humans
     const unsubscribePositions = [];
     const handlePositionUpdate = (humanId) => (data) => {
       if (data.position) {
@@ -131,7 +73,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       }
     };
 
-    // Set up position listeners for existing humans
     spawnedHumans.forEach(human => {
       const unsubscribe = EventBus.on(`human:position-update:${human.id}`, handlePositionUpdate(human.id));
       unsubscribePositions.push(unsubscribe);
@@ -169,21 +110,18 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const loadObject = async (objectConfig) => {
     if (!viewerRef?.current) return;
     
-    // Special handling for human objects
     if (objectConfig.category === 'human' || objectConfig.path?.includes('/human/')) {
       const sceneSetup = viewerRef.current.getSceneSetup();
       if (!sceneSetup) return;
       
       setLoading(true);
       try {
-        // Random spawn position
         const position = {
           x: (Math.random() - 0.5) * 4,
           y: 0,
           z: (Math.random() - 0.5) * 4
         };
         
-        // Spawn a new human
         const result = await humanManager.spawnHuman(
           sceneSetup.scene, 
           sceneSetup.world,
@@ -193,7 +131,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
         if (result) {
           const { id, human } = result;
           
-          // Set up position listener for this human
           const unsubscribe = EventBus.on(`human:position-update:${id}`, (data) => {
             if (data.position) {
               setHumanPositions(prev => ({
@@ -207,10 +144,8 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
             }
           });
           
-          // Store unsubscribe function (you might want to manage this better)
           human._unsubscribePosition = unsubscribe;
           
-          // Add to loaded objects list
           const humanInstance = {
             instanceId: id,
             objectId: objectConfig.id,
@@ -221,7 +156,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
           
           setLoadedObjects(prev => [...prev, humanInstance]);
           
-          // Add to spawned humans
           setSpawnedHumans(prev => [...prev, {
             id: id,
             name: objectConfig.name,
@@ -245,7 +179,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       return;
     }
     
-    // Original code for non-human objects
     setLoading(true);
     setError(null);
     
@@ -255,7 +188,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       
       const instanceId = `${objectConfig.id}_${Date.now()}`;
       
-      // Use smart placement
       const placement = calculateSmartPosition(objectConfig.category);
       const updatedConfig = {
         ...objectConfig,
@@ -264,16 +196,13 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
         castShadow: true
       };
       
-      // Load the object
       const object3D = await sceneSetup.loadEnvironmentObject(updatedConfig);
       
-      // Register it with the scene
       registerObject('environment', instanceId, object3D, {
         category: objectConfig.category,
         name: objectConfig.name
       });
       
-      // Add to loaded objects list
       const newObject = {
         instanceId,
         objectId: objectConfig.id,
@@ -299,7 +228,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
 
   const selectCategory = (category) => {
     setSelectedCategory(category);
-    setCurrentView('objects'); // Always change to objects view
+    setCurrentView('objects');
   };
 
   const goBack = () => {
@@ -325,7 +254,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
     const sceneSetup = viewerRef.current.getSceneSetup();
     if (!sceneSetup) return;
     
-    // Special handling for humans
     const human = humanManager.getHuman(instanceId);
     if (human) {
       if (updates.position) {
@@ -335,18 +263,15 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
           updates.position.z
         );
       }
-      // For human, we don't update rotation/scale through normal means
       return;
     }
     
-    // Get the actual object from the environment objects map
     const object = sceneSetup.environmentObjects.get(instanceId);
     if (!object) {
       console.error('Object not found:', instanceId);
       return;
     }
     
-    // Apply updates directly to the Three.js object
     if (updates.position) {
       object.position.set(
         updates.position.x ?? object.position.x,
@@ -375,11 +300,9 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       object.visible = updates.visible;
     }
     
-    // Force update matrices
     object.updateMatrix();
     object.updateMatrixWorld(true);
     
-    // Also update through sceneSetup for consistency
     sceneSetup.updateEnvironmentObject(instanceId, updates);
   };
 
@@ -395,12 +318,10 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
     const radians = degrees * Math.PI / 180;
     const newRotation = { x: 0, y: 0, z: 0 };
     
-    // Get current rotation
     newRotation.x = object.rotation.x;
     newRotation.y = object.rotation.y;
     newRotation.z = object.rotation.z;
     
-    // Set the selected axis
     newRotation[rotationAxis] = radians;
     
     updateObject(instanceId, { rotation: newRotation });
@@ -409,10 +330,8 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const removeObject = (instanceId) => {
     if (!viewerRef?.current) return;
     
-    // Check if it's a human
     const human = humanManager.getHuman(instanceId);
     if (human) {
-      // Unsubscribe from position updates
       if (human._unsubscribePosition) {
         human._unsubscribePosition();
       }
@@ -421,10 +340,8 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       setSpawnedHumans(prev => prev.filter(h => h.id !== instanceId));
       setSelectedHuman(null);
       
-      // Remove from loaded objects
       setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
       
-      // Remove position tracking
       setHumanPositions(prev => {
         const newPositions = { ...prev };
         delete newPositions[instanceId];
@@ -435,7 +352,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       return;
     }
     
-    // Original code for non-human objects
     const sceneSetup = viewerRef.current.getSceneSetup();
     if (!sceneSetup) return;
     
@@ -444,11 +360,9 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   };
 
   const handleMoveHuman = (humanId) => {
-    // Set this human as active
     humanManager.setActiveHuman(humanId);
     setSelectedHuman(humanId);
     
-    // Update spawned humans to reflect active state
     setSpawnedHumans(prev => prev.map(h => ({
       ...h,
       isActive: h.id === humanId
@@ -494,7 +408,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       if (result.success) {
         setSuccessMessage(`Category "${categoryName}" deleted successfully`);
         setTimeout(() => setSuccessMessage(''), 3000);
-        setCurrentView('categories'); // Go back to categories view
+        setCurrentView('categories');
         setSelectedCategory(null);
       } else {
         setError(result.message || 'Failed to delete category');
@@ -537,10 +451,8 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       return;
     }
 
-    // Prepare items list for confirmation
     const itemsList = [];
     
-    // Add selected objects
     for (const itemPath of selectedItems) {
       const obj = selectedCategory.objects.find(o => o.path === itemPath);
       if (obj) {
@@ -548,7 +460,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       }
     }
     
-    // Add selected categories
     for (const categoryId of selectedCategories) {
       const cat = categories.find(c => c.id === categoryId);
       if (cat) {
@@ -561,12 +472,10 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       }
     }
 
-    // Show confirmation modal
     setDeleteConfirmData({
       items: itemsList,
       callback: async () => {
         try {
-          // Delete selected objects
           for (const item of itemsList) {
             if (item.type === 'object') {
               await deleteObject(item.path, item.name);
@@ -575,21 +484,17 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
             }
           }
 
-          // Reset selection mode first
           setIsSelectionMode(false);
           setSelectedItems(new Set());
           setSelectedCategories(new Set());
           
-          // If we deleted objects from current category, update the view
           if (selectedItems.size > 0 && selectedCategory) {
-            // Remove deleted items from current category's objects
             const updatedObjects = selectedCategory.objects.filter(
               obj => !itemsList.some(item => item.path === obj.path)
             );
             setSelectedCategory({ ...selectedCategory, objects: updatedObjects });
           }
           
-          // Force a re-scan to update all categories
           await scanEnvironment();
           
         } catch (error) {
@@ -598,260 +503,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       }
     });
     setShowDeleteConfirm(true);
-  };
-
-  // Render category boxes
-  const renderCategories = () => (
-    <div>
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(2, 1fr)',
-        gap: '1rem',
-        marginBottom: '1rem'
-      }}>
-        {/* Existing categories */}
-        {categories.map(cat => (
-          <div
-            key={cat.id}
-            style={{
-              position: 'relative',
-              background: '#fff',
-              border: `2px solid ${selectedCategories.has(cat.id) ? '#007bff' : '#e0e0e0'}`,
-              borderRadius: '8px',
-              padding: '2rem',
-              transition: 'all 0.2s',
-              textAlign: 'center',
-              cursor: isSelectionMode ? 'pointer' : 'default'
-            }}
-            onClick={() => {
-              if (isSelectionMode) {
-                toggleCategorySelection(cat.id);
-              } else {
-                selectCategory(cat);
-              }
-            }}
-          >
-            {/* Selection checkbox */}
-            {isSelectionMode && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: '0.5rem',
-                  left: '0.5rem',
-                  width: '24px',
-                  height: '24px',
-                  borderRadius: '50%',
-                  border: '2px solid #007bff',
-                  background: selectedCategories.has(cat.id) ? '#007bff' : '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#fff',
-                  fontSize: '16px',
-                  fontWeight: 'bold'
-                }}
-              >
-                {selectedCategories.has(cat.id) && '✓'}
-              </div>
-            )}
-            
-            <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>{cat.icon}</div>
-            <div style={{ fontWeight: '600', color: '#333' }}>{cat.name}</div>
-            <div style={{ fontSize: '0.875rem', color: '#666', marginTop: '0.25rem' }}>
-              {cat.objects.length} items
-            </div>
-          </div>
-        ))}
-        
-        {/* Add New Object Card - Only show when not in selection mode */}
-        {!isSelectionMode && (
-          <button
-            onClick={() => setShowAddModal(true)}
-            style={{
-              background: '#fff',
-              border: '2px dashed #00a99d',
-              borderRadius: '8px',
-              padding: '2rem',
-              cursor: 'pointer',
-              transition: 'all 0.2s',
-              textAlign: 'center',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = '#008077';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-              e.currentTarget.style.background = '#f0fffe';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = '#00a99d';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
-              e.currentTarget.style.background = '#fff';
-            }}
-          >
-            <div style={{ 
-              fontSize: '3rem', 
-              marginBottom: '0.5rem',
-              color: '#00a99d'
-            }}>+</div>
-            <div style={{ fontWeight: '600', color: '#333' }}>Add New</div>
-            <div style={{ fontSize: '0.875rem', color: '#666', marginTop: '0.25rem' }}>
-              Object
-            </div>
-          </button>
-        )}
-      </div>
-      
-      {/* Human controls - if needed */}
-      {humanLoaded && !isSelectionMode && (
-        <div style={{
-          marginTop: '2rem',
-          padding: '1rem',
-          background: '#f5f5f5',
-          borderRadius: '8px'
-        }}>
-          <h4 style={{ margin: '0 0 1rem 0' }}>Human Controls</h4>
-          <div style={{ fontSize: '0.875rem', marginBottom: '1rem' }}>
-            {humanMovementEnabled ? 
-              '🟢 Movement Enabled - Use WASD to move • Shift to run' : 
-              '🔴 Movement Disabled - Click "Move Human" to enable'}
-          </div>
-          <button
-            onClick={() => removeObject('human_controller')}
-            style={{
-              padding: '0.5rem 1rem',
-              background: '#dc3545',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '0.875rem'
-            }}
-          >
-            Remove Human
-          </button>
-        </div>
-      )}
-    </div>
-  );
-
-  // Render objects in selected category
-  const renderObjects = () => {
-    if (!selectedCategory) return null;
-    
-    return (
-      <div>
-        <button
-          onClick={goBack}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: '0.5rem 1rem',
-            marginBottom: '1rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            color: '#666',
-            fontSize: '1rem',
-            transition: 'color 0.2s'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.color = '#333'}
-          onMouseLeave={(e) => e.currentTarget.style.color = '#666'}
-        >
-          ← Back to Categories
-        </button>
-        
-        <h4 style={{ marginBottom: '1rem' }}>
-          {selectedCategory.icon} {selectedCategory.name}
-        </h4>
-        
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(2, 1fr)',
-          gap: '1rem'
-        }}>
-          {selectedCategory.objects.map(obj => (
-            <div
-              key={obj.id}
-              style={{
-                background: '#fff',
-                border: `1px solid ${selectedItems.has(obj.path) ? '#007bff' : '#e0e0e0'}`,
-                borderRadius: '8px',
-                padding: '1rem',
-                transition: 'all 0.2s',
-                position: 'relative',
-                cursor: isSelectionMode ? 'pointer' : 'default'
-              }}
-              onClick={() => {
-                if (isSelectionMode) {
-                  toggleItemSelection(obj.path);
-                }
-              }}
-            >
-              {/* Selection checkbox */}
-              {isSelectionMode && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '0.5rem',
-                    left: '0.5rem',
-                    width: '20px',
-                    height: '20px',
-                    borderRadius: '50%',
-                    border: '2px solid #007bff',
-                    background: selectedItems.has(obj.path) ? '#007bff' : '#fff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#fff',
-                    fontSize: '14px',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  {selectedItems.has(obj.path) && '✓'}
-                </div>
-              )}
-              
-              <h5 style={{ 
-                margin: '0 0 0.5rem 0', 
-                fontSize: '1rem',
-                paddingLeft: isSelectionMode ? '2rem' : '0'
-              }}>{obj.name}</h5>
-              <div style={{ fontSize: '0.875rem', color: '#666', marginBottom: '0.75rem' }}>
-                {obj.type.toUpperCase()} • {(obj.size / 1024).toFixed(1)}KB
-              </div>
-              {!isSelectionMode && (
-                <button
-                  onClick={() => loadObject(obj)}
-                  disabled={loading}
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    background: loading ? '#ccc' : '#4caf50',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: loading ? 'not-allowed' : 'pointer',
-                    fontSize: '0.875rem',
-                    fontWeight: '500',
-                    transition: 'background 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!loading) e.currentTarget.style.background = '#45a049';
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!loading) e.currentTarget.style.background = '#4caf50';
-                  }}
-                >
-                  {loading ? 'Loading...' : '+ Add to Scene'}
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
   };
 
   const renderSpawnedObjects = () => {
@@ -880,13 +531,10 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
           const isExpanded = expandedObjects.has(obj.instanceId);
           const objectData = viewerRef.current?.getSceneSetup()?.environmentObjects.get(obj.instanceId);
           
-          // More comprehensive check for human
           const isHuman = obj.category === 'human' || 
                          obj.path?.toLowerCase()?.includes('/human/') ||
                          obj.name?.toLowerCase()?.includes('soldier') ||
                          obj.name?.toLowerCase()?.includes('human');
-          
-          console.log('Object check:', obj.name, 'Path:', obj.path, 'Is Human:', isHuman); // Debug log
           
           return (
             <div key={obj.instanceId} className="controls-card controls-mb-3">
@@ -932,7 +580,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
               
               {isExpanded && (
                 <div className="controls-card-body">
-                  {/* Position Controls */}
                   <div className="controls-mb-3">
                     <label className="controls-form-label">Position</label>
                     <div className="controls-row">
@@ -957,9 +604,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                                 const value = e.target.value;
                                 const numValue = parseFloat(value);
                                 
-                                // Special handling for humans
                                 if (isHuman) {
-                                  // Get current position from state or humanManager
                                   const human = humanManager.getHuman(obj.instanceId);
                                   if (!human) return;
                                   
@@ -970,7 +615,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                                     z: currentPos.z
                                   };
                                   
-                                  // Update the specific axis
                                   if (!isNaN(numValue)) {
                                     pos[axis] = numValue;
                                     updateObject(obj.instanceId, { position: pos });
@@ -978,7 +622,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                                   return;
                                 }
                                 
-                                // Normal object handling
                                 const sceneSetup = viewerRef.current?.getSceneSetup();
                                 if (!sceneSetup) return;
                                 
@@ -1003,7 +646,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                     </div>
                   </div>
                   
-                  {/* Scale Controls */}
                   <div className="controls-mb-3">
                     <label className="controls-form-label">Scale</label>
                     <div className="controls-row">
@@ -1029,7 +671,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                     </div>
                   </div>
                   
-                  {/* Rotation Controls */}
                   <div className="controls-mb-3">
                     <label className="controls-form-label">Rotation</label>
                     <div className="controls-btn-group controls-btn-group-sm controls-mb-2">
@@ -1056,7 +697,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                     </div>
                   </div>
                   
-                  {/* Move Human Button - Only for human category */}
                   {isHuman && (
                     <button
                       className={`controls-btn ${spawnedHumans.find(h => h.id === obj.instanceId)?.isActive ? 'controls-btn-danger' : 'controls-btn-success'} controls-btn-block controls-mb-3`}
@@ -1066,7 +706,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                     </button>
                   )}
                   
-                  {/* Remove Button */}
                   <button
                     className="controls-btn controls-btn-danger controls-btn-sm controls-w-100"
                     onClick={() => removeObject(obj.instanceId)}
@@ -1082,23 +721,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
     );
   };
 
-  const removeHuman = (humanId) => {
-    // Remove using standard environment object removal
-    removeObject(humanId);
-    
-    // Update spawned humans list
-    setSpawnedHumans(prev => prev.filter(h => h.id !== humanId));
-    
-    // Clear selection if this was the selected human
-    if (selectedHuman === humanId) {
-      setSelectedHuman(null);
-    }
-    
-    // Emit removal event
-    EventBus.emit('human:removed', { id: humanId });
-  };
-
-  // Delete Confirmation Modal
   const DeleteConfirmModal = () => {
     if (!showDeleteConfirm) return null;
     
@@ -1143,20 +765,10 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
             borderTop: '1px solid #e0e0e0'
           }}>
             <button 
-              className="controls-btn"
+              className="controls-btn controls-btn-secondary"
               onClick={() => {
                 setShowDeleteConfirm(false);
                 setDeleteConfirmData({ items: [], callback: null });
-              }}
-              style={{
-                background: '#007bff',
-                color: 'white',
-                padding: '0.5rem 1.5rem',
-                border: 'none',
-                borderRadius: '4px',
-                fontSize: '1rem',
-                fontWeight: '500',
-                cursor: 'pointer'
               }}
             >
               No, Cancel
@@ -1169,16 +781,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                 }
                 setShowDeleteConfirm(false);
                 setDeleteConfirmData({ items: [], callback: null });
-              }}
-              style={{
-                background: '#dc3545',
-                color: 'white',
-                padding: '0.5rem 1.5rem',
-                border: 'none',
-                borderRadius: '4px',
-                fontSize: '1rem',
-                fontWeight: '500',
-                cursor: 'pointer'
               }}
             >
               Yes, Delete
@@ -1281,24 +883,24 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
         </div>
       )}
       
-      {/* Human info */}
-      {humanLoaded && humanInfo && (
-        <div style={{
-          padding: '0.75rem',
-          marginBottom: '1rem',
-          background: '#e3f2fd',
-          borderRadius: '4px',
-          fontSize: '0.875rem'
-        }}>
-          <strong>👤 Human:</strong> {humanInfo.isRunning ? '🏃 Running' : '🚶 Walking'} at 
-          X: {humanInfo.position[0].toFixed(1)}, 
-          Z: {humanInfo.position[2].toFixed(1)}
-        </div>
-      )}
-      
-      {/* Main content */}
+      {/* Main content - Use Grid component */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {currentView === 'categories' ? renderCategories() : renderObjects()}
+        <Grid
+          categories={categories}
+          selectedCategory={selectedCategory}
+          isSelectionMode={isSelectionMode}
+          selectedCategories={selectedCategories}
+          onCategoryClick={selectCategory}
+          onCategorySelect={toggleCategorySelection}
+          onAddNew={() => setShowAddModal(true)}
+          currentView={currentView}
+          selectedItems={selectedItems}
+          onItemClick={loadObject}
+          onItemSelect={toggleItemSelection}
+          onBackClick={goBack}
+          isLoading={loading}
+        />
+        
         {renderSpawnedObjects()}
       </div>
       
@@ -1343,7 +945,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
         onClose={() => setShowAddModal(false)}
         onSuccess={(result) => {
           setShowAddModal(false);
-          scanEnvironment(); // Refresh the list
+          scanEnvironment();
           setSuccessMessage(`${result.object.name} added successfully!`);
           setTimeout(() => setSuccessMessage(''), 3000);
         }}
