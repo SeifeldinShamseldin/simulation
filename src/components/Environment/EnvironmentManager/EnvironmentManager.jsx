@@ -5,6 +5,7 @@ import humanManager from '../Human/HumanController';
 import '../../../styles/ControlsTheme.css';
 import fs from 'fs';
 import path from 'path';
+import { useScene, useSceneObject, useSmartPlacement } from '../../../contexts/hooks/useScene';
 
 // Predefined object library
 const OBJECT_LIBRARY = [
@@ -62,6 +63,8 @@ const OBJECT_LIBRARY = [
 ];
 
 const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
+  const { registerObject, unregisterObject } = useScene();
+  const { calculateSmartPosition } = useSmartPlacement();
   const [categories, setCategories] = useState([]);
   const [loadedObjects, setLoadedObjects] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -244,27 +247,43 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       
       const instanceId = `${objectConfig.id}_${Date.now()}`;
       
-      const object3D = await sceneSetup.loadEnvironmentObject({
+      // Use smart placement
+      const placement = calculateSmartPosition(objectConfig.category);
+      const updatedConfig = {
         ...objectConfig,
+        ...placement,
         id: instanceId,
-        castShadow: true,
-        receiveShadow: true
+        castShadow: true
+      };
+      
+      // Load the object
+      const object3D = await sceneSetup.loadEnvironmentObject(updatedConfig);
+      
+      // Register it with the scene
+      registerObject('environment', instanceId, object3D, {
+        category: objectConfig.category,
+        name: objectConfig.name
       });
       
-      setLoadedObjects(prev => [...prev, {
+      // Add to loaded objects list
+      const newObject = {
         instanceId,
         objectId: objectConfig.id,
         name: objectConfig.name,
         category: objectConfig.category,
-        path: objectConfig.path
-      }]);
+        path: objectConfig.path,
+        position: placement,
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: objectConfig.defaultScale || { x: 1, y: 1, z: 1 }
+      };
       
-      setSuccessMessage(`Added ${objectConfig.name} to scene`);
+      setLoadedObjects(prev => [...prev, newObject]);
+      setSuccessMessage(`${objectConfig.name} added to scene!`);
       setTimeout(() => setSuccessMessage(''), 3000);
       
-    } catch (err) {
-      console.error('Failed to load object:', err);
-      setError(`Failed to load ${objectConfig.name}`);
+    } catch (error) {
+      console.error('Error loading object:', error);
+      setError('Failed to load object: ' + error.message);
     } finally {
       setLoading(false);
     }

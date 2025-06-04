@@ -4,6 +4,7 @@ import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
 import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
+import { SceneProvider } from './contexts/SceneContext';
 import { RobotProvider, useRobot } from './contexts/RobotContext';
 import './App.css'; // Only App.css, NO ControlsTheme.css
 
@@ -56,10 +57,13 @@ const AppContent = () => {
   );
 };
 
+// Wrap your app content with SceneProvider
 const App = () => {
   return (
     <RobotProvider>
-      <AppContent />
+      <SceneProvider>
+        <AppContent />
+      </SceneProvider>
     </RobotProvider>
   );
 };
