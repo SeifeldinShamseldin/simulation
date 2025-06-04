@@ -1,5 +1,6 @@
 // src/components/controls/EnvironmentManager/EnvironmentManager.jsx
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import EventBus from '../../../utils/EventBus';
 import humanManager from '../Human/HumanController';
 import '../../../styles/ControlsTheme.css';
@@ -87,6 +88,8 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState(new Set());
   const [selectedCategories, setSelectedCategories] = useState(new Set());
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmData, setDeleteConfirmData] = useState({ items: [], callback: null });
 
   // Scan environment directory on mount
   useEffect(() => {
@@ -456,10 +459,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   };
 
   const deleteObject = async (objectPath, objectName) => {
-    if (!window.confirm(`Are you sure you want to delete "${objectName}"?`)) {
-      return;
-    }
-    
     try {
       const response = await fetch('/api/environment/delete', {
         method: 'DELETE',
@@ -474,7 +473,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       if (result.success) {
         setSuccessMessage(`${objectName} deleted successfully`);
         setTimeout(() => setSuccessMessage(''), 3000);
-        scanEnvironment(); // Refresh the list
       } else {
         setError(result.message || 'Failed to delete object');
       }
@@ -485,13 +483,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
 
   const deleteCategory = async (categoryId, categoryName) => {
     const objectCount = categories.find(cat => cat.id === categoryId)?.objects.length || 0;
-    
-    if (!window.confirm(
-      `Are you sure you want to delete the entire "${categoryName}" category?\n` +
-      `This will permanently delete ${objectCount} object(s).`
-    )) {
-      return;
-    }
     
     try {
       const response = await fetch(`/api/environment/category/${categoryId}`, {
@@ -505,7 +496,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
         setTimeout(() => setSuccessMessage(''), 3000);
         setCurrentView('categories'); // Go back to categories view
         setSelectedCategory(null);
-        scanEnvironment(); // Refresh the list
       } else {
         setError(result.message || 'Failed to delete category');
       }
@@ -547,35 +537,67 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
       return;
     }
 
-    if (!window.confirm(`Delete ${totalItems} selected item(s)?`)) {
-      return;
+    // Prepare items list for confirmation
+    const itemsList = [];
+    
+    // Add selected objects
+    for (const itemPath of selectedItems) {
+      const obj = selectedCategory.objects.find(o => o.path === itemPath);
+      if (obj) {
+        itemsList.push({ name: obj.name, type: 'object', path: obj.path });
+      }
+    }
+    
+    // Add selected categories
+    for (const categoryId of selectedCategories) {
+      const cat = categories.find(c => c.id === categoryId);
+      if (cat) {
+        itemsList.push({ 
+          name: cat.name, 
+          type: 'category', 
+          id: cat.id,
+          count: cat.objects.length 
+        });
+      }
     }
 
-    try {
-      // Delete selected objects
-      for (const itemPath of selectedItems) {
-        const obj = selectedCategory.objects.find(o => o.path === itemPath);
-        if (obj) {
-          await deleteObject(obj.path, obj.name);
+    // Show confirmation modal
+    setDeleteConfirmData({
+      items: itemsList,
+      callback: async () => {
+        try {
+          // Delete selected objects
+          for (const item of itemsList) {
+            if (item.type === 'object') {
+              await deleteObject(item.path, item.name);
+            } else if (item.type === 'category') {
+              await deleteCategory(item.id, item.name);
+            }
+          }
+
+          // Reset selection mode first
+          setIsSelectionMode(false);
+          setSelectedItems(new Set());
+          setSelectedCategories(new Set());
+          
+          // If we deleted objects from current category, update the view
+          if (selectedItems.size > 0 && selectedCategory) {
+            // Remove deleted items from current category's objects
+            const updatedObjects = selectedCategory.objects.filter(
+              obj => !itemsList.some(item => item.path === obj.path)
+            );
+            setSelectedCategory({ ...selectedCategory, objects: updatedObjects });
+          }
+          
+          // Force a re-scan to update all categories
+          await scanEnvironment();
+          
+        } catch (error) {
+          setError('Error deleting selected items: ' + error.message);
         }
       }
-
-      // Delete selected categories
-      for (const categoryId of selectedCategories) {
-        const cat = categories.find(c => c.id === categoryId);
-        if (cat) {
-          await deleteCategory(cat.id, cat.name);
-        }
-      }
-
-      // Reset selection
-      setIsSelectionMode(false);
-      setSelectedItems(new Set());
-      setSelectedCategories(new Set());
-      scanEnvironment();
-    } catch (error) {
-      setError('Error deleting selected items: ' + error.message);
-    }
+    });
+    setShowDeleteConfirm(true);
   };
 
   // Render category boxes
@@ -631,40 +653,6 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
               >
                 {selectedCategories.has(cat.id) && '✓'}
               </div>
-            )}
-            
-            {/* Delete button - only show when not in selection mode */}
-            {!isSelectionMode && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteCategory(cat.id, cat.name);
-                }}
-                style={{
-                  position: 'absolute',
-                  top: '0.5rem',
-                  right: '0.5rem',
-                  background: '#dc3545',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '30px',
-                  height: '30px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  fontSize: '1.2rem',
-                  fontWeight: 'bold',
-                  opacity: 0.8,
-                  transition: 'opacity 0.2s'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-                onMouseLeave={(e) => e.currentTarget.style.opacity = '0.8'}
-                title={`Delete ${cat.name} category`}
-              >
-                ×
-              </button>
             )}
             
             <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>{cat.icon}</div>
@@ -1110,6 +1098,98 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
     EventBus.emit('human:removed', { id: humanId });
   };
 
+  // Delete Confirmation Modal
+  const DeleteConfirmModal = () => {
+    if (!showDeleteConfirm) return null;
+    
+    const itemCount = deleteConfirmData.items.length;
+    const itemNames = deleteConfirmData.items.map(item => item.name).join(', ');
+    
+    return createPortal(
+      <div className="controls-modal-overlay">
+        <div className="controls-modal" style={{ maxWidth: '500px', minHeight: 'auto' }}>
+          <div className="controls-modal-header">
+            <h2 style={{ margin: 0, fontSize: '1.5rem' }}>Confirm Delete</h2>
+          </div>
+          
+          <div className="controls-modal-body" style={{ padding: '2rem' }}>
+            <p style={{ fontSize: '1.1rem', marginBottom: '1.5rem' }}>
+              Are you sure you want to delete {itemCount} selected item{itemCount > 1 ? 's' : ''}?
+            </p>
+            <div style={{ 
+              background: '#f8f9fa', 
+              padding: '1rem', 
+              borderRadius: '4px',
+              marginBottom: '1.5rem',
+              maxHeight: '200px',
+              overflowY: 'auto'
+            }}>
+              <strong>Items to delete:</strong>
+              <ul style={{ margin: '0.5rem 0 0 0', paddingLeft: '1.5rem' }}>
+                {deleteConfirmData.items.map((item, index) => (
+                  <li key={index} style={{ marginBottom: '0.25rem' }}>
+                    {item.name} {item.type === 'category' && `(${item.count} objects)`}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          
+          <div className="controls-modal-footer" style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: '1rem',
+            padding: '1.5rem 2rem',
+            borderTop: '1px solid #e0e0e0'
+          }}>
+            <button 
+              className="controls-btn"
+              onClick={() => {
+                setShowDeleteConfirm(false);
+                setDeleteConfirmData({ items: [], callback: null });
+              }}
+              style={{
+                background: '#007bff',
+                color: 'white',
+                padding: '0.5rem 1.5rem',
+                border: 'none',
+                borderRadius: '4px',
+                fontSize: '1rem',
+                fontWeight: '500',
+                cursor: 'pointer'
+              }}
+            >
+              No, Cancel
+            </button>
+            <button 
+              className="controls-btn controls-btn-danger"
+              onClick={() => {
+                if (deleteConfirmData.callback) {
+                  deleteConfirmData.callback();
+                }
+                setShowDeleteConfirm(false);
+                setDeleteConfirmData({ items: [], callback: null });
+              }}
+              style={{
+                background: '#dc3545',
+                color: 'white',
+                padding: '0.5rem 1.5rem',
+                border: 'none',
+                borderRadius: '4px',
+                fontSize: '1rem',
+                fontWeight: '500',
+                cursor: 'pointer'
+              }}
+            >
+              Yes, Delete
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  };
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
@@ -1269,6 +1349,9 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
         }}
         existingCategories={categories}
       />
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal />
     </div>
   );
 };
