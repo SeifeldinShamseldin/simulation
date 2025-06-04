@@ -6,6 +6,7 @@ const RobotPanel = ({ viewerRef }) => {
   const [activeTab, setActiveTab] = useState('load');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedRobot, setSelectedRobot] = useState('');
+  const [categoryRobots, setCategoryRobots] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
   
   // Add robot form state
@@ -19,30 +20,45 @@ const RobotPanel = ({ viewerRef }) => {
     meshes: []
   });
   
-  // Get robots for selected category
-  const categoryRobots = selectedCategory ? 
-    availableRobots.filter(r => r.category === selectedCategory) : [];
-  
   // Auto-select first category
   useEffect(() => {
     if (categories.length > 0 && !selectedCategory) {
       setSelectedCategory(categories[0].id);
     }
   }, [categories]);
-  
-  // Auto-select first robot in category
+
+  // Handle category changes
   useEffect(() => {
-    if (categoryRobots.length > 0 && !selectedRobot) {
-      setSelectedRobot(categoryRobots[0].id);
+    if (selectedCategory) {
+      const robots = availableRobots.filter(robot => robot.category === selectedCategory);
+      setCategoryRobots(robots);
+      
+      // Always reset the selected robot when category changes
+      if (robots.length > 0) {
+        setSelectedRobot(robots[0].id);
+      } else {
+        setSelectedRobot('');
+      }
+    } else {
+      setCategoryRobots([]);
+      setSelectedRobot('');
     }
-  }, [categoryRobots]);
+  }, [selectedCategory, availableRobots]);
   
   const handleLoadRobot = async () => {
-    if (!selectedRobot) return;
+    if (!selectedRobot || !viewerRef?.current) return;
     
-    const robot = availableRobots.find(r => r.id === selectedRobot);
-    if (robot && viewerRef?.current) {
+    // Find the robot in the current category robots, not all robots
+    const robot = categoryRobots.find(r => r.id === selectedRobot);
+    if (!robot) {
+      console.error('Selected robot not found in current category');
+      return;
+    }
+    
+    try {
       await loadRobot(robot.id, robot.urdfPath);
+    } catch (error) {
+      console.error("Failed to load robot:", error);
     }
   };
   
