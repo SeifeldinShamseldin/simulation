@@ -7,19 +7,32 @@ import Grid from '../Grid/Grid';
 import AddEnvironment from '../AddEnvironment/AddEnvironment';
 import { useScene, useSceneObject, useSmartPlacement } from '../../../contexts/hooks/useScene';
 
-const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
+const EnvironmentManager = ({ 
+  viewerRef, 
+  isPanel = false, 
+  onClose,
+  categories,
+  setCategories,
+  loadedObjects,
+  setLoadedObjects,
+  selectedCategory,
+  setSelectedCategory,
+  currentView,
+  setCurrentView,
+  spawnedHumans,
+  setSpawnedHumans,
+  selectedHuman,
+  setSelectedHuman,
+  successMessage,
+  setSuccessMessage
+}) => {
   const { registerObject, unregisterObject } = useScene();
   const { calculateSmartPosition } = useSmartPlacement();
-  const [categories, setCategories] = useState([]);
-  const [loadedObjects, setLoadedObjects] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState(null);
-  const [currentView, setCurrentView] = useState('categories');
+  
+  // Local states that aren't passed as props
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
-  const [spawnedHumans, setSpawnedHumans] = useState([]);
-  const [selectedHuman, setSelectedHuman] = useState(null);
   const [humanLoaded, setHumanLoaded] = useState(false);
   const [humanInfo, setHumanInfo] = useState(null);
   const [expandedObjects, setExpandedObjects] = useState(new Set());
@@ -688,12 +701,16 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                         </button>
                       ))}
                     </div>
-                    <div className="controls-btn-group controls-btn-group-sm controls-flex-wrap">
+                    <div className="controls-btn-group controls-btn-group-sm controls-d-flex controls-flex-wrap controls-gap-1">
                       {[0, 45, 90, 135, 180, 225, 270, 315, 360].map(deg => (
                         <button
                           key={deg}
                           className="controls-btn controls-btn-outline-secondary"
                           onClick={() => rotateObject(obj.instanceId, deg)}
+                          style={{
+                            minWidth: '60px',
+                            padding: '0.25rem 0.5rem'
+                          }}
                         >
                           {deg}°
                         </button>

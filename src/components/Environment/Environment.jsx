@@ -6,6 +6,7 @@ import SpawnedObjects from './SpawnedObjects/SpawnedObjects';
 import AddEnvironment from './AddEnvironment/AddEnvironment';
 import Grid from './Grid/Grid';
 import EventBus from '../../utils/EventBus';
+import humanManager from './Human/HumanController';
 
 const Environment = ({ viewerRef, isPanel = false, onClose }) => {
   // Shared state that multiple components need
@@ -16,6 +17,68 @@ const Environment = ({ viewerRef, isPanel = false, onClose }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmData, setDeleteConfirmData] = useState({ items: [], callback: null });
+  const [spawnedHumans, setSpawnedHumans] = useState([]);
+  const [selectedHuman, setSelectedHuman] = useState(null);
+  const [successMessage, setSuccessMessage] = useState('');
+  
+  // Restore spawned objects on mount
+  useEffect(() => {
+    if (!viewerRef?.current) return;
+    
+    const sceneSetup = viewerRef.current.getSceneSetup?.();
+    if (!sceneSetup) return;
+    
+    // Restore environment objects
+    const environmentObjects = Array.from(sceneSetup.environmentObjects || new Map());
+    const restoredObjects = environmentObjects.map(([id, obj]) => ({
+      instanceId: id,
+      objectId: id,
+      name: obj.userData?.name || 'Unknown Object',
+      category: obj.userData?.category || 'uncategorized',
+      path: obj.userData?.path || obj.userData?.modelPath || '',
+      position: {
+        x: obj.position.x,
+        y: obj.position.y,
+        z: obj.position.z
+      },
+      rotation: {
+        x: obj.rotation.x,
+        y: obj.rotation.y,
+        z: obj.rotation.z
+      },
+      scale: {
+        x: obj.scale.x,
+        y: obj.scale.y,
+        z: obj.scale.z
+      }
+    }));
+    
+    // Restore human objects
+    const allHumans = humanManager.getAllHumans();
+    const restoredHumans = allHumans.map(human => ({
+      id: human.id,
+      name: 'Soldier',
+      isActive: human.movementEnabled
+    }));
+    
+    // Add human entries to loaded objects
+    const humanObjects = allHumans.map(human => ({
+      instanceId: human.id,
+      objectId: human.id,
+      name: 'Soldier',
+      category: 'human',
+      path: '/hazard/human/Soldier.glb'
+    }));
+    
+    setLoadedObjects([...restoredObjects, ...humanObjects]);
+    setSpawnedHumans(restoredHumans);
+    
+    // Find active human
+    const activeHuman = allHumans.find(h => h.movementEnabled);
+    if (activeHuman) {
+      setSelectedHuman(activeHuman.id);
+    }
+  }, [viewerRef]);
   
   useEffect(() => {
     // Listen for world fully loaded event
@@ -46,8 +109,8 @@ const Environment = ({ viewerRef, isPanel = false, onClose }) => {
   }, []);
 
   return (
-    <div className="controls">
-      <section className="controls-section-wrapper">
+    <div className="controls" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <section className="controls-section-wrapper" style={{ flex: 1, overflow: 'hidden' }}>
         <EnvironmentManager 
           viewerRef={viewerRef}
           isPanel={isPanel}
@@ -63,48 +126,12 @@ const Environment = ({ viewerRef, isPanel = false, onClose }) => {
           setShowAddModal={setShowAddModal}
           setShowDeleteConfirm={setShowDeleteConfirm}
           setDeleteConfirmData={setDeleteConfirmData}
-        />
-      </section>
-
-      {Object.keys(loadedObjects).length > 0 && (
-        <div style={{ 
-          padding: '1rem',
-          background: 'rgba(0, 169, 157, 0.1)',
-          borderRadius: '8px',
-          marginBottom: '1.5rem'
-        }}>
-          <h4 style={{ 
-            fontSize: '1.1rem', 
-            marginBottom: '0.75rem',
-            color: '#00a99d'
-          }}>
-            Loaded Objects ({Object.keys(loadedObjects).length})
-          </h4>
-          <div style={{ 
-            display: 'flex', 
-            flexWrap: 'wrap', 
-            gap: '0.5rem' 
-          }}>
-            {Object.values(loadedObjects).map(obj => (
-              <div key={obj.id} style={{
-                padding: '0.25rem 0.75rem',
-                background: 'white',
-                borderRadius: '4px',
-                border: '1px solid #ddd',
-                fontSize: '0.875rem'
-              }}>
-                {obj.name} <span style={{ color: '#666' }}>({obj.category})</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      
-      <section className="controls-section-wrapper">
-        <SpawnedObjects
-          viewerRef={viewerRef}
-          loadedObjects={loadedObjects}
-          setLoadedObjects={setLoadedObjects}
+          spawnedHumans={spawnedHumans}
+          setSpawnedHumans={setSpawnedHumans}
+          selectedHuman={selectedHuman}
+          setSelectedHuman={setSelectedHuman}
+          successMessage={successMessage}
+          setSuccessMessage={setSuccessMessage}
         />
       </section>
       
