@@ -1,6 +1,6 @@
 // src/components/controls/ControlJoints/ControlJoints.jsx
 import React, { useState, useEffect } from 'react';
-import { useRobotControl } from '../../../hooks/useRobotControl';
+import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 
 const ControlJoints = ({ viewerRef }) => {
   const { 

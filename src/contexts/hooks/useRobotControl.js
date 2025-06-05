@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useActiveRobot } from '../contexts/ActiveRobotContext';
-import EventBus from '../utils/EventBus';
+import { useActiveRobot } from '../ActiveRobotContext';
+import EventBus from '@/utils/EventBus';
 
 export const useRobotControl = (viewerRef) => {
   const { activeRobotId } = useActiveRobot();

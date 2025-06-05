@@ -1,6 +1,6 @@
 // components/controls/IKController/IKController.jsx
 import React, { useState, useEffect } from 'react';
-import { useRobotControl } from '../../../hooks/useRobotControl';
+import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import useTCP from '../../../contexts/hooks/useTCP';
 import ikAPI from '../../../core/IK/API/IKAPI';
 import tcpProvider from '../../../core/IK/TCP/TCPProvider';
