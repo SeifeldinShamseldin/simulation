@@ -102,6 +102,9 @@ class HumanController {
       // Scale the model appropriately
       this.model.scale.set(0.5, 0.5, 0.5); // Adjust scale as needed
       
+      // Fix model orientation
+      this.model.rotation.y = Math.PI; // Rotate 180 degrees to face forward
+      
       // Fix materials and ensure visibility
       this.model.traverse((child) => {
         if (child.isMesh) {
@@ -238,9 +241,22 @@ class HumanController {
   }
   
   updateMovement(deltaTime) {
-    if (!this.model || !this.body || !this.movementEnabled) {
+    if (!this.model || !this.body) {
+      return;
+    }
+
+    // Debug log for movement state
+    console.log('Movement state:', {
+      enabled: this.movementEnabled,
+      keysPressed: this.keysPressed,
+      velocity: this.body.velocity,
+      position: this.model.position
+    });
+
+    // Only process movement if enabled
+    if (!this.movementEnabled) {
       // If movement disabled, ensure idle animation
-      if (!this.movementEnabled && this.currentAction && this.animations.idle) {
+      if (this.currentAction && this.animations.idle) {
         this.playAnimation('idle');
       }
       return;
@@ -249,31 +265,61 @@ class HumanController {
     // Reset movement direction
     this.moveDirection.set(0, 0, 0);
     
-    // Calculate movement direction based on keys
-    if (this.keysPressed.w) this.moveDirection.z -= 1;
-    if (this.keysPressed.s) this.moveDirection.z += 1;
-    if (this.keysPressed.a) this.moveDirection.x -= 1;
-    if (this.keysPressed.d) this.moveDirection.x += 1;
+    // Get camera direction
+    const cameraDirection = new THREE.Vector3();
+    const camera = this.scene.getObjectByProperty('type', 'PerspectiveCamera');
+    if (camera) {
+      camera.getWorldDirection(cameraDirection);
+      cameraDirection.y = 0;
+      cameraDirection.normalize();
+      
+      // Calculate right vector
+      const right = new THREE.Vector3();
+      right.crossVectors(cameraDirection, camera.up).normalize();
+      
+      // Calculate forward vector (perpendicular to right)
+      const forward = new THREE.Vector3();
+      forward.crossVectors(camera.up, right).normalize();
+      
+      // Build movement direction
+      if (this.keysPressed.w) this.moveDirection.add(forward);
+      if (this.keysPressed.s) this.moveDirection.sub(forward);
+      if (this.keysPressed.a) this.moveDirection.sub(right);  // Note: sub for left
+      if (this.keysPressed.d) this.moveDirection.add(right);  // Note: add for right
+    } else {
+      // Fallback to world-space movement if camera not found
+      if (this.keysPressed.w) this.moveDirection.z -= 1;
+      if (this.keysPressed.s) this.moveDirection.z += 1;
+      if (this.keysPressed.a) this.moveDirection.x -= 1;
+      if (this.keysPressed.d) this.moveDirection.x += 1;
+    }
     
-    // Normalize and apply speed
+    // Apply movement to velocity
     if (this.moveDirection.length() > 0) {
       this.moveDirection.normalize();
-      this.moveDirection.multiplyScalar(this.currentSpeed);
       
       // Play appropriate animation
       this.playAnimation(this.isRunning ? 'run' : 'walk');
       
-      // Rotate model to face movement direction
-      if (this.moveDirection.x !== 0 || this.moveDirection.z !== 0) {
-        const angle = Math.atan2(this.moveDirection.x, -this.moveDirection.z);
-        this.rotateQuaternion.setFromAxisAngle(this.upVector, angle);
-        this.model.quaternion.slerp(this.rotateQuaternion, 0.1);
-      }
+      // Calculate target rotation based on movement direction
+      const targetRotation = Math.atan2(-this.moveDirection.x, -this.moveDirection.z);
+      
+      // Smooth rotation
+      const currentRotation = this.model.rotation.y;
+      let rotationDiff = targetRotation - currentRotation;
+      
+      // Normalize rotation difference to [-PI, PI]
+      while (rotationDiff > Math.PI) rotationDiff -= 2 * Math.PI;
+      while (rotationDiff < -Math.PI) rotationDiff += 2 * Math.PI;
+      
+      // Apply smooth rotation
+      this.model.rotation.y += rotationDiff * 0.15;
+      
+      // Apply movement
+      this.moveDirection.multiplyScalar(this.currentSpeed);
+      this.body.velocity.x = this.moveDirection.x;
+      this.body.velocity.z = this.moveDirection.z;
     }
-    
-    // Apply movement to physics body (horizontal only)
-    this.body.velocity.x = this.moveDirection.x;
-    this.body.velocity.z = this.moveDirection.z;
     
     // Keep the body on the ground (prevent floating)
     // If body is too high, apply downward force
@@ -431,6 +477,7 @@ class HumanController {
   // Add method to enable/disable movement
   setMovementEnabled(enabled) {
     this.movementEnabled = enabled;
+    console.log('Movement enabled:', this.movementEnabled); // Debug log
     
     if (enabled) {
       // Add event listeners
@@ -441,8 +488,13 @@ class HumanController {
       window.removeEventListener('keydown', this.handleKeyDown);
       window.removeEventListener('keyup', this.handleKeyUp);
       
-      // Stop movement
+      // Stop movement and reset state
       this.keysPressed = {};
+      if (this.body) {
+        this.body.velocity.x = 0;
+        this.body.velocity.z = 0;
+      }
+      this.moveDirection.set(0, 0, 0);
       this.playAnimation('idle');
     }
     
@@ -455,6 +507,23 @@ class HumanManager {
   constructor() {
     this.humans = new Map();
     this.activeHumanId = null;
+    
+    // Add state sync interval
+    this.syncInterval = setInterval(() => {
+      this.syncMovementStates();
+    }, 100);
+  }
+  
+  syncMovementStates() {
+    // Sync and emit state for all humans
+    this.humans.forEach((human, id) => {
+      EventBus.emit('human:state-update', {
+        id,
+        movementEnabled: human.movementEnabled,
+        position: human.model ? human.model.position.toArray() : [0, 0, 0],
+        rotation: human.model ? human.model.rotation.y : 0
+      });
+    });
   }
   
   async spawnHuman(scene, world, position) {
@@ -490,6 +559,11 @@ class HumanManager {
       const prevHuman = this.humans.get(this.activeHumanId);
       if (prevHuman) {
         prevHuman.setMovementEnabled(false);
+        // Force immediate state update
+        EventBus.emit('human:state-update', {
+          id: this.activeHumanId,
+          movementEnabled: false
+        });
       }
     }
     
@@ -498,6 +572,11 @@ class HumanManager {
     if (human) {
       // Enable movement on new active human
       human.setMovementEnabled(true);
+      // Force immediate state update
+      EventBus.emit('human:state-update', {
+        id,
+        movementEnabled: true
+      });
     }
   }
   
@@ -506,6 +585,11 @@ class HumanManager {
   }
   
   dispose() {
+    // Clear sync interval
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+    }
+    
     this.humans.forEach(human => human.dispose());
     this.humans.clear();
     this.activeHumanId = null;

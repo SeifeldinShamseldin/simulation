@@ -360,15 +360,19 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
   };
 
   const handleMoveHuman = (humanId) => {
-    humanManager.setActiveHuman(humanId);
-    setSelectedHuman(humanId);
+    const human = humanManager.getHuman(humanId);
+    if (!human) return;
+
+    const newState = !human.movementEnabled;
+    humanManager.setActiveHuman(newState ? humanId : null);
+    setSelectedHuman(newState ? humanId : null);
     
     setSpawnedHumans(prev => prev.map(h => ({
       ...h,
-      isActive: h.id === humanId
+      isActive: h.id === humanId && newState
     })));
     
-    setSuccessMessage('Human movement enabled! Use WASD to move, Shift to run.');
+    setSuccessMessage(newState ? 'Human movement enabled! Use WASD to move, Shift to run.' : 'Human movement disabled.');
     setTimeout(() => setSuccessMessage(''), 3000);
   };
 
@@ -702,7 +706,7 @@ const EnvironmentManager = ({ viewerRef, isPanel = false, onClose }) => {
                       className={`controls-btn ${spawnedHumans.find(h => h.id === obj.instanceId)?.isActive ? 'controls-btn-danger' : 'controls-btn-success'} controls-btn-block controls-mb-3`}
                       onClick={() => handleMoveHuman(obj.instanceId)}
                     >
-                      {spawnedHumans.find(h => h.id === obj.instanceId)?.isActive ? '🛑 Stop Human' : '🚶 Move Human'}
+                      {spawnedHumans.find(h => h.id === obj.instanceId)?.isActive ? '🛑 Stop Human' : '🏃 Move Human'}
                     </button>
                   )}
                   

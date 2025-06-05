@@ -7,6 +7,8 @@ import Navbar from './components/Navbar/Navbar';
 import { SceneProvider } from './contexts/SceneContext';
 import { RobotProvider, useRobot } from './contexts/RobotContext';
 import { ActiveRobotProvider } from './contexts/ActiveRobotContext';
+import { WorldProvider } from './contexts/WorldContext';
+import WorldManager from './components/World/WorldManager';
 import './App.css'; // Only App.css, NO ControlsTheme.css
 
 const AppContent = () => {
@@ -43,6 +45,14 @@ const AppContent = () => {
             onClose={() => setActivePanel(null)}
           />
         </div>
+
+        <div className={`world-panel ${activePanel === 'world' ? 'panel-open' : 'panel-closed'}`}>
+          <WorldManager 
+            viewerRef={viewerRef}
+            isOpen={activePanel === 'world'}
+            onClose={() => setActivePanel(null)}
+          />
+        </div>
         
         <div className={`viewer-panel ${activePanel ? 'viewer-shifted' : ''}`}>
           <URDFViewer
@@ -63,9 +73,11 @@ const App = () => {
   return (
     <RobotProvider>
       <ActiveRobotProvider>
-        <SceneProvider>
-          <AppContent />
-        </SceneProvider>
+        <WorldProvider>
+          <SceneProvider>
+            <AppContent />
+          </SceneProvider>
+        </WorldProvider>
       </ActiveRobotProvider>
     </RobotProvider>
   );

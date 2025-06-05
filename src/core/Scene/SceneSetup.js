@@ -735,6 +735,12 @@ class SceneSetup {
      * Enhanced loadEnvironmentObject with smart placement and ground detection
      */
     async loadEnvironmentObject(config) {
+        // Check if path is valid before processing
+        if (!config.path || config.path.trim() === '') {
+            console.warn('Skipping environment object with empty path');
+            return null;
+        }
+        
         // Apply smart placement if position not explicitly set
         if (!config.position || (config.position.x === 0 && config.position.z === 0)) {
             config = this.calculateSmartPlacement(config);
@@ -757,7 +763,12 @@ class SceneSetup {
         const loader = this.objectLoaders[extension];
         
         if (!loader) {
-            throw new Error(`Unsupported file format: ${extension}`);
+            const supportedFormats = Object.keys(this.objectLoaders).join(', ');
+            throw new Error(`Unsupported file format: ${extension}. Supported formats are: ${supportedFormats}`);
+        }
+        
+        if (!path) {
+            throw new Error('No file path provided for environment object');
         }
         
         return new Promise((resolve, reject) => {
@@ -823,6 +834,8 @@ class SceneSetup {
                 // Store the object
                 object.userData.environmentId = id;
                 object.userData.category = config.category;
+                object.userData.path = config.path; // Store the path
+                object.userData.modelPath = config.path; // Store as backup
                 this.environmentObjects.set(id, object);
                 
                 // Add to scene

@@ -57,6 +57,20 @@ const Navbar = ({ activePanel, onPanelToggle }) => {
           >
             Environment
           </a>
+
+          <a 
+            className={`controls-nav-link ${activePanel === 'world' ? 'active' : ''}`}
+            href="#"
+            onClick={(e) => {
+              e.preventDefault();
+              handlePanelToggle('world');
+            }}
+            style={{
+              color: activePanel === 'world' ? '#ff9900' : '#fff'
+            }}
+          >
+            World
+          </a>
         </div>
       </div>
     </nav>

@@ -51,3 +51,13 @@
   z-index: 1000;
   min-height: 60px; /* Ensure minimum height */
 }
+
+/* Add this to App.css */
+.controls-navbar .controls-nav-link[href="#"]:nth-child(3) {
+  transition: color 0.2s ease;
+}
+
+.controls-navbar .controls-nav-link[href="#"]:nth-child(3).active {
+  color: #ff9900 !important; /* Orange for World */
+  font-weight: 600;
+}
