@@ -11,9 +11,9 @@ import tcpProvider from '../../../core/IK/TCP/TCPProvider';
  */
 const IKController = () => {
   const { activeRobotId, robot, isReady } = useRobotControl();
-  const { tcpPosition, moveToPosition } = useTCP();
+  const { tcpPosition } = useTCP();
   
-  // State for target position input fields
+  // State for target position
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
   const [solverStatus, setSolverStatus] = useState('Ready to move robot');
   const [isAnimating, setIsAnimating] = useState(false);
@@ -25,93 +25,57 @@ const IKController = () => {
     }
   }, [robot, isReady]);
   
-  // Auto-update the target position fields when TCP position changes
+  // Initialize target position from current TCP position
   useEffect(() => {
-    if (!isAnimating && (!targetPosition.x && !targetPosition.y && !targetPosition.z)) {
-      setTargetPosition(tcpPosition);
+    if (tcpPosition && !isAnimating) {
+      setTargetPosition({
+        x: parseFloat(tcpPosition.x) || 0,
+        y: parseFloat(tcpPosition.y) || 0,
+        z: parseFloat(tcpPosition.z) || 0
+      });
     }
-  }, [tcpPosition, isAnimating, targetPosition]);
+  }, [tcpPosition.x, tcpPosition.y, tcpPosition.z]);
 
-  // Clean up animation state on unmount
-  useEffect(() => {
-    return () => {
-      // Clean up animation state when component unmounts
-      if (isAnimating) {
-        ikAPI.stopAnimation();
-      }
-    };
-  }, [isAnimating]);
-  
-  // Add relative movement options
-  const moveRelative = (axis, amount) => {
-    const newTarget = { ...targetPosition };
-    newTarget[axis] = parseFloat(targetPosition[axis]) + amount;
-    setTargetPosition(newTarget);
-    setSolverStatus(`Target updated: relative ${axis}${amount > 0 ? '+' : ''}${amount}`);
-  };
-  
-  // Set target to current position
   const useCurrentPosition = () => {
     setTargetPosition({
-      x: parseFloat(tcpPosition.x.toFixed(3)),
-      y: parseFloat(tcpPosition.y.toFixed(3)),
-      z: parseFloat(tcpPosition.z.toFixed(3))
+      x: parseFloat(tcpPosition.x) || 0,
+      y: parseFloat(tcpPosition.y) || 0,
+      z: parseFloat(tcpPosition.z) || 0
     });
     setSolverStatus('Target set to current position');
   };
-  
-  // Handle input changes
-  const handleInputChange = (axis, value) => {
-    // Ensure input is a valid number
-    const numValue = parseFloat(value);
-    const newValue = isNaN(numValue) ? 0 : numValue;
-    
+
+  const adjustPosition = (axis, delta) => {
     setTargetPosition(prev => ({
       ...prev,
-      [axis]: newValue
+      [axis]: prev[axis] + delta
     }));
   };
-  
-  /**
-   * Move robot to target position using IK
-   */
-  const moveToTarget = async () => {
+
+  const handleInputChange = (axis, value) => {
+    const numValue = parseFloat(value);
+    setTargetPosition(prev => ({
+      ...prev,
+      [axis]: isNaN(numValue) ? 0 : numValue
+    }));
+  };
+
+  const moveRobotToTarget = async () => {
     if (!isReady || isAnimating) return;
     
     try {
       setIsAnimating(true);
       setSolverStatus('Moving to target...');
       
-      const currentPos = tcpPosition;
-      const targetPos = targetPosition;
+      // Execute IK without animation first to check if position is reachable
+      const solution = await ikAPI.solve(robot, targetPosition);
       
-      console.log('Current:', currentPos);
-      console.log('Target:', targetPos);
-      
-      // Calculate distance for duration
-      const dx = targetPos.x - currentPos.x;
-      const dy = targetPos.y - currentPos.y;
-      const dz = targetPos.z - currentPos.z;
-      const distance = Math.sqrt(dx*dx + dy*dy + dz*dz);
-      
-      // Dynamic duration based on distance (faster for short, slower for long)
-      const duration = Math.min(Math.max(distance * 2000, 800), 3000); // 800ms to 3s
-      
-      console.log('Distance:', distance.toFixed(3), 'Duration:', duration);
-      
-      // Single smooth movement - NO STEPS!
-      const success = await ikAPI.executeIK(robot, targetPos, {
-        animate: true,
-        duration: duration,
-        maxIterations: 50,  // More iterations for better solution
-        tolerance: 0.008,   // Tighter tolerance
-        dampingFactor: 0.7  // Better damping
-      });
-      
-      if (success) {
+      if (solution) {
+        // Apply the solution directly without animation
+        robot.setJointValues(solution);
         setSolverStatus('Target reached!');
       } else {
-        setSolverStatus('Could not reach target');
+        setSolverStatus('Target position unreachable');
       }
       
     } catch (error) {
@@ -121,96 +85,43 @@ const IKController = () => {
       setIsAnimating(false);
     }
   };
-  
-  // Stop current animation
-  const stopAnimation = () => {
-    ikAPI.stopAnimation();
-    setIsAnimating(false);
-    setSolverStatus('Movement stopped');
-  };
-  
-  // Reset the robot to home position
-  const resetRobot = () => {
-    if (!robot) return;
-    
-    try {
-      stopAnimation();
-      robot.resetJoints();
-      setSolverStatus('Robot reset to home position');
-    } catch (error) {
-      console.error("Error resetting robot:", error);
-      setSolverStatus("Error resetting: " + (error.message || "Unknown error"));
-    }
-  };
 
-  /**
-   * Move robot incrementally to target position
-   */
   const moveIncrementally = async () => {
     if (!isReady || isAnimating) return;
     
     try {
       setIsAnimating(true);
+      setSolverStatus('Moving incrementally...');
       
-      const currentPos = tcpPosition;
-      const targetPos = targetPosition;
+      const success = await ikAPI.executeIK(robot, targetPosition, {
+        animate: true,
+        duration: 2000
+      });
       
-      const dx = targetPos.x - currentPos.x;
-      const dy = targetPos.y - currentPos.y;
-      const dz = targetPos.z - currentPos.z;
-      const totalDistance = Math.sqrt(dx*dx + dy*dy + dz*dz);
-      
-      console.log('Moving distance:', totalDistance);
-      
-      if (totalDistance < 0.08) { // 8cm threshold
-        // Single SMOOTH movement for short distances
-        setSolverStatus('Moving to target...');
-        
-        await ikAPI.executeIK(robot, targetPos, {
-          animate: true,           // SMOOTH animation
-          duration: 2000,          // 2 second duration
-          maxIterations: 30,
-          tolerance: 0.01
-        });
-        
-        setSolverStatus('Target reached!');
-      } else {
-        // Multiple SMOOTH movements for large distances
-        const stepSize = 0.05; // 5cm steps
-        const numSteps = Math.ceil(totalDistance / stepSize);
-        
-        console.log('Moving in', numSteps, 'smooth steps');
-        
-        for (let i = 1; i <= numSteps; i++) {
-          const progress = i / numSteps;
-          const stepTarget = {
-            x: currentPos.x + dx * progress,
-            y: currentPos.y + dy * progress,
-            z: currentPos.z + dz * progress
-          };
-          
-          setSolverStatus(`Smooth step ${i}/${numSteps}...`);
-          
-          // Each step is ANIMATED smoothly
-          await ikAPI.executeIK(robot, stepTarget, {
-            animate: true,           // SMOOTH for each step
-            duration: 1000,          // 1 second per step
-            maxIterations: 20,
-            tolerance: 0.015
-          });
-          
-          // Small pause between steps
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
+      if (success) {
         setSolverStatus('Movement complete!');
+      } else {
+        setSolverStatus('Could not reach target');
       }
+      
     } catch (error) {
       console.error("Error:", error);
       setSolverStatus("Error: " + error.message);
     } finally {
       setIsAnimating(false);
     }
+  };
+
+  const stopMovement = () => {
+    ikAPI.stopAnimation();
+    setIsAnimating(false);
+    setSolverStatus('Movement stopped');
+  };
+
+  const resetRobot = () => {
+    if (!robot) return;
+    robot.resetJoints();
+    setSolverStatus('Robot reset');
   };
 
   if (!isReady) {
@@ -226,109 +137,184 @@ const IKController = () => {
     <div className="controls-section">
       <h3 className="controls-section-title">Inverse Kinematics - {activeRobotId}</h3>
       
-      {/* Current TCP Position Display */}
-      <div className="controls-group">
-        <p className="controls-text-muted controls-mb-1"><strong>Current End Effector Position:</strong></p>
-        <div className="controls-grid controls-grid-cols-3 controls-gap-sm controls-text-center">
+      {/* Current End Effector Position */}
+      <div className="controls-form-group">
+        <h4 className="controls-h6">Current End Effector Position:</h4>
+        <div className="controls-grid controls-grid-cols-3 controls-gap-2">
           <div>
             <label className="controls-form-label">X</label>
-            <div className="controls-form-control controls-text-center">{tcpPosition.x.toFixed(4)}</div>
+            <div className="controls-form-control-static">{tcpPosition.x.toFixed(4)}</div>
           </div>
           <div>
             <label className="controls-form-label">Y</label>
-            <div className="controls-form-control controls-text-center">{tcpPosition.y.toFixed(4)}</div>
+            <div className="controls-form-control-static">{tcpPosition.y.toFixed(4)}</div>
           </div>
           <div>
             <label className="controls-form-label">Z</label>
-            <div className="controls-form-control controls-text-center">{tcpPosition.z.toFixed(4)}</div>
+            <div className="controls-form-control-static">{tcpPosition.z.toFixed(4)}</div>
           </div>
         </div>
       </div>
-      
-      {/* Target Position Inputs */}
-      <div className="controls-group">
-        <p className="controls-text-muted controls-mb-1"><strong>Target Position:</strong></p>
-        <div className="controls-grid controls-grid-cols-3 controls-gap-sm">
+
+      {/* Move Robot To Section */}
+      <div className="controls-card controls-p-3 controls-mb-3">
+        <h4 className="controls-h5 controls-mb-3">MOVE ROBOT TO:</h4>
+        
+        <div className="controls-grid controls-grid-cols-3 controls-gap-3">
           {['x', 'y', 'z'].map((axis) => (
             <div key={axis}>
-              <label className="controls-form-label">{axis.toUpperCase()}</label>
-              <input
-                type="number"
-                className="controls-form-control"
-                value={targetPosition[axis]}
-                onChange={(e) => handleInputChange(axis, e.target.value)}
-                step="0.001"
-              />
+              <label className="controls-form-label">{axis.toUpperCase()} Position:</label>
+              <div className="controls-input-group">
+                <button
+                  className="controls-btn controls-btn-sm controls-btn-secondary"
+                  onClick={() => adjustPosition(axis, -0.01)}
+                  style={{ width: '30px', padding: '0.25rem' }}
+                >
+                  -
+                </button>
+                <input
+                  type="number"
+                  className="controls-form-control controls-text-center"
+                  value={targetPosition[axis].toFixed(4)}
+                  onChange={(e) => handleInputChange(axis, e.target.value)}
+                  step="0.0001"
+                  style={{ padding: '0.375rem 0.5rem' }}
+                />
+                <button
+                  className="controls-btn controls-btn-sm controls-btn-secondary"
+                  onClick={() => adjustPosition(axis, 0.01)}
+                  style={{ width: '30px', padding: '0.25rem' }}
+                >
+                  +
+                </button>
+              </div>
             </div>
           ))}
         </div>
-      </div>
-      
-      {/* Relative Movement Controls */}
-      <div className="controls-group">
-        <p className="controls-text-muted controls-mb-1"><strong>Relative Movement:</strong></p>
-        <div className="controls-grid controls-grid-cols-3 controls-gap-sm">
-          {['x', 'y', 'z'].map((axis) => (
-            <div key={axis} className="controls-d-flex controls-gap-2">
-              <button
-                className="controls-btn controls-btn-sm controls-btn-outline"
-                onClick={() => moveRelative(axis, -0.01)}
-              >
-                -1cm
-              </button>
-              <button
-                className="controls-btn controls-btn-sm controls-btn-outline"
-                onClick={() => moveRelative(axis, 0.01)}
-              >
-                +1cm
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-      
-      {/* Action Buttons */}
-      <div className="controls-group controls-d-flex controls-gap-2">
+
         <button
-          className="controls-btn controls-btn-primary"
-          onClick={moveToTarget}
-          disabled={isAnimating}
-        >
-          Move to Target
-        </button>
-        <button
-          className="controls-btn controls-btn-secondary"
-          onClick={moveIncrementally}
-          disabled={isAnimating}
-        >
-          Move Incrementally
-        </button>
-        <button
-          className="controls-btn controls-btn-warning"
-          onClick={stopAnimation}
-          disabled={!isAnimating}
-        >
-          Stop
-        </button>
-        <button
-          className="controls-btn controls-btn-outline"
+          className="controls-btn controls-btn-sm controls-btn-info controls-w-100 controls-mt-3"
           onClick={useCurrentPosition}
         >
-          Use Current
+          Use Current Position
         </button>
+
         <button
-          className="controls-btn controls-btn-outline"
-          onClick={resetRobot}
+          className="controls-btn controls-btn-primary controls-w-100 controls-mt-2"
+          onClick={moveRobotToTarget}
+          disabled={isAnimating}
         >
-          Reset
+          Move Robot to Target
         </button>
       </div>
-      
-      {/* Status Display */}
-      <div className="controls-group">
-        <p className="controls-text-muted">
-          <strong>Status:</strong> {solverStatus}
-        </p>
+
+      {/* Target Position Display */}
+      <div className="controls-form-group">
+        <h4 className="controls-h6">Target Position:</h4>
+        <div className="controls-grid controls-grid-cols-3 controls-gap-2">
+          <div>
+            <label className="controls-form-label">X</label>
+            <div className="controls-text-muted">{targetPosition.x.toFixed(6)}</div>
+          </div>
+          <div>
+            <label className="controls-form-label">Y</label>
+            <div className="controls-text-muted">{targetPosition.y.toFixed(6)}</div>
+          </div>
+          <div>
+            <label className="controls-form-label">Z</label>
+            <div className="controls-text-muted">{targetPosition.z.toFixed(6)}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Relative Movement */}
+      <div className="controls-form-group">
+        <h4 className="controls-h6">Relative Movement:</h4>
+        <div className="controls-grid controls-grid-cols-6 controls-gap-1">
+          <button
+            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
+            onClick={() => adjustPosition('x', -0.01)}
+          >
+            -1cm
+          </button>
+          <button
+            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
+            onClick={() => adjustPosition('x', 0.01)}
+          >
+            +1cm
+          </button>
+          <button
+            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
+            onClick={() => adjustPosition('y', -0.01)}
+          >
+            -1cm
+          </button>
+          <button
+            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
+            onClick={() => adjustPosition('y', 0.01)}
+          >
+            +1cm
+          </button>
+          <button
+            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
+            onClick={() => adjustPosition('z', -0.01)}
+          >
+            -1cm
+          </button>
+          <button
+            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
+            onClick={() => adjustPosition('z', 0.01)}
+          >
+            +1cm
+          </button>
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="controls-btn-group controls-w-100">
+        <button
+          className="controls-btn controls-btn-sm controls-btn-primary"
+          onClick={moveRobotToTarget}
+          disabled={isAnimating}
+          title="Move to Target"
+        >
+          Move...
+        </button>
+        <button
+          className="controls-btn controls-btn-sm controls-btn-info"
+          onClick={moveIncrementally}
+          disabled={isAnimating}
+          title="Move Incrementally"
+        >
+          Move In...
+        </button>
+        <button
+          className="controls-btn controls-btn-sm controls-btn-warning"
+          onClick={stopMovement}
+          disabled={!isAnimating}
+          title="Stop"
+        >
+          S...
+        </button>
+        <button
+          className="controls-btn controls-btn-sm controls-btn-secondary"
+          onClick={useCurrentPosition}
+          title="Use Current Position"
+        >
+          Use...
+        </button>
+        <button
+          className="controls-btn controls-btn-sm controls-btn-danger"
+          onClick={resetRobot}
+          title="Reset"
+        >
+          R...
+        </button>
+      </div>
+
+      {/* Status */}
+      <div className="controls-mt-3">
+        <strong>Status:</strong> <span className="controls-text-muted">{solverStatus}</span>
       </div>
     </div>
   );

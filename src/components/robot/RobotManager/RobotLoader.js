@@ -293,11 +293,11 @@ class RobotLoader {
      */
     setJointValue(robotName, jointName, value) {
         const robotData = this.robots.get(robotName);
-        if (!robotData || !robotData.model) return;
+        if (!robotData) return;
         
         const joint = robotData.model.joints[jointName];
         if (joint) {
-            joint.setAngle(value);
+            joint.setJointValue(value);
             EventBus.emit('robot:joint-changed', { robotName, jointName, value });
         }
     }
@@ -309,12 +309,12 @@ class RobotLoader {
      */
     setJointValues(robotName, values) {
         const robotData = this.robots.get(robotName);
-        if (!robotData || !robotData.model) return;
+        if (!robotData) return;
         
         Object.entries(values).forEach(([jointName, value]) => {
             const joint = robotData.model.joints[jointName];
             if (joint) {
-                joint.setAngle(value);
+                joint.setJointValue(value);
             }
         });
         
@@ -347,7 +347,7 @@ class RobotLoader {
         if (!robotData || !robotData.model) return;
         
         Object.values(robotData.model.joints).forEach(joint => {
-            joint.setAngle(0);
+            joint.setJointValue(0);
         });
         
         EventBus.emit('robot:joints-reset', { robotName });

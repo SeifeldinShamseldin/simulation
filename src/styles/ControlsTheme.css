@@ -1715,3 +1715,28 @@ input[type="range"]:focus::-moz-range-thumb {
     overflow-y: auto;
   }
 }
+
+/* Add these styles after the existing styles */
+
+.controls-form-control-static {
+  display: block;
+  padding: 0.375rem 0.75rem;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 0.25rem;
+  color: #495057;
+  text-align: center;
+}
+
+.controls-btn-group {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.controls-btn-group .controls-btn {
+  flex: 1;
+}
+
+.controls-grid-cols-6 {
+  grid-template-columns: repeat(6, 1fr);
+}
