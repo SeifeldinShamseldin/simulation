@@ -4,9 +4,24 @@ import { createPortal } from 'react-dom';
 const AddRobot = ({ isOpen, onClose, onSuccess }) => {
   const [availableRobots, setAvailableRobots] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [currentStep, setCurrentStep] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [files, setFiles] = useState({});
+  const [formData, setFormData] = useState({});
+
+  const handleNext = () => {
+    if (currentStep < 3) {
+      setCurrentStep(currentStep + 1);
+    }
+  };
+
+  const handlePrevious = () => {
+    if (currentStep > 1) {
+      setCurrentStep(currentStep - 1);
+    }
+  };
 
   // Scan for available robots when modal opens
   useEffect(() => {
@@ -62,6 +77,57 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
       'yaskawa': '🔧'
     };
     return iconMap[name.toLowerCase()] || '🤖';
+  };
+
+  const handleAddRobot = async () => {
+    if (!canProceedToNext()) return;
+    
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const data = new FormData();
+      
+      // Add text fields
+      data.append('manufacturer', formData.isNewManufacturer ? formData.manufacturer : selectedCategory.name);
+      data.append('model', formData.model);
+      
+      // Add URDF file
+      if (files.urdf) {
+        data.append('urdf', files.urdf);
+      }
+      
+      // Add mesh files
+      if (files.meshes && files.meshes.length > 0) {
+        files.meshes.forEach((file) => {
+          data.append('meshes', file);
+        });
+      }
+
+      const response = await fetch('/api/robots/add', {
+        method: 'POST',
+        body: data
+        // Don't set Content-Type header - let browser set it with boundary
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        onSuccess({
+          id: result.robot.id,
+          name: result.robot.name,
+          manufacturer: result.robot.manufacturer,
+          urdfPath: `/robots/${result.robot.manufacturer}/${result.robot.name}/${result.robot.urdfFile}`,
+          model: result.robot.name
+        });
+      } else {
+        setError(result.message || 'Upload failed');
+      }
+    } catch (error) {
+      setError('Error uploading robot: ' + error.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (!isOpen) return null;

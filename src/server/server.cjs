@@ -74,7 +74,7 @@ const upload = multer({
 // Add robot endpoint with improved error handling
 app.post('/api/robots/add', (req, res) => {
   console.log('=== ADD ROBOT REQUEST ===');
-  console.log('Body:', req.body);
+  console.log('Headers:', req.headers);
   
   // Use multer middleware
   upload.fields([
@@ -88,6 +88,9 @@ app.post('/api/robots/add', (req, res) => {
         message: `Upload error: ${err.message}` 
       });
     }
+    
+    console.log('Body after multer:', req.body);
+    console.log('Files after multer:', req.files);
     
     try {
       const { manufacturer, model } = req.body;
@@ -161,7 +164,7 @@ app.post('/api/robots/add', (req, res) => {
     } catch (error) {
       console.error('Error processing robot upload:', error);
       // Clean up any uploaded files if there was an error
-      if (req.files) {
+      if (req.files && req.body.manufacturer && req.body.model) {
         const uploadPath = path.join(__dirname, '..', '..', 'public', 'robots', req.body.manufacturer, req.body.model);
         if (fs.existsSync(uploadPath)) {
           fs.rmSync(uploadPath, { recursive: true, force: true });
