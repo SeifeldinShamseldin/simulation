@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import URDFLoader from '../../core/Loader/URDFLoader';
-import EventBus from '../../utils/EventBus';
-import MeshLoader from '../../core/Loader/MeshLoader';
+import URDFLoader from '../../../core/Loader/URDFLoader';
+import EventBus from '../../../utils/EventBus';
+import MeshLoader from '../../../core/Loader/MeshLoader';
 
 // Robot event handlers
 const ROBOT_EVENTS = {
@@ -10,12 +10,12 @@ const ROBOT_EVENTS = {
 };
 
 /**
- * Class for managing URDF robot models
+ * Class for loading and managing URDF robot models in the scene
  * Updated to support multiple robots simultaneously
  */
-class RobotManager {
+class RobotLoader {
     /**
-     * Create a RobotManager instance
+     * Create a RobotLoader instance
      * @param {SceneSetup} sceneSetup - The scene setup instance
      */
     constructor(sceneSetup) {
@@ -248,186 +248,159 @@ class RobotManager {
         const robotData = this.robots.get(robotName);
         if (!robotData) return;
         
-        // Remove from scene (use container if available)
-        const objectToRemove = robotData.container || robotData.model;
-        if (this.sceneSetup.robotRoot) {
-            this.sceneSetup.robotRoot.remove(objectToRemove);
-        } else {
-            this.sceneSetup.scene.remove(objectToRemove);
+        // Remove from scene
+        if (robotData.container) {
+            this.sceneSetup.robotRoot.remove(robotData.container);
+            robotData.container.traverse(child => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) {
+                    if (Array.isArray(child.material)) {
+                        child.material.forEach(material => material.dispose());
+                    } else {
+                        child.material.dispose();
+                    }
+                }
+            });
         }
         
-        // Clean up
-        robotData.model.traverse((child) => {
-            if (child.geometry) child.geometry.dispose();
-            if (child.material) {
-                if (Array.isArray(child.material)) {
-                    child.material.forEach(m => m.dispose());
-                } else {
-                    child.material.dispose();
-                }
-            }
-        });
-        
-        // Remove from collections
+        // Remove from tracking
         this.robots.delete(robotName);
         this.activeRobots.delete(robotName);
         
-        EventBus.emit('robot:removed', {
-            robotName,
-            remainingRobots: this.robots.size
-        });
+        // Emit event
+        EventBus.emit('robot:removed', { robotName });
     }
     
     /**
-     * Clear all robots
+     * Clear all robots from the scene
      */
     clearAllRobots() {
-        const robotNames = Array.from(this.robots.keys());
-        robotNames.forEach(name => this.removeRobot(name));
+        // Remove all robots
+        for (const [robotName] of this.robots) {
+            this.removeRobot(robotName);
+        }
+        
+        // Clear tracking
+        this.robots.clear();
+        this.activeRobots.clear();
     }
     
     /**
-     * Set joint value for a specific robot
+     * Set a joint value for a specific robot
      * @param {string} robotName - The robot name
      * @param {string} jointName - The joint name
      * @param {number} value - The joint value
      */
     setJointValue(robotName, jointName, value) {
-        const robot = this.getRobot(robotName);
-        if (!robot) return false;
-        return robot.setJointValue(jointName, parseFloat(value));
+        const robotData = this.robots.get(robotName);
+        if (!robotData || !robotData.model) return;
+        
+        const joint = robotData.model.joints[jointName];
+        if (joint) {
+            joint.setAngle(value);
+            EventBus.emit('robot:joint-changed', { robotName, jointName, value });
+        }
     }
     
     /**
-     * Set multiple joint values for a robot
+     * Set multiple joint values for a specific robot
      * @param {string} robotName - The robot name
      * @param {Object} values - Map of joint names to values
      */
     setJointValues(robotName, values) {
-        const robot = this.getRobot(robotName);
-        if (!robot) return false;
-        return robot.setJointValues(values);
+        const robotData = this.robots.get(robotName);
+        if (!robotData || !robotData.model) return;
+        
+        Object.entries(values).forEach(([jointName, value]) => {
+            const joint = robotData.model.joints[jointName];
+            if (joint) {
+                joint.setAngle(value);
+            }
+        });
+        
+        EventBus.emit('robot:joints-changed', { robotName, values });
     }
     
     /**
-     * Get joint values for a robot
+     * Get current joint values for a specific robot
      * @param {string} robotName - The robot name
-     * @returns {Object} Joint values
+     * @returns {Object} Map of joint names to values
      */
     getJointValues(robotName) {
-        const robot = this.getRobot(robotName);
-        if (!robot) return {};
+        const robotData = this.robots.get(robotName);
+        if (!robotData || !robotData.model) return {};
         
         const values = {};
-        Object.entries(robot.joints).forEach(([name, joint]) => {
-            if (joint.jointType !== 'fixed') {
-                values[name] = joint.jointValue ? joint.jointValue[0] : 0;
-            }
+        Object.entries(robotData.model.joints).forEach(([name, joint]) => {
+            values[name] = joint.angle;
         });
         
         return values;
     }
     
     /**
-     * Reset joints for a specific robot
+     * Reset all joints to zero position for a specific robot
      * @param {string} robotName - The robot name
      */
     resetJoints(robotName) {
-        const robot = this.getRobot(robotName);
-        if (!robot) return;
+        const robotData = this.robots.get(robotName);
+        if (!robotData || !robotData.model) return;
         
-        const resetValues = {};
-        Object.keys(robot.joints).forEach(name => {
-            const joint = robot.joints[name];
-            if (joint.jointType !== 'fixed') {
-                resetValues[name] = 0;
-            }
+        Object.values(robotData.model.joints).forEach(joint => {
+            joint.setAngle(0);
         });
         
-        robot.setJointValues(resetValues);
+        EventBus.emit('robot:joints-reset', { robotName });
     }
     
     /**
-     * Calculate smart positions for multiple robots
+     * Calculate positions for multiple robots
      * @param {number} robotCount - Number of robots to position
-     * @returns {Array} Array of positions
+     * @returns {Array} Array of position objects
      */
     calculateRobotPositions(robotCount) {
         const positions = [];
-        const spacing = 2.5; // Space between robots
+        const spacing = 2; // Space between robots
         
-        // Arrange robots in a line or grid
-        if (robotCount <= 3) {
-            // Line arrangement
-            for (let i = 0; i < robotCount; i++) {
-                positions.push({
-                    x: (i - (robotCount - 1) / 2) * spacing,
-                    y: 0,
-                    z: 0
-                });
-            }
-        } else {
-            // Grid arrangement
-            const cols = Math.ceil(Math.sqrt(robotCount));
-            for (let i = 0; i < robotCount; i++) {
-                const row = Math.floor(i / cols);
-                const col = i % cols;
-                positions.push({
-                    x: (col - (cols - 1) / 2) * spacing,
-                    y: 0,
-                    z: (row - (Math.ceil(robotCount / cols) - 1) / 2) * spacing
-                });
-            }
+        for (let i = 0; i < robotCount; i++) {
+            positions.push({
+                x: i * spacing,
+                y: 0,
+                z: 0
+            });
         }
         
         return positions;
     }
     
     /**
-     * Get the current robot (first active robot) for backward compatibility
-     * @returns {Object|null} The first active robot or null
+     * Get the current active robot
+     * @returns {Object|null} The current robot or null
      */
     getCurrentRobot() {
-        const activeRobotNames = this.getActiveRobots();
-        if (activeRobotNames.length > 0) {
-            return this.getRobot(activeRobotNames[0]);
-        }
+        if (this.activeRobots.size === 0) return null;
         
-        // If no active robots, return the first loaded robot
-        if (this.robots.size > 0) {
-            const firstRobot = this.robots.values().next().value;
-            return firstRobot ? firstRobot.model : null;
-        }
-        
-        return null;
-    }
-
-    /**
-     * Get the current robot name (for backward compatibility)
-     * @returns {string|null} The name of the current robot
-     */
-    getCurrentRobotName() {
-        const activeRobotNames = this.getActiveRobots();
-        if (activeRobotNames.length > 0) {
-            return activeRobotNames[0];
-        }
-        
-        // If no active robots, return the first loaded robot name
-        if (this.robots.size > 0) {
-            return this.robots.keys().next().value;
-        }
-        
-        return null;
+        const activeRobotName = Array.from(this.activeRobots)[0];
+        return this.getRobot(activeRobotName);
     }
     
     /**
-     * Dispose of resources
+     * Get the name of the current active robot
+     * @returns {string|null} The current robot name or null
+     */
+    getCurrentRobotName() {
+        if (this.activeRobots.size === 0) return null;
+        return Array.from(this.activeRobots)[0];
+    }
+    
+    /**
+     * Clean up resources
      */
     dispose() {
         this.clearAllRobots();
-        this.robots.clear();
-        this.activeRobots.clear();
+        this.loader = null;
+        this.sceneSetup = null;
     }
 }
 
-export default RobotManager;
+export default RobotLoader; 

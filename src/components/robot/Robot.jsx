@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useActiveRobot } from '../../contexts/ActiveRobotContext';
+import { useRobot } from '../../contexts/RobotContext';
 import RobotManager from './RobotManager/RobotManager';
 import LoadedRobots from './LoadedRobots/LoadedRobots';
 import AddRobot from './AddRobot/AddRobot';
@@ -11,7 +11,7 @@ import TrajectoryViewer from '../controls/RecordMap/TrajectoryViewer';
 import EventBus from '../../utils/EventBus';
 
 const Robot = ({ viewerRef, isPanel = false, onClose }) => {
-  const { activeRobotId, setActiveRobotId } = useActiveRobot();
+  const { activeRobotId, setActiveRobotId } = useRobot();
   const [workspaceRobots, setWorkspaceRobots] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showRobotSelection, setShowRobotSelection] = useState(true);

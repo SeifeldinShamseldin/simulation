@@ -1,16 +1,25 @@
-// src/contexts/RobotContext.jsx this is for robot panel
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+// src/contexts/RobotContext.jsx - MERGED VERSION
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import EventBus from '../utils/EventBus';
 
 const RobotContext = createContext(null);
 
 export const RobotProvider = ({ children }) => {
+  // Available robots from server
   const [availableRobots, setAvailableRobots] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [currentRobot, setCurrentRobot] = useState(null);
+  
+  // Active robot management (merged from ActiveRobotContext)
+  const [activeRobotId, setActiveRobotId] = useState(null);
+  const [activeRobot, setActiveRobot] = useState(null);
+  const [loadedRobots, setLoadedRobots] = useState(new Map());
+  
+  // Loading states
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [viewer, setViewer] = useState(null); // Store the actual viewer instance
+  
+  // Viewer reference
+  const [viewer, setViewer] = useState(null);
   
   // Discover robots from server
   const discoverRobots = async () => {
@@ -18,14 +27,12 @@ export const RobotProvider = ({ children }) => {
       setIsLoading(true);
       setError(null);
       
-      // Server tells us what robots exist
       const response = await fetch('/robots/list');
       const data = await response.json();
       
       if (response.ok) {
         setCategories(data);
         
-        // Flatten robots for easy access
         const allRobots = [];
         data.forEach(category => {
           category.robots.forEach(robot => {
@@ -61,6 +68,23 @@ export const RobotProvider = ({ children }) => {
       
       const robot = await viewer.loadRobot(robotId, urdfPath, options);
       
+      // Update loaded robots map
+      setLoadedRobots(prev => {
+        const newMap = new Map(prev);
+        newMap.set(robotId, {
+          id: robotId,
+          robot: robot,
+          isActive: options.makeActive !== false
+        });
+        return newMap;
+      });
+      
+      // Set as active if requested
+      if (options.makeActive !== false) {
+        setActiveRobotId(robotId);
+        setActiveRobot(robot);
+      }
+      
       EventBus.emit('robot:loaded', { robotId, robot });
       
       return robot;
@@ -73,7 +97,7 @@ export const RobotProvider = ({ children }) => {
   };
   
   // Add new robot
-  const addRobot = async (formData, onProgress) => {
+  const addRobot = async (formData) => {
     try {
       setIsLoading(true);
       
@@ -85,7 +109,6 @@ export const RobotProvider = ({ children }) => {
       const result = await response.json();
       
       if (result.success) {
-        // Refresh list from server
         await discoverRobots();
         return result;
       } else {
@@ -99,6 +122,44 @@ export const RobotProvider = ({ children }) => {
     }
   };
   
+  // Listen for robot events
+  useEffect(() => {
+    const handleRobotRemoved = (data) => {
+      if (data.robotName === activeRobotId) {
+        setActiveRobotId(null);
+        setActiveRobot(null);
+      }
+      
+      setLoadedRobots(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(data.robotName);
+        return newMap;
+      });
+    };
+    
+    const handleRobotActiveChanged = (data) => {
+      if (data.robotName === activeRobotId && !data.isActive) {
+        setActiveRobotId(null);
+        setActiveRobot(null);
+      } else if (data.isActive) {
+        setActiveRobotId(data.robotName);
+        // Get robot from loaded robots
+        const robotData = loadedRobots.get(data.robotName);
+        if (robotData) {
+          setActiveRobot(robotData.robot);
+        }
+      }
+    };
+    
+    const unsubscribeRemoved = EventBus.on('robot:removed', handleRobotRemoved);
+    const unsubscribeActiveChanged = EventBus.on('robot:active-changed', handleRobotActiveChanged);
+    
+    return () => {
+      unsubscribeRemoved();
+      unsubscribeActiveChanged();
+    };
+  }, [activeRobotId, loadedRobots]);
+  
   // Initialize on mount
   useEffect(() => {
     discoverRobots();
@@ -108,18 +169,22 @@ export const RobotProvider = ({ children }) => {
     // Data
     availableRobots,
     categories,
-    currentRobot,
+    activeRobotId,
+    activeRobot,
+    loadedRobots,
     isLoading,
     error,
     
     // Functions
     loadRobot,
     addRobot,
+    setActiveRobotId,
+    setActiveRobot,
     refresh: discoverRobots,
     
     // Viewer access
-    viewerRef: viewer, // For backward compatibility
-    setViewer // Set the actual viewer instance
+    viewerRef: viewer,
+    setViewer
   };
   
   return (

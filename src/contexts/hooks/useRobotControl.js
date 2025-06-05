@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useActiveRobot } from '../ActiveRobotContext';
+import { useRobot } from '../RobotContext';
 import EventBus from '@/utils/EventBus';
 
 export const useRobotControl = (viewerRef) => {
-  const { activeRobotId } = useActiveRobot();
+  const { activeRobotId } = useRobot();
   const [robot, setRobot] = useState(null);
   const [robotManager, setRobotManager] = useState(null);
 
@@ -14,7 +14,7 @@ export const useRobotControl = (viewerRef) => {
       return;
     }
 
-    const manager = viewerRef.current.robotManagerRef?.current;
+    const manager = viewerRef.current.robotLoaderRef?.current;
     if (!manager) return;
 
     setRobotManager(manager);
