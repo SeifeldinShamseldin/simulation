@@ -38,7 +38,7 @@
 }
 
 .panel-closed {
-  transform: translateX(-100%);
+  display: none !important;
 }
 
 .panel-open {

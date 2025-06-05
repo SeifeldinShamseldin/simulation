@@ -12,9 +12,15 @@ import WorldManager from './components/World/WorldManager';
 import './App.css'; // Only App.css, NO ControlsTheme.css
 
 const AppContent = () => {
+  // Explicitly set to null to ensure no panel is open by default
   const [activePanel, setActivePanel] = useState(null);
   const { setViewerInstance } = useViewer();
   const viewerRef = useRef(null);
+
+  // Debug log to check panel state
+  useEffect(() => {
+    console.log('Active panel:', activePanel);
+  }, [activePanel]);
 
   // Register viewer instance when ready
   useEffect(() => {
@@ -25,11 +31,16 @@ const AppContent = () => {
     }
   }, [setViewerInstance]);
 
+  // Handle panel toggle with explicit null check
+  const handlePanelToggle = (panel) => {
+    setActivePanel(prevPanel => prevPanel === panel ? null : panel);
+  };
+
   return (
     <div className="app-wrapper">
       <Navbar 
         activePanel={activePanel} 
-        onPanelToggle={setActivePanel} 
+        onPanelToggle={handlePanelToggle} 
       />
       
       <div className="app-container">
@@ -38,14 +49,18 @@ const AppContent = () => {
         </div>
         
         <div className={`environment-panel ${activePanel === 'environment' ? 'panel-open' : 'panel-closed'}`}>
-          <Environment 
-            isPanel={true}
-            onClose={() => setActivePanel(null)}
-          />
+          {activePanel === 'environment' && (
+            <Environment 
+              viewerRef={viewerRef}
+              isPanel={true}
+              onClose={() => setActivePanel(null)}
+            />
+          )}
         </div>
 
         <div className={`world-panel ${activePanel === 'world' ? 'panel-open' : 'panel-closed'}`}>
           <WorldManager 
+            viewerRef={viewerRef}
             isOpen={activePanel === 'world'}
             onClose={() => setActivePanel(null)}
           />
