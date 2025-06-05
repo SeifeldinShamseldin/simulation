@@ -1,5 +1,5 @@
 // src/contexts/SceneContext.jsx
-import React, { createContext, useContext, useRef, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useRef, useState, useCallback, useEffect } from 'react';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -8,28 +8,18 @@ import { createStandardGrids } from '../utils/threeHelpers';
 
 const SceneContext = createContext(null);
 
-export const SceneProvider = ({ children, config = {} }) => {
-  // Core Three.js references
+// Custom hook for scene setup
+const useSceneSetup = (config) => {
   const sceneRef = useRef(null);
   const rendererRef = useRef(null);
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
   const worldRef = useRef(null);
   const containerRef = useRef(null);
+  const animationIdRef = useRef(null);
   
-  // State
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [sceneConfig, setSceneConfig] = useState({
-    backgroundColor: '#e6f2ff',
-    enableShadows: true,
-    enablePhysics: true,
-    groundSize: 40,
-    upAxis: '+Z',
-    ...config
-  });
-  
-  // Object registries - each system manages its own objects
-  const registries = useRef({
+  // Object registries
+  const registriesRef = useRef({
     robots: new Map(),
     environment: new Map(),
     tcp: new Map(),
@@ -37,22 +27,16 @@ export const SceneProvider = ({ children, config = {} }) => {
     humans: new Map(),
     custom: new Map()
   });
-  
-  // Animation loop ID
-  const animationIdRef = useRef(null);
-  
-  /**
-   * Initialize the scene
-   */
+
   const initializeScene = useCallback((container) => {
-    if (isInitialized || !container) return;
+    if (!container || sceneRef.current) return;
     
     containerRef.current = container;
     
     // Create scene
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(sceneConfig.backgroundColor);
-    scene.fog = new THREE.FogExp2(sceneConfig.backgroundColor, 0.02);
+    scene.background = new THREE.Color(config.backgroundColor);
+    scene.fog = new THREE.FogExp2(config.backgroundColor, 0.02);
     sceneRef.current = scene;
     
     // Create camera
@@ -69,7 +53,7 @@ export const SceneProvider = ({ children, config = {} }) => {
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.shadowMap.enabled = sceneConfig.enableShadows;
+    renderer.shadowMap.enabled = config.enableShadows;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
@@ -84,7 +68,7 @@ export const SceneProvider = ({ children, config = {} }) => {
     controlsRef.current = controls;
     
     // Initialize physics if enabled
-    if (sceneConfig.enablePhysics) {
+    if (config.enablePhysics) {
       const world = new CANNON.World();
       world.gravity.set(0, -9.82, 0);
       world.broadphase = new CANNON.NaiveBroadphase();
@@ -92,51 +76,113 @@ export const SceneProvider = ({ children, config = {} }) => {
       worldRef.current = world;
     }
     
-    // Add lights
-    setupLights(scene);
+    return true;
+  }, [config]);
+
+  return {
+    sceneRef,
+    rendererRef,
+    cameraRef,
+    controlsRef,
+    worldRef,
+    containerRef,
+    animationIdRef,
+    registriesRef,
+    initializeScene
+  };
+};
+
+// Custom hook for animation loop
+const useAnimationLoop = (refs, isInitialized) => {
+  const startRenderLoop = useCallback(() => {
+    const clock = new THREE.Clock();
     
-    // Add ground and grids
-    setupGround(scene);
+    const animate = () => {
+      refs.animationIdRef.current = requestAnimationFrame(animate);
+      
+      const deltaTime = clock.getDelta();
+      
+      // Update physics
+      if (refs.worldRef.current) {
+        refs.worldRef.current.step(deltaTime);
+      }
+      
+      // Update controls
+      if (refs.controlsRef.current) {
+        refs.controlsRef.current.update();
+      }
+      
+      // Render
+      if (refs.rendererRef.current && refs.sceneRef.current && refs.cameraRef.current) {
+        refs.rendererRef.current.render(refs.sceneRef.current, refs.cameraRef.current);
+      }
+      
+      // Emit frame event
+      EventBus.emit('scene:frame', { deltaTime });
+    };
     
-    // Start render loop
-    startRenderLoop();
-    
-    // Handle resize
+    animate();
+  }, [refs]);
+
+  const stopRenderLoop = useCallback(() => {
+    if (refs.animationIdRef.current) {
+      cancelAnimationFrame(refs.animationIdRef.current);
+      refs.animationIdRef.current = null;
+    }
+  }, [refs]);
+
+  useEffect(() => {
+    if (isInitialized) {
+      startRenderLoop();
+      return () => stopRenderLoop();
+    }
+  }, [isInitialized, startRenderLoop, stopRenderLoop]);
+};
+
+// Custom hook for resize handling
+const useResizeHandler = (refs, isInitialized) => {
+  useEffect(() => {
+    if (!isInitialized) return;
+
     const handleResize = () => {
-      if (!container || !camera || !renderer) return;
-      camera.aspect = container.clientWidth / container.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(container.clientWidth, container.clientHeight);
+      const container = refs.containerRef.current;
+      if (!container || !refs.cameraRef.current || !refs.rendererRef.current) return;
+      
+      refs.cameraRef.current.aspect = container.clientWidth / container.clientHeight;
+      refs.cameraRef.current.updateProjectionMatrix();
+      refs.rendererRef.current.setSize(container.clientWidth, container.clientHeight);
     };
+
     window.addEventListener('resize', handleResize);
+    handleResize(); // Initial size setup
     
-    setIsInitialized(true);
-    
-    // Emit initialization event
-    EventBus.emit('scene:initialized', {
-      scene,
-      camera,
-      renderer,
-      controls,
-      world: worldRef.current
-    });
-    
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      dispose();
-    };
-  }, [isInitialized, sceneConfig]);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [refs, isInitialized]);
+};
+
+// Main provider component
+export const SceneProvider = ({ children, config = {} }) => {
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [sceneConfig] = useState({
+    backgroundColor: '#e6f2ff',
+    enableShadows: true,
+    enablePhysics: true,
+    groundSize: 40,
+    upAxis: '+Z',
+    ...config
+  });
   
-  /**
-   * Setup lights
-   */
-  const setupLights = (scene) => {
-    // Ambient light
+  // Use custom hooks
+  const refs = useSceneSetup(sceneConfig);
+  useAnimationLoop(refs, isInitialized);
+  useResizeHandler(refs, isInitialized);
+  
+  // Scene setup functions
+  const setupLights = useCallback((scene) => {
     const ambientLight = new THREE.HemisphereLight('#ffffff', '#000000', 0.5);
     ambientLight.position.set(0, 1, 0);
     scene.add(ambientLight);
     
-    // Main directional light
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
     directionalLight.position.set(3, 8, 3);
     directionalLight.castShadow = sceneConfig.enableShadows;
@@ -150,17 +196,12 @@ export const SceneProvider = ({ children, config = {} }) => {
     }
     scene.add(directionalLight);
     
-    // Fill lights
     const fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
     fillLight.position.set(-3, 4, -3);
     scene.add(fillLight);
-  };
+  }, [sceneConfig.enableShadows]);
   
-  /**
-   * Setup ground
-   */
-  const setupGround = (scene) => {
-    // Visual ground
+  const setupGround = useCallback((scene) => {
     const groundGeometry = new THREE.PlaneGeometry(sceneConfig.groundSize, sceneConfig.groundSize);
     const groundMaterial = new THREE.MeshStandardMaterial({
       color: 0xeeeeee,
@@ -175,8 +216,7 @@ export const SceneProvider = ({ children, config = {} }) => {
     ground.userData.isGround = true;
     scene.add(ground);
     
-    // Physics ground
-    if (worldRef.current) {
+    if (refs.worldRef.current) {
       const groundShape = new CANNON.Box(
         new CANNON.Vec3(sceneConfig.groundSize / 2, 0.1, sceneConfig.groundSize / 2)
       );
@@ -185,89 +225,68 @@ export const SceneProvider = ({ children, config = {} }) => {
         shape: groundShape,
         position: new CANNON.Vec3(0, -0.1, 0)
       });
-      worldRef.current.addBody(groundBody);
+      refs.worldRef.current.addBody(groundBody);
     }
     
-    // Add grids
-    const { grid, axes } = createStandardGrids(scene, {
+    createStandardGrids(scene, {
       gridSize: sceneConfig.groundSize,
       gridDivisions: sceneConfig.groundSize,
       addAxes: true,
       axesSize: 1
     });
-  };
+  }, [sceneConfig, refs]);
   
-  /**
-   * Start render loop
-   */
-  const startRenderLoop = () => {
-    const clock = new THREE.Clock();
+  // Initialize scene
+  const initializeScene = useCallback((container) => {
+    if (isInitialized || !container) return;
     
-    const animate = () => {
-      animationIdRef.current = requestAnimationFrame(animate);
-      
-      const deltaTime = clock.getDelta();
-      
-      // Update physics
-      if (worldRef.current) {
-        worldRef.current.step(deltaTime);
-      }
-      
-      // Update controls
-      if (controlsRef.current) {
-        controlsRef.current.update();
-      }
-      
-      // Render
-      if (rendererRef.current && sceneRef.current && cameraRef.current) {
-        rendererRef.current.render(sceneRef.current, cameraRef.current);
-      }
-      
-      // Emit frame event for other systems
-      EventBus.emit('scene:frame', { deltaTime });
-    };
+    const initialized = refs.initializeScene(container);
+    if (!initialized) return;
     
-    animate();
-  };
+    const scene = refs.sceneRef.current;
+    setupLights(scene);
+    setupGround(scene);
+    
+    setIsInitialized(true);
+    
+    EventBus.emit('scene:initialized', {
+      scene: refs.sceneRef.current,
+      camera: refs.cameraRef.current,
+      renderer: refs.rendererRef.current,
+      controls: refs.controlsRef.current,
+      world: refs.worldRef.current
+    });
+  }, [isInitialized, refs, setupLights, setupGround]);
   
-  /**
-   * Register an object in the scene
-   */
+  // Object management
   const registerObject = useCallback((type, id, object, metadata = {}) => {
-    if (!registries.current[type]) {
-      registries.current[type] = new Map();
-    }
+    const registry = refs.registriesRef.current[type];
+    if (!registry) return;
     
-    registries.current[type].set(id, {
+    registry.set(id, {
       object,
       metadata,
       timestamp: Date.now()
     });
     
-    // Add to scene if it's a 3D object
-    if (object && object.isObject3D && sceneRef.current) {
-      sceneRef.current.add(object);
+    if (object && object.isObject3D && refs.sceneRef.current) {
+      refs.sceneRef.current.add(object);
     }
     
     EventBus.emit('scene:object-registered', { type, id, object, metadata });
-  }, []);
+  }, [refs]);
   
-  /**
-   * Unregister an object from the scene
-   */
   const unregisterObject = useCallback((type, id) => {
-    const registry = registries.current[type];
+    const registry = refs.registriesRef.current[type];
     if (!registry) return;
     
     const entry = registry.get(id);
     if (!entry) return;
     
-    // Remove from scene
-    if (entry.object && entry.object.isObject3D && sceneRef.current) {
-      sceneRef.current.remove(entry.object);
+    if (entry.object && entry.object.isObject3D && refs.sceneRef.current) {
+      refs.sceneRef.current.remove(entry.object);
     }
     
-    // Clean up
     if (entry.object) {
       if (entry.object.geometry) entry.object.geometry.dispose();
       if (entry.object.material) {
@@ -280,123 +299,75 @@ export const SceneProvider = ({ children, config = {} }) => {
     }
     
     registry.delete(id);
-    
     EventBus.emit('scene:object-unregistered', { type, id });
-  }, []);
+  }, [refs]);
   
-  /**
-   * Get registered objects by type
-   */
   const getObjectsByType = useCallback((type) => {
-    const registry = registries.current[type];
+    const registry = refs.registriesRef.current[type];
     if (!registry) return [];
     
     return Array.from(registry.entries()).map(([id, entry]) => ({
       id,
       ...entry
     }));
-  }, []);
+  }, [refs]);
   
-  /**
-   * Focus camera on object
-   */
   const focusOnObject = useCallback((object, padding = 1.2) => {
-    if (!object || !cameraRef.current || !controlsRef.current) return;
+    if (!object || !refs.cameraRef.current || !refs.controlsRef.current) return;
     
     const box = new THREE.Box3().setFromObject(object);
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     
     const maxDim = Math.max(size.x, size.y, size.z);
-    const fov = cameraRef.current.fov * (Math.PI / 180);
+    const fov = refs.cameraRef.current.fov * (Math.PI / 180);
     let cameraDistance = (maxDim / 2) / Math.tan(fov / 2);
     cameraDistance *= padding;
     
     const direction = new THREE.Vector3(0.5, 0.3, 1).normalize();
-    cameraRef.current.position.copy(center).add(direction.multiplyScalar(cameraDistance));
+    refs.cameraRef.current.position.copy(center).add(direction.multiplyScalar(cameraDistance));
     
-    controlsRef.current.target.copy(center);
-    controlsRef.current.update();
+    refs.controlsRef.current.target.copy(center);
+    refs.controlsRef.current.update();
     
     EventBus.emit('scene:camera-focused', { target: object, center, distance: cameraDistance });
-  }, []);
+  }, [refs]);
   
-  /**
-   * Add physics body
-   */
   const addPhysicsBody = useCallback((body, objectId) => {
-    if (!worldRef.current) return;
+    if (!refs.worldRef.current) return;
     
-    worldRef.current.addBody(body);
+    refs.worldRef.current.addBody(body);
     
-    // Store reference
-    if (!registries.current.physics) {
-      registries.current.physics = new Map();
+    if (!refs.registriesRef.current.physics) {
+      refs.registriesRef.current.physics = new Map();
     }
-    registries.current.physics.set(objectId, body);
-  }, []);
+    refs.registriesRef.current.physics.set(objectId, body);
+  }, [refs]);
   
-  /**
-   * Remove physics body
-   */
   const removePhysicsBody = useCallback((objectId) => {
-    if (!worldRef.current) return;
+    if (!refs.worldRef.current) return;
     
-    const body = registries.current.physics?.get(objectId);
+    const body = refs.registriesRef.current.physics?.get(objectId);
     if (body) {
-      worldRef.current.removeBody(body);
-      registries.current.physics.delete(objectId);
+      refs.worldRef.current.removeBody(body);
+      refs.registriesRef.current.physics.delete(objectId);
     }
-  }, []);
+  }, [refs]);
   
-  /**
-   * Update scene configuration
-   */
-  const updateConfig = useCallback((newConfig) => {
-    setSceneConfig(prev => {
-      const updated = { ...prev, ...newConfig };
-      
-      // Apply changes
-      if (sceneRef.current && newConfig.backgroundColor) {
-        sceneRef.current.background = new THREE.Color(newConfig.backgroundColor);
-      }
-      
-      if (rendererRef.current && newConfig.enableShadows !== undefined) {
-        rendererRef.current.shadowMap.enabled = newConfig.enableShadows;
-      }
-      
-      return updated;
-    });
-  }, []);
-  
-  /**
-   * Get scene components
-   */
-  const getSceneComponents = useCallback(() => ({
-    scene: sceneRef.current,
-    camera: cameraRef.current,
-    renderer: rendererRef.current,
-    controls: controlsRef.current,
-    world: worldRef.current
-  }), []);
-  
-  /**
-   * Dispose of scene resources
-   */
   const dispose = useCallback(() => {
     // Stop animation loop
-    if (animationIdRef.current) {
-      cancelAnimationFrame(animationIdRef.current);
+    if (refs.animationIdRef.current) {
+      cancelAnimationFrame(refs.animationIdRef.current);
     }
     
     // Clean up registries
-    Object.values(registries.current).forEach(registry => {
+    Object.values(refs.registriesRef.current).forEach(registry => {
       registry.clear();
     });
     
     // Dispose Three.js resources
-    if (sceneRef.current) {
-      sceneRef.current.traverse(child => {
+    if (refs.sceneRef.current) {
+      refs.sceneRef.current.traverse(child => {
         if (child.geometry) child.geometry.dispose();
         if (child.material) {
           if (Array.isArray(child.material)) {
@@ -408,27 +379,28 @@ export const SceneProvider = ({ children, config = {} }) => {
       });
     }
     
-    if (rendererRef.current) {
-      rendererRef.current.dispose();
-      if (containerRef.current && rendererRef.current.domElement) {
-        containerRef.current.removeChild(rendererRef.current.domElement);
+    if (refs.rendererRef.current) {
+      refs.rendererRef.current.dispose();
+      if (refs.containerRef.current && refs.rendererRef.current.domElement) {
+        refs.containerRef.current.removeChild(refs.rendererRef.current.domElement);
       }
     }
     
-    if (controlsRef.current) {
-      controlsRef.current.dispose();
+    if (refs.controlsRef.current) {
+      refs.controlsRef.current.dispose();
     }
     
     setIsInitialized(false);
-  }, []);
+  }, [refs]);
   
-  // Expose context value
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => dispose();
+  }, [dispose]);
+  
   const value = {
-    // State
     isInitialized,
     config: sceneConfig,
-    
-    // Methods
     initializeScene,
     registerObject,
     unregisterObject,
@@ -436,16 +408,12 @@ export const SceneProvider = ({ children, config = {} }) => {
     focusOnObject,
     addPhysicsBody,
     removePhysicsBody,
-    updateConfig,
-    getSceneComponents,
     dispose,
-    
-    // Direct access (use carefully)
-    scene: sceneRef.current,
-    camera: cameraRef.current,
-    renderer: rendererRef.current,
-    controls: controlsRef.current,
-    world: worldRef.current
+    scene: refs.sceneRef.current,
+    camera: refs.cameraRef.current,
+    renderer: refs.rendererRef.current,
+    controls: refs.controlsRef.current,
+    world: refs.worldRef.current
   };
   
   return (
