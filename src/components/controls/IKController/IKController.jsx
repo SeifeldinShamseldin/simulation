@@ -1,7 +1,7 @@
 // components/controls/IKController/IKController.jsx
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
-import ikAPI from '../../../core/IK/API/IKAPI';
+import { useIK } from '../../../contexts/hooks/useIK';
 
 /**
  * Component for controlling Inverse Kinematics
@@ -9,55 +9,17 @@ import ikAPI from '../../../core/IK/API/IKAPI';
  */
 const IKController = () => {
   const { activeRobotId, robot, isReady } = useRobotControl();
-  
-  const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
-  const [currentPosition, setCurrentPosition] = useState({ x: 0, y: 0, z: 0 });
-  const [solverStatus, setSolverStatus] = useState('Ready to move robot');
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [isSolving, setIsSolving] = useState(false);
-  const [error, setError] = useState(null);
-  
-  // Update current position periodically
-  useEffect(() => {
-    if (!robot || !isReady) return;
-
-    const updatePosition = () => {
-      const position = ikAPI.getEndEffectorPosition(robot);
-      setCurrentPosition(position);
-    };
-
-    const intervalId = setInterval(updatePosition, 100);
-    updatePosition(); // Initial update
-
-    return () => clearInterval(intervalId);
-  }, [robot, isReady]);
-  
-  // Initialize target from current position ONLY ONCE
-  useEffect(() => {
-    if (currentPosition && targetPosition.x === 0 && targetPosition.y === 0 && targetPosition.z === 0) {
-      setTargetPosition({
-        x: parseFloat(currentPosition.x) || 0,
-        y: parseFloat(currentPosition.y) || 0,
-        z: parseFloat(currentPosition.z) || 0
-      });
-    }
-  }, []); // Empty dependency array - only run once on mount
-
-  const useCurrentPosition = () => {
-    setTargetPosition({
-      x: parseFloat(currentPosition.x) || 0,
-      y: parseFloat(currentPosition.y) || 0,
-      z: parseFloat(currentPosition.z) || 0
-    });
-    setSolverStatus('Target set to current position');
-  };
-
-  const adjustPosition = (axis, delta) => {
-    setTargetPosition(prev => ({
-      ...prev,
-      [axis]: prev[axis] + delta
-    }));
-  };
+  const {
+    currentPosition,
+    targetPosition,
+    isAnimating,
+    solverStatus,
+    setTargetPosition,
+    moveToTarget,
+    moveRelative,
+    syncTargetToCurrent,
+    stopAnimation
+  } = useIK();
 
   const handleInputChange = (axis, value) => {
     const numValue = parseFloat(value);
@@ -67,69 +29,9 @@ const IKController = () => {
     }));
   };
 
-  const moveRobotToTarget = async () => {
-    if (!isReady || isAnimating) return;
-    
-    try {
-      setIsAnimating(true);
-      setSolverStatus('Moving to target...');
-      
-      // Use executeIK with animation instead of solve + direct setJointValues
-      const success = await ikAPI.executeIK(robot, targetPosition, {
-        animate: true,
-        duration: 1000  // 1 second smooth animation
-      });
-      
-      if (success) {
-        setSolverStatus('Target reached!');
-      } else {
-        setSolverStatus('Target position unreachable');
-      }
-      
-    } catch (error) {
-      console.error("Error moving to target:", error);
-      setSolverStatus("Error: " + error.message);
-    } finally {
-      setIsAnimating(false);
-    }
-  };
-
-  const moveIncrementally = async () => {
-    if (!isReady || isAnimating) return;
-    
-    try {
-      setIsAnimating(true);
-      setSolverStatus('Moving incrementally...');
-      
-      const success = await ikAPI.executeIK(robot, targetPosition, {
-        animate: true,
-        duration: 2000
-      });
-      
-      if (success) {
-        setSolverStatus('Movement complete!');
-      } else {
-        setSolverStatus('Could not reach target');
-      }
-      
-    } catch (error) {
-      console.error("Error:", error);
-      setSolverStatus("Error: " + error.message);
-    } finally {
-      setIsAnimating(false);
-    }
-  };
-
-  const stopMovement = () => {
-    ikAPI.stopAnimation();
-    setIsAnimating(false);
-    setSolverStatus('Movement stopped');
-  };
-
   const resetRobot = () => {
     if (!robot) return;
     robot.resetJoints();
-    setSolverStatus('Robot reset');
   };
 
   if (!isReady) {
@@ -175,7 +77,7 @@ const IKController = () => {
               <div className="controls-input-group">
                 <button
                   className="controls-btn controls-btn-sm controls-btn-secondary"
-                  onClick={() => adjustPosition(axis, -0.01)}
+                  onClick={() => moveRelative(axis, -0.01)}
                   style={{ width: '30px', padding: '0.25rem' }}
                 >
                   -
@@ -190,7 +92,7 @@ const IKController = () => {
                 />
                 <button
                   className="controls-btn controls-btn-sm controls-btn-secondary"
-                  onClick={() => adjustPosition(axis, 0.01)}
+                  onClick={() => moveRelative(axis, 0.01)}
                   style={{ width: '30px', padding: '0.25rem' }}
                 >
                   +
@@ -202,14 +104,14 @@ const IKController = () => {
 
         <button
           className="controls-btn controls-btn-sm controls-btn-info controls-w-100 controls-mt-3"
-          onClick={useCurrentPosition}
+          onClick={syncTargetToCurrent}
         >
           Use Current Position
         </button>
 
         <button
           className="controls-btn controls-btn-primary controls-w-100 controls-mt-2"
-          onClick={moveRobotToTarget}
+          onClick={() => moveToTarget(true)}
           disabled={isAnimating}
         >
           Move Robot to Target
@@ -241,37 +143,37 @@ const IKController = () => {
         <div className="controls-grid controls-grid-cols-6 controls-gap-1">
           <button
             className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => adjustPosition('x', -0.01)}
+            onClick={() => moveRelative('x', -0.01)}
           >
             -1cm
           </button>
           <button
             className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => adjustPosition('x', 0.01)}
+            onClick={() => moveRelative('x', 0.01)}
           >
             +1cm
           </button>
           <button
             className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => adjustPosition('y', -0.01)}
+            onClick={() => moveRelative('y', -0.01)}
           >
             -1cm
           </button>
           <button
             className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => adjustPosition('y', 0.01)}
+            onClick={() => moveRelative('y', 0.01)}
           >
             +1cm
           </button>
           <button
             className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => adjustPosition('z', -0.01)}
+            onClick={() => moveRelative('z', -0.01)}
           >
             -1cm
           </button>
           <button
             className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => adjustPosition('z', 0.01)}
+            onClick={() => moveRelative('z', 0.01)}
           >
             +1cm
           </button>
@@ -282,7 +184,7 @@ const IKController = () => {
       <div className="controls-btn-group controls-w-100">
         <button
           className="controls-btn controls-btn-sm controls-btn-primary"
-          onClick={moveRobotToTarget}
+          onClick={() => moveToTarget(true)}
           disabled={isAnimating}
           title="Move to Target"
         >
@@ -290,7 +192,7 @@ const IKController = () => {
         </button>
         <button
           className="controls-btn controls-btn-sm controls-btn-info"
-          onClick={moveIncrementally}
+          onClick={() => moveToTarget(true)}
           disabled={isAnimating}
           title="Move Incrementally"
         >
@@ -298,7 +200,7 @@ const IKController = () => {
         </button>
         <button
           className="controls-btn controls-btn-sm controls-btn-warning"
-          onClick={stopMovement}
+          onClick={stopAnimation}
           disabled={!isAnimating}
           title="Stop"
         >
@@ -306,7 +208,7 @@ const IKController = () => {
         </button>
         <button
           className="controls-btn controls-btn-sm controls-btn-secondary"
-          onClick={useCurrentPosition}
+          onClick={syncTargetToCurrent}
           title="Use Current Position"
         >
           Use...

@@ -5,13 +5,14 @@ import RecordMap from './RecordMap';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
 import EventBus from '../../../utils/EventBus';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
-import ikAPI from '../../../core/IK/API/IKAPI';
+import { useIK } from '../../../contexts/hooks/useIK';
 
 /**
  * Integrated component for trajectory control and visualization
  */
 const TrajectoryViewer = ({ viewerRef }) => {
   const { activeRobotId, robot, isReady, getJointValues, robotManager } = useRobotControl(viewerRef);
+  const { currentPosition } = useIK();
   const [trajectories, setTrajectories] = useState([]);
   const [recording, setRecording] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -62,7 +63,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
   useEffect(() => {
     if (!robot || !isReady) return;
     const updatePosition = () => {
-      const pos = ikAPI.getEndEffectorPosition(robot);
+      const pos = currentPosition;
       setEndEffectorPosition(pos);
     };
     const interval = setInterval(updatePosition, 100);

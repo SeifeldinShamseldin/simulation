@@ -2,7 +2,7 @@
 // Update the API to track end effector positions
 
 import * as THREE from 'three';
-import ikAPI from '../IK/API/IKAPI';
+import { useIK } from '../../contexts/hooks/useIK';
 import EventBus from '../../utils/EventBus';
 
 /**
@@ -22,6 +22,13 @@ class TrajectoryAPI {
     this.recordingStates = new Map(); // Map<robotId, recordingState>
     this.playbackStates = new Map(); // Map<robotId, playbackState>
     this.playbackUpdateCallbacks = [];
+    this.recording = false;
+    this.currentTrajectory = null;
+    this.ikContext = null; // Will be set by setIKContext
+  }
+
+  setIKContext(context) {
+    this.ikContext = context;
   }
 
   /**
@@ -105,7 +112,7 @@ class TrajectoryAPI {
     const jointValues = getJointValues ? getJointValues() : {};
 
     // Get end effector position directly from robot
-    const endEffectorPos = ikAPI.getEndEffectorPosition(robot);
+    const endEffectorPos = this.getEndEffectorPosition(robot);
 
     const timestamp = Date.now() - startTime;
 
@@ -376,9 +383,12 @@ class TrajectoryAPI {
    * @param {Object} robot - Robot instance
    * @returns {Object} Current position {x, y, z}
    */
-  _getEndEffectorPosition(robot) {
-    if (!robot) return { x: 0, y: 0, z: 0 };
-    return ikAPI.getEndEffectorPosition(robot);
+  getEndEffectorPosition(robot) {
+    if (!this.ikContext) {
+      console.warn('IK context not set in TrajectoryAPI');
+      return { x: 0, y: 0, z: 0 };
+    }
+    return this.ikContext.currentPosition;
   }
 
   /**

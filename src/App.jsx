@@ -8,6 +8,7 @@ import { SceneProvider } from './contexts/SceneContext';
 import { RobotProvider } from './contexts/RobotContext';
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
+import { IKProvider } from './contexts/IKContext';
 import WorldManager from './components/World/WorldManager';
 import './App.css'; // Only App.css, NO ControlsTheme.css
 
@@ -86,9 +87,11 @@ const App = () => {
     <SceneProvider>
       <ViewerProvider>
         <RobotProvider>
-          <WorldProvider>
-            <AppContent />
-          </WorldProvider>
+          <IKProvider>
+            <WorldProvider>
+              <AppContent />
+            </WorldProvider>
+          </IKProvider>
         </RobotProvider>
       </ViewerProvider>
     </SceneProvider>
