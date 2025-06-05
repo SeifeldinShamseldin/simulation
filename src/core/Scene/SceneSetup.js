@@ -74,10 +74,18 @@ class SceneSetup {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(this.backgroundColor || '#f0f0f0');
         this.scene.fog = new THREE.FogExp2(this.backgroundColor || '#f0f0f0', 0.02);
+        
+        // Create robot root for proper orientation handling
         this.robotRoot = new THREE.Object3D();
         this.scene.add(this.robotRoot);
+        
         // Use utility for grid and axes
-        const { grid, axes } = createStandardGrids(this.scene, { gridSize: 10, gridDivisions: 20, addAxes: true, axesSize: 1 });
+        const { grid, axes } = createStandardGrids(this.scene, { 
+            gridSize: 10, 
+            gridDivisions: 20, 
+            addAxes: true, 
+            axesSize: 1 
+        });
         this.gridHelper = grid;
         this.axesHelper = axes;
     }

@@ -50,7 +50,7 @@ export const RobotProvider = ({ children }) => {
   };
   
   // Load robot using viewer
-  const loadRobot = async (robotId, urdfPath) => {
+  const loadRobot = async (robotId, urdfPath, options = {}) => {
     if (!viewer) {
       throw new Error('Viewer not initialized');
     }
@@ -59,8 +59,7 @@ export const RobotProvider = ({ children }) => {
       setIsLoading(true);
       setError(null);
       
-      const robot = await viewer.loadRobot(robotId, urdfPath);
-      setCurrentRobot(robot);
+      const robot = await viewer.loadRobot(robotId, urdfPath, options);
       
       EventBus.emit('robot:loaded', { robotId, robot });
       

@@ -11,7 +11,7 @@ const ROBOT_EVENTS = {
 
 /**
  * Class for managing URDF robot models
- * Now uses unified RobotService for configuration management
+ * Updated to support multiple robots simultaneously
  */
 class RobotManager {
     /**
@@ -21,8 +21,8 @@ class RobotManager {
     constructor(sceneSetup) {
         this.sceneSetup = sceneSetup;
         this.loader = new URDFLoader(new THREE.LoadingManager());
-        this.currentRobot = null;
-        this.robotMap = new Map();
+        this.robots = new Map(); // Changed from single robot to map of robots
+        this.activeRobots = new Set(); // Track which robots are active
         
         // Configure loader
         this.loader.parseVisual = true;
@@ -30,12 +30,19 @@ class RobotManager {
     }
     
     /**
-     * Load a URDF model using unified RobotService
+     * Load a URDF model and add to scene
      * @param {string} robotName - The name of the robot
      * @param {string} urdfPath - The path to the URDF file
+     * @param {Object} options - Loading options
      * @returns {Promise<Object>} A promise that resolves to the loaded robot
      */
-    async loadRobot(robotName, urdfPath) {
+    async loadRobot(robotName, urdfPath, options = {}) {
+        const {
+            position = { x: 0, y: 0, z: 0 },
+            makeActive = true,
+            clearOthers = false
+        } = options;
+
         try {
             // Extract package path from urdf path
             const packagePath = urdfPath.substring(0, urdfPath.lastIndexOf('/'));
@@ -45,16 +52,10 @@ class RobotManager {
             this.loader.packages = packagePath;
             this.loader.currentRobotName = robotName;
             
-            // Always set up loadMeshCb before loading
+            // Set up loadMeshCb
             this.loader.loadMeshCb = (path, manager, done, material) => {
-                // Get just the filename
                 const filename = path.split('/').pop();
-                
-                // Use current packages path
                 const resolvedPath = `${this.loader.packages}/${filename}`;
-                
-                console.debug('Loading mesh:', path);
-                console.debug('Resolved mesh path:', resolvedPath);
                 
                 MeshLoader.load(resolvedPath, manager, (obj, err) => {
                     if (err) {
@@ -64,7 +65,6 @@ class RobotManager {
                     }
                     
                     if (obj) {
-                        // Apply material if needed
                         obj.traverse(child => {
                             if (child instanceof THREE.Mesh) {
                                 if (!child.material || child.material.name === '' || child.material.name === 'default') {
@@ -83,27 +83,61 @@ class RobotManager {
             };
             
             console.info(`Loading robot ${robotName} from ${urdfPath}`);
-            console.info(`Package path: ${packagePath}`);
             
-            // Load the URDF model using a promise wrapper
+            // Load the URDF model
             const robot = await new Promise((resolve, reject) => {
                 this.loader.load(urdfPath, resolve, null, reject);
             });
             
+            // Store the robot with metadata
+            const robotData = {
+                name: robotName,
+                model: robot,
+                urdfPath: urdfPath,
+                isActive: makeActive
+            };
+            
+            // Clear other robots if requested
+            if (clearOthers) {
+                this.clearAllRobots();
+            }
+            
+            // Remove existing robot with same name if exists
+            if (this.robots.has(robotName)) {
+                this.removeRobot(robotName);
+            }
+            
             // Store the robot
-            this.robotMap.set(robotName, robot);
-            this.currentRobot = robot;
+            this.robots.set(robotName, robotData);
+            if (makeActive) {
+                this.activeRobots.add(robotName);
+            }
             
-            // Clear any existing robot before adding new one
-            this.sceneSetup.clearRobot();
+            // Add to scene with a container for proper orientation
+            const robotContainer = new THREE.Object3D();
+            robotContainer.name = `${robotName}_container`;
+            robotContainer.add(robot);
             
-            // Add to scene
-            this.sceneSetup.addRobotObject(robot);
+            // Apply position to the container
+            robotContainer.position.set(position.x, position.y, position.z);
             
-            // Update scene based on robot
-            this.updateSceneForRobot(robot);
+            // Add container to scene
+            this.sceneSetup.robotRoot.add(robotContainer);
             
-            // Trigger load completed event
+            // Store reference to container
+            robotData.container = robotContainer;
+            
+            // Update scene orientation and focus
+            this.updateSceneForRobot(robotContainer);
+            
+            // Emit events
+            EventBus.emit('robot:loaded', { 
+                robotName, 
+                robot,
+                totalRobots: this.robots.size,
+                activeRobots: Array.from(this.activeRobots)
+            });
+            
             if (ROBOT_EVENTS.onLoadComplete) {
                 ROBOT_EVENTS.onLoadComplete(robotName, robot);
             }
@@ -114,7 +148,6 @@ class RobotManager {
         } catch (error) {
             console.error(`Error loading robot ${robotName}:`, error);
             
-            // Trigger load error event
             if (ROBOT_EVENTS.onLoadError) {
                 ROBOT_EVENTS.onLoadError(robotName, error);
             }
@@ -124,43 +157,167 @@ class RobotManager {
     }
     
     /**
-     * Get the current robot
-     * @returns {Object|null} The current robot, or null if none
+     * Update scene orientation for robot
+     * @param {Object} robot - The loaded robot object
      */
-    getCurrentRobot() {
-        return this.currentRobot;
+    updateSceneForRobot(robot) {
+        // Apply the up axis transformation to ensure correct orientation
+        if (this.sceneSetup.setUpAxis) {
+            this.sceneSetup.setUpAxis('+Z'); // Default URDF convention
+        }
+        
+        // Focus camera on robot if it's the only one or first one
+        if (this.robots.size === 1) {
+            setTimeout(() => {
+                this.sceneSetup.focusOnObject(robot);
+            }, 100);
+        }
+        
+        // Emit robot loaded event
+        EventBus.emit('robot:loaded', { robot });
     }
     
     /**
-     * Set a joint value
-     * @param {string} jointName - The name of the joint
-     * @param {number|string} value - The value to set
-     * @returns {boolean} Whether the joint value was changed
+     * Get a specific robot by name
+     * @param {string} robotName - The name of the robot
+     * @returns {Object|null} The robot data or null
      */
-    setJointValue(jointName, value) {
-        if (!this.currentRobot) return false;
-        return this.currentRobot.setJointValue(jointName, parseFloat(value));
+    getRobot(robotName) {
+        const robotData = this.robots.get(robotName);
+        return robotData ? robotData.model : null;
     }
     
     /**
-     * Set multiple joint values on the current robot
+     * Get all loaded robots
+     * @returns {Map} Map of all robots
+     */
+    getAllRobots() {
+        return new Map(this.robots);
+    }
+    
+    /**
+     * Get active robots
+     * @returns {Array} Array of active robot names
+     */
+    getActiveRobots() {
+        return Array.from(this.activeRobots);
+    }
+    
+    /**
+     * Set robot active state
+     * @param {string} robotName - The robot name
+     * @param {boolean} isActive - Whether the robot should be active
+     */
+    setRobotActive(robotName, isActive) {
+        const robotData = this.robots.get(robotName);
+        if (!robotData) return false;
+        
+        robotData.isActive = isActive;
+        if (isActive) {
+            this.activeRobots.add(robotName);
+            if (robotData.container) {
+                robotData.container.visible = true;
+            } else {
+                robotData.model.visible = true;
+            }
+        } else {
+            this.activeRobots.delete(robotName);
+            if (robotData.container) {
+                robotData.container.visible = false;
+            } else {
+                robotData.model.visible = false;
+            }
+        }
+        
+        EventBus.emit('robot:active-changed', {
+            robotName,
+            isActive,
+            activeRobots: Array.from(this.activeRobots)
+        });
+        
+        return true;
+    }
+    
+    /**
+     * Remove a specific robot
+     * @param {string} robotName - The robot to remove
+     */
+    removeRobot(robotName) {
+        const robotData = this.robots.get(robotName);
+        if (!robotData) return;
+        
+        // Remove from scene (use container if available)
+        const objectToRemove = robotData.container || robotData.model;
+        if (this.sceneSetup.robotRoot) {
+            this.sceneSetup.robotRoot.remove(objectToRemove);
+        } else {
+            this.sceneSetup.scene.remove(objectToRemove);
+        }
+        
+        // Clean up
+        robotData.model.traverse((child) => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach(m => m.dispose());
+                } else {
+                    child.material.dispose();
+                }
+            }
+        });
+        
+        // Remove from collections
+        this.robots.delete(robotName);
+        this.activeRobots.delete(robotName);
+        
+        EventBus.emit('robot:removed', {
+            robotName,
+            remainingRobots: this.robots.size
+        });
+    }
+    
+    /**
+     * Clear all robots
+     */
+    clearAllRobots() {
+        const robotNames = Array.from(this.robots.keys());
+        robotNames.forEach(name => this.removeRobot(name));
+    }
+    
+    /**
+     * Set joint value for a specific robot
+     * @param {string} robotName - The robot name
+     * @param {string} jointName - The joint name
+     * @param {number} value - The joint value
+     */
+    setJointValue(robotName, jointName, value) {
+        const robot = this.getRobot(robotName);
+        if (!robot) return false;
+        return robot.setJointValue(jointName, parseFloat(value));
+    }
+    
+    /**
+     * Set multiple joint values for a robot
+     * @param {string} robotName - The robot name
      * @param {Object} values - Map of joint names to values
-     * @returns {boolean} Whether any joints were found and set
      */
-    setJointValues(values) {
-        if (!this.currentRobot) return false;
-        return this.currentRobot.setJointValues(values);
+    setJointValues(robotName, values) {
+        const robot = this.getRobot(robotName);
+        if (!robot) return false;
+        return robot.setJointValues(values);
     }
     
     /**
-     * Get all joint values from the current robot
-     * @returns {Object|null} Map of joint names to values, or null if no robot is loaded
+     * Get joint values for a robot
+     * @param {string} robotName - The robot name
+     * @returns {Object} Joint values
      */
-    getJointValues() {
-        if (!this.currentRobot) return {};
+    getJointValues(robotName) {
+        const robot = this.getRobot(robotName);
+        if (!robot) return {};
         
         const values = {};
-        Object.entries(this.currentRobot.joints).forEach(([name, joint]) => {
+        Object.entries(robot.joints).forEach(([name, joint]) => {
             if (joint.jointType !== 'fixed') {
                 values[name] = joint.jointValue ? joint.jointValue[0] : 0;
             }
@@ -170,43 +327,104 @@ class RobotManager {
     }
     
     /**
-     * Reset all joints to their zero position
+     * Reset joints for a specific robot
+     * @param {string} robotName - The robot name
      */
-    resetJoints() {
-        if (!this.currentRobot) return;
+    resetJoints(robotName) {
+        const robot = this.getRobot(robotName);
+        if (!robot) return;
         
         const resetValues = {};
-        Object.keys(this.currentRobot.joints).forEach(name => {
-            const joint = this.currentRobot.joints[name];
+        Object.keys(robot.joints).forEach(name => {
+            const joint = robot.joints[name];
             if (joint.jointType !== 'fixed') {
                 resetValues[name] = 0;
             }
         });
         
-        this.currentRobot.setJointValues(resetValues);
+        robot.setJointValues(resetValues);
+    }
+    
+    /**
+     * Calculate smart positions for multiple robots
+     * @param {number} robotCount - Number of robots to position
+     * @returns {Array} Array of positions
+     */
+    calculateRobotPositions(robotCount) {
+        const positions = [];
+        const spacing = 2.5; // Space between robots
+        
+        // Arrange robots in a line or grid
+        if (robotCount <= 3) {
+            // Line arrangement
+            for (let i = 0; i < robotCount; i++) {
+                positions.push({
+                    x: (i - (robotCount - 1) / 2) * spacing,
+                    y: 0,
+                    z: 0
+                });
+            }
+        } else {
+            // Grid arrangement
+            const cols = Math.ceil(Math.sqrt(robotCount));
+            for (let i = 0; i < robotCount; i++) {
+                const row = Math.floor(i / cols);
+                const col = i % cols;
+                positions.push({
+                    x: (col - (cols - 1) / 2) * spacing,
+                    y: 0,
+                    z: (row - (Math.ceil(robotCount / cols) - 1) / 2) * spacing
+                });
+            }
+        }
+        
+        return positions;
+    }
+    
+    /**
+     * Get the current robot (first active robot) for backward compatibility
+     * @returns {Object|null} The first active robot or null
+     */
+    getCurrentRobot() {
+        const activeRobotNames = this.getActiveRobots();
+        if (activeRobotNames.length > 0) {
+            return this.getRobot(activeRobotNames[0]);
+        }
+        
+        // If no active robots, return the first loaded robot
+        if (this.robots.size > 0) {
+            const firstRobot = this.robots.values().next().value;
+            return firstRobot ? firstRobot.model : null;
+        }
+        
+        return null;
+    }
+
+    /**
+     * Get the current robot name (for backward compatibility)
+     * @returns {string|null} The name of the current robot
+     */
+    getCurrentRobotName() {
+        const activeRobotNames = this.getActiveRobots();
+        if (activeRobotNames.length > 0) {
+            return activeRobotNames[0];
+        }
+        
+        // If no active robots, return the first loaded robot name
+        if (this.robots.size > 0) {
+            return this.robots.keys().next().value;
+        }
+        
+        return null;
     }
     
     /**
      * Dispose of resources
      */
     dispose() {
-        this.sceneSetup.clearRobot();
-        this.robotMap.clear();
-        this.currentRobot = null;
-    }
-    
-    /**
-     * Update scene based on loaded robot
-     * @param {Object} robot - The loaded robot object
-     */
-    updateSceneForRobot(robot) {
-        // Focus camera on robot
-        setTimeout(() => {
-            this.sceneSetup.focusOnObject(robot);
-        }, 100);
-        
-        // Emit robot loaded event
-        EventBus.emit('robot:loaded', { robot });
+        this.clearAllRobots();
+        this.robots.clear();
+        this.activeRobots.clear();
     }
 }
 

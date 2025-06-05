@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useRobot } from '../../../contexts/RobotContext';
+import EventBus from '../../../utils/EventBus';
 
 const RobotPanel = ({ viewerRef }) => {
   const { categories, availableRobots, isLoading, error, loadRobot, addRobot } = useRobot();
   const [activeTab, setActiveTab] = useState('load');
-  const [selectedCategory, setSelectedCategory] = useState('');
-  const [selectedRobot, setSelectedRobot] = useState('');
-  const [categoryRobots, setCategoryRobots] = useState([]);
+  const [selectedRobots, setSelectedRobots] = useState([]);
+  const [loadedRobots, setLoadedRobots] = useState(new Map());
   const [showAddModal, setShowAddModal] = useState(false);
-  const [currentStep, setCurrentStep] = useState(1); // Add step tracking
+  const [currentStep, setCurrentStep] = useState(1);
   
   // Add robot form state
   const [formData, setFormData] = useState({
@@ -21,61 +21,111 @@ const RobotPanel = ({ viewerRef }) => {
     urdf: null,
     meshes: []
   });
-  
-  // Auto-select first category
-  useEffect(() => {
-    if (categories.length > 0 && !selectedCategory) {
-      setSelectedCategory(categories[0].id);
-    }
-  }, [categories]);
 
-  // Handle category changes
+  // Listen for robot events
   useEffect(() => {
-    if (selectedCategory) {
-      const robots = availableRobots.filter(robot => robot.category === selectedCategory);
-      setCategoryRobots(robots);
-      
-      // Always reset the selected robot when category changes
-      if (robots.length > 0) {
-        setSelectedRobot(robots[0].id);
+    const unsubscribeLoaded = EventBus.on('robot:loaded', (data) => {
+      setLoadedRobots(prev => {
+        const newMap = new Map(prev);
+        newMap.set(data.robotName, {
+          name: data.robotName,
+          isActive: true
+        });
+        return newMap;
+      });
+    });
+
+    const unsubscribeRemoved = EventBus.on('robot:removed', (data) => {
+      setLoadedRobots(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(data.robotName);
+        return newMap;
+      });
+    });
+
+    const unsubscribeActiveChanged = EventBus.on('robot:active-changed', (data) => {
+      setLoadedRobots(prev => {
+        const newMap = new Map(prev);
+        const robot = newMap.get(data.robotName);
+        if (robot) {
+          robot.isActive = data.isActive;
+        }
+        return newMap;
+      });
+    });
+
+    return () => {
+      unsubscribeLoaded();
+      unsubscribeRemoved();
+      unsubscribeActiveChanged();
+    };
+  }, []);
+  
+  const toggleRobotSelection = (robotId) => {
+    setSelectedRobots(prev => {
+      if (prev.includes(robotId)) {
+        return prev.filter(id => id !== robotId);
       } else {
-        setSelectedRobot('');
+        return [...prev, robotId];
       }
-    } else {
-      setCategoryRobots([]);
-      setSelectedRobot('');
-    }
-  }, [selectedCategory, availableRobots]);
-  
-  const handleLoadRobot = async () => {
-    if (!selectedRobot || !viewerRef?.current) return;
-    
-    // Find the robot in the current category robots, not all robots
-    const robot = categoryRobots.find(r => r.id === selectedRobot);
-    if (!robot) {
-      console.error('Selected robot not found in current category');
-      return;
-    }
-    
-    try {
-      await loadRobot(robot.id, robot.urdfPath);
-    } catch (error) {
-      console.error("Failed to load robot:", error);
-    }
+    });
   };
   
-  const handleNext = () => {
-    if (currentStep < 3) {
-      setCurrentStep(currentStep + 1);
+  const handleLoadRobots = async () => {
+    if (selectedRobots.length === 0 || !viewerRef?.current) return;
+    
+    const robotManager = viewerRef.current.robotManagerRef?.current;
+    if (!robotManager) return;
+    
+    // Calculate positions for multiple robots
+    const positions = robotManager.calculateRobotPositions(selectedRobots.length);
+    
+    // Load each selected robot
+    for (let i = 0; i < selectedRobots.length; i++) {
+      const robotId = selectedRobots[i];
+      const robot = availableRobots.find(r => r.id === robotId);
+      
+      if (robot) {
+        try {
+          await loadRobot(robot.id, robot.urdfPath, {
+            position: positions[i],
+            makeActive: true,
+            clearOthers: false // Don't clear other robots
+          });
+        } catch (error) {
+          console.error(`Failed to load robot ${robot.name}:`, error);
+        }
+      }
+    }
+    
+    // Clear selection after loading
+    setSelectedRobots([]);
+  };
+
+  const toggleRobotActive = (robotName) => {
+    const robotManager = viewerRef.current?.robotManagerRef?.current;
+    if (!robotManager) return;
+
+    const robot = loadedRobots.get(robotName);
+    if (robot) {
+      robotManager.setRobotActive(robotName, !robot.isActive);
     }
   };
 
-  const handlePrevious = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-    }
+  const removeRobot = (robotName) => {
+    const robotManager = viewerRef.current?.robotManagerRef?.current;
+    if (!robotManager) return;
+
+    robotManager.removeRobot(robotName);
   };
 
+  const clearAllRobots = () => {
+    const robotManager = viewerRef.current?.robotManagerRef?.current;
+    if (!robotManager) return;
+
+    robotManager.clearAllRobots();
+  };
+  
   const handleAddRobot = async () => {
     const data = new FormData();
     data.append('manufacturer', formData.isNewManufacturer ? formData.manufacturer : selectedCategory);
@@ -125,6 +175,12 @@ const RobotPanel = ({ viewerRef }) => {
             Load
           </button>
           <button
+            className={`controls-btn controls-btn-sm ${activeTab === 'manage' ? 'controls-btn-primary' : 'controls-btn-light'}`}
+            onClick={() => setActiveTab('manage')}
+          >
+            Manage
+          </button>
+          <button
             className={`controls-btn controls-btn-sm ${activeTab === 'add' ? 'controls-btn-primary' : 'controls-btn-light'}`}
             onClick={() => setActiveTab('add')}
           >
@@ -141,40 +197,96 @@ const RobotPanel = ({ viewerRef }) => {
 
       {activeTab === 'load' ? (
         <div className="controls-card-body">
-          <div className="controls-form-group">
-            <label>Manufacturer:</label>
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="controls-form-select"
-            >
-              {categories.map(cat => (
-                <option key={cat.id} value={cat.id}>{cat.name}</option>
-              ))}
-            </select>
+          <div className="controls-mb-3">
+            <h4 className="controls-h6">Select Robots to Load:</h4>
+            <small className="controls-text-muted">
+              Select multiple robots to load them simultaneously
+            </small>
           </div>
           
-          <div className="controls-form-group">
-            <label>Robot Model:</label>
-            <select
-              value={selectedRobot}
-              onChange={(e) => setSelectedRobot(e.target.value)}
-              className="controls-form-select"
-              disabled={!categoryRobots.length}
-            >
-              {categoryRobots.map(robot => (
-                <option key={robot.id} value={robot.id}>{robot.name}</option>
-              ))}
-            </select>
-          </div>
+          {categories.map(category => (
+            <div key={category.id} className="controls-mb-3">
+              <h5 className="controls-h6 controls-mb-2">{category.name}</h5>
+              <div className="controls-list">
+                {category.robots.map(robot => (
+                  <label 
+                    key={robot.id} 
+                    className="controls-list-item controls-d-flex controls-align-items-center"
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <input
+                      type="checkbox"
+                      className="controls-form-check-input controls-me-2"
+                      checked={selectedRobots.includes(robot.id)}
+                      onChange={() => toggleRobotSelection(robot.id)}
+                    />
+                    <span className="controls-flex-grow-1">{robot.name}</span>
+                    {loadedRobots.has(robot.id) && (
+                      <span className="controls-badge controls-badge-success controls-ms-2">
+                        Loaded
+                      </span>
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
           
           <button 
-            onClick={handleLoadRobot}
+            onClick={handleLoadRobots}
             className="controls-btn controls-btn-primary controls-btn-block"
-            disabled={isLoading || !selectedRobot}
+            disabled={isLoading || selectedRobots.length === 0}
           >
-            {isLoading ? 'Loading...' : 'Load Robot'}
+            {isLoading ? 'Loading...' : `Load ${selectedRobots.length} Robot${selectedRobots.length !== 1 ? 's' : ''}`}
           </button>
+        </div>
+      ) : activeTab === 'manage' ? (
+        <div className="controls-card-body">
+          {loadedRobots.size === 0 ? (
+            <div className="controls-text-center controls-text-muted controls-py-4">
+              No robots loaded
+            </div>
+          ) : (
+            <>
+              <div className="controls-d-flex controls-justify-content-between controls-align-items-center controls-mb-3">
+                <h4 className="controls-h6 controls-mb-0">Loaded Robots ({loadedRobots.size})</h4>
+                <button
+                  onClick={clearAllRobots}
+                  className="controls-btn controls-btn-danger controls-btn-sm"
+                >
+                  Clear All
+                </button>
+              </div>
+              
+              <div className="controls-list">
+                {Array.from(loadedRobots.entries()).map(([robotName, robot]) => (
+                  <div key={robotName} className="controls-list-item">
+                    <div className="controls-d-flex controls-align-items-center controls-justify-content-between">
+                      <div className="controls-d-flex controls-align-items-center">
+                        <label className="controls-form-check controls-mb-0 controls-me-3">
+                          <input
+                            type="checkbox"
+                            className="controls-form-check-input"
+                            checked={robot.isActive}
+                            onChange={() => toggleRobotActive(robotName)}
+                          />
+                        </label>
+                        <span className={robot.isActive ? '' : 'controls-text-muted'}>
+                          {robotName}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => removeRobot(robotName)}
+                        className="controls-btn controls-btn-danger controls-btn-sm"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <div className="controls-card-body">

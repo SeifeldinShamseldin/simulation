@@ -162,9 +162,13 @@ const URDFViewer = ({
         sceneRef.current.camera.aspect = width / height;
         sceneRef.current.camera.updateProjectionMatrix();
         
-        // Force re-focus on robot to adjust the view
-        if (robotManagerRef.current && robotManagerRef.current.getCurrentRobot()) {
-          sceneRef.current.focusOnObject(robotManagerRef.current.getCurrentRobot());
+        // Force re-focus on first active robot if available
+        if (robotManagerRef.current) {
+          const robots = robotManagerRef.current.getAllRobots();
+          const activeRobots = Array.from(robots.values()).filter(r => r.isActive);
+          if (activeRobots.length > 0 && activeRobots[0].model) {
+            sceneRef.current.focusOnObject(activeRobots[0].model);
+          }
         }
       }
       
@@ -454,16 +458,70 @@ const URDFViewer = ({
   React.useImperativeHandle(
     ref,
     () => ({
-      loadRobot,
-      setJointValue,
-      updateJointValues: (values) => robotManagerRef.current?.setJointValues(values),
-      resetJoints,
-      getRobotState,
-      getRobotInfo,
-      getJointValues: () => jointValues,
-      focusOnRobot: () => sceneRef.current?.focusOnRobot(),
+      // Multi-robot methods
+      loadRobot: (robotName, urdfPath, options) => robotManagerRef.current?.loadRobot(robotName, urdfPath, options),
+      getAllRobots: () => robotManagerRef.current?.getAllRobots(),
+      getRobot: (robotName) => robotManagerRef.current?.getRobot(robotName),
+      setRobotActive: (robotName, isActive) => robotManagerRef.current?.setRobotActive(robotName, isActive),
+      removeRobot: (robotName) => robotManagerRef.current?.removeRobot(robotName),
+      
+      // Joint control methods (updated for multi-robot)
+      setJointValue: (robotNameOrJointName, jointNameOrValue, value) => {
+        // Handle both old API (jointName, value) and new API (robotName, jointName, value)
+        if (value === undefined) {
+          // Old API: use current robot
+          const currentRobotName = robotManagerRef.current?.getCurrentRobotName();
+          if (currentRobotName) {
+            return robotManagerRef.current?.setJointValue(currentRobotName, robotNameOrJointName, jointNameOrValue);
+          }
+        } else {
+          // New API: robot name specified
+          return robotManagerRef.current?.setJointValue(robotNameOrJointName, jointNameOrValue, value);
+        }
+      },
+      updateJointValues: (robotNameOrValues, values) => {
+        // Handle both old API (values) and new API (robotName, values)
+        if (values === undefined) {
+          // Old API: use current robot
+          const currentRobotName = robotManagerRef.current?.getCurrentRobotName();
+          if (currentRobotName) {
+            return robotManagerRef.current?.setJointValues(currentRobotName, robotNameOrValues);
+          }
+        } else {
+          // New API: robot name specified
+          return robotManagerRef.current?.setJointValues(robotNameOrValues, values);
+        }
+      },
+      resetJoints: (robotName) => {
+        // If no robot name specified, reset current robot
+        const targetRobot = robotName || robotManagerRef.current?.getCurrentRobotName();
+        if (targetRobot) {
+          robotManagerRef.current?.resetJoints(targetRobot);
+        }
+      },
+      getJointValues: (robotName) => {
+        // If no robot name specified, get current robot's values
+        const targetRobot = robotName || robotManagerRef.current?.getCurrentRobotName();
+        return targetRobot ? robotManagerRef.current?.getJointValues(targetRobot) : {};
+      },
+      
+      // Backward compatibility methods
       getCurrentRobot: () => robotManagerRef.current?.getCurrentRobot(),
+      focusOnRobot: (robotName) => {
+        const robot = robotName 
+          ? robotManagerRef.current?.getRobot(robotName)
+          : robotManagerRef.current?.getCurrentRobot();
+        if (robot) sceneRef.current?.focusOnObject(robot);
+      },
+      
+      // General methods
+      getRobotState: () => robotManagerRef.current?.getAllRobots(),
+      getRobotInfo: () => ({
+        totalRobots: robotManagerRef.current?.getAllRobots()?.size || 0,
+        activeRobots: robotManagerRef.current?.getActiveRobots() || []
+      }),
       getSceneSetup: () => sceneRef.current,
+      robotManagerRef, // Expose the robot manager ref
       
       // Table-related methods
       loadTable,
@@ -471,7 +529,7 @@ const URDFViewer = ({
       isTableLoaded: () => tableLoaded,
       isTableVisible: () => tableVisible,
     }),
-    [jointValues, tableLoaded, tableVisible]
+    [tableLoaded, tableVisible]
   );
   
   const handleOptionChange = (name, value) => {
