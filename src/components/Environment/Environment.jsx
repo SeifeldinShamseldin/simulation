@@ -21,14 +21,17 @@ const Environment = ({ viewerRef, isPanel = false, onClose }) => {
     // Listen for world fully loaded event
     const handleWorldFullyLoaded = (data) => {
       if (data.environment && data.environment.length > 0) {
-        const newLoadedObjects = {};
-        data.environment.forEach(obj => {
+        const newLoadedObjects = data.environment.map(obj => {
           const name = obj.path.split('/').pop().replace(/\.[^/.]+$/, '');
-          newLoadedObjects[obj.id] = {
-            id: obj.id,
+          return {
+            instanceId: obj.id,
+            objectId: obj.id,
             name: name,
             path: obj.path,
-            category: obj.category
+            category: obj.category,
+            position: obj.position,
+            rotation: obj.rotation,
+            scale: obj.scale
           };
         });
         setLoadedObjects(newLoadedObjects);
