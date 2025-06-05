@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import RobotManager from './RobotManager';
-import LoadedRobots from './LoadedRobots';
-import ControlJoints from './ControlJoints';
-import IKController from './IKController';
-import TCPManager from './TCPManager';
-import Reposition from './Reposition';
-import TrajectoryViewer from './TrajectoryViewer';
-import AddRobot from './AddRobot';
+import RobotManager from './RobotManager/RobotManager';
+import LoadedRobots from './LoadedRobots/LoadedRobots';
+import ControlJoints from '../controls/ControlJoints/ControlJoints';
+import IKController from '../controls/IKController/IKController';
+import TCPManager from '../controls/TCPDisplay/TCPManager';
+import Reposition from '../controls/Reposition/Reposition';
+import TrajectoryViewer from '../controls/RecordMap/TrajectoryViewer';
+import AddRobot from './AddRobot/AddRobot';
+import { useViewer } from '../../contexts/ViewerContext';
 
 const Robot = ({ isPanel = false, onClose }) => {
+  const { viewerInstance } = useViewer();
   const [showRobotSelection, setShowRobotSelection] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [workspaceRobots, setWorkspaceRobots] = useState([]);
@@ -24,6 +26,7 @@ const Robot = ({ isPanel = false, onClose }) => {
       {showRobotSelection && (
         <section className="controls-section-wrapper">
           <RobotManager 
+            viewerRef={{ current: viewerInstance }}
             isPanel={isPanel}
             onClose={onClose}
             workspaceRobots={workspaceRobots}
@@ -40,6 +43,7 @@ const Robot = ({ isPanel = false, onClose }) => {
         <>
           <section className="controls-section-wrapper">
             <LoadedRobots
+              viewerRef={{ current: viewerInstance }}
               workspaceRobots={workspaceRobots}
               activeRobotId={activeRobotId}
               setActiveRobotId={setActiveRobotId}
@@ -56,15 +60,15 @@ const Robot = ({ isPanel = false, onClose }) => {
           </section>
           
           <section className="controls-section-wrapper">
-            <TCPManager />
+            <TCPManager viewerRef={{ current: viewerInstance }} />
           </section>
           
           <section className="controls-section-wrapper">
-            <Reposition />
+            <Reposition viewerRef={{ current: viewerInstance }} />
           </section>
           
           <section className="controls-section-wrapper">
-            <TrajectoryViewer />
+            <TrajectoryViewer viewerRef={{ current: viewerInstance }} />
           </section>
         </>
       )}
