@@ -4,11 +4,15 @@ import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
 import RecordMap from './RecordMap';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
 import EventBus from '../../../utils/EventBus';
+import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
+import useTCP from '../../../contexts/hooks/useTCP';
 
 /**
  * Integrated component for trajectory control and visualization
  */
 const TrajectoryViewer = ({ viewerRef }) => {
+  const { activeRobotId, robot, isReady, getJointValues, robotManager } = useRobotControl(viewerRef);
+  const { tcpPosition } = useTCP();
   const [trajectories, setTrajectories] = useState([]);
   const [recording, setRecording] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -26,65 +30,88 @@ const TrajectoryViewer = ({ viewerRef }) => {
   useEffect(() => {
     updateTrajectoryList();
     
-    // Use EventBus instead of deprecated method
+    // Use EventBus with robot ID filtering
     const unsubscribe = EventBus.on('trajectory:playback-update', (info) => {
-      setPlaybackProgress(info.progress * 100);
+      // Only update if it's for the current robot
+      if (info.robotId === activeRobotId) {
+        setPlaybackProgress(info.progress * 100);
+      }
     });
     
     return () => {
-      // Clean up
-      if (playing) trajectoryAPI.stopPlayback();
-      if (recording) trajectoryAPI.stopRecording();
+      // Clean up only for current robot
+      if (playing && activeRobotId) {
+        trajectoryAPI.stopPlayback(activeRobotId);
+      }
+      if (recording && activeRobotId) {
+        trajectoryAPI.stopRecording(activeRobotId);
+      }
       unsubscribe();
     };
-  }, []);
+  }, [activeRobotId]); // Add activeRobotId to dependencies
+
+  // Update trajectories when robot changes
+  useEffect(() => {
+    updateTrajectoryList();
+    // Clear selected trajectory when switching robots
+    setSelectedTrajectory('');
+    setPlaying(false);
+    setRecording(false);
+  }, [activeRobotId]);
   
   const updateTrajectoryList = () => {
-    setTrajectories(trajectoryAPI.getTrajectoryNames());
+    if (!activeRobotId) {
+      setTrajectories([]);
+      return;
+    }
+    setTrajectories(trajectoryAPI.getTrajectoryNames(activeRobotId));
   };
   
   const handleStartRecording = () => {
-    if (!newTrajectoryName.trim()) return;
-    
-    // Get robot
-    const robot = viewerRef?.current?.getCurrentRobot?.();
-    if (!robot) {
-      alert('No robot loaded');
-      return;
-    }
+    if (!newTrajectoryName.trim() || !robot || !isReady || !activeRobotId) return;
     
     const success = trajectoryAPI.startRecording(newTrajectoryName, {
       robot,
-      interval: recordInterval
+      robotId: activeRobotId,
+      interval: recordInterval,
+      // Pass functions to get current state
+      getJointValues: () => getJointValues(),
+      getTCPPosition: () => tcpPosition
     });
     
     if (success) {
       setRecording(true);
       setSelectedTrajectory(newTrajectoryName);
       setNewTrajectoryName('');
+    } else {
+      alert('Failed to start recording');
     }
   };
   
   const handleStopRecording = () => {
-    trajectoryAPI.stopRecording();
+    if (!activeRobotId) return;
+    trajectoryAPI.stopRecording(activeRobotId); // Pass robot ID
     setRecording(false);
     updateTrajectoryList();
   };
   
   const handlePlayTrajectory = (name) => {
-    if (!viewerRef?.current || !viewerRef.current.getCurrentRobot) return;
-    
-    const robot = viewerRef.current.getCurrentRobot();
-    if (!robot) {
-      alert('No robot loaded');
-      return;
-    }
+    if (!robot || !isReady || !activeRobotId) return;
     
     setPlaying(true);
     setSelectedTrajectory(name);
     
-    trajectoryAPI.playTrajectory(name, robot, {
+    trajectoryAPI.playTrajectory(name, robot, activeRobotId, {
       ...playbackOptions,
+      setJointValues: (values) => {
+        // Use the robotManager to set joint values
+        if (robotManager) {
+          robotManager.setJointValues(activeRobotId, values);
+        } else {
+          // Fallback to direct robot method
+          robot.setJointValues(values);
+        }
+      },
       onComplete: () => {
         setPlaying(false);
         setPlaybackProgress(0);
@@ -93,14 +120,16 @@ const TrajectoryViewer = ({ viewerRef }) => {
   };
   
   const handleStopPlayback = () => {
-    trajectoryAPI.stopPlayback();
+    if (!activeRobotId) return;
+    trajectoryAPI.stopPlayback(activeRobotId); // Pass robot ID
     setPlaying(false);
     setPlaybackProgress(0);
   };
   
   const handleDeleteTrajectory = (name) => {
+    if (!activeRobotId) return;
     if (window.confirm(`Delete trajectory "${name}"?`)) {
-      trajectoryAPI.deleteTrajectory(name);
+      trajectoryAPI.deleteTrajectory(name, activeRobotId);
       
       if (selectedTrajectory === name) {
         setSelectedTrajectory('');
@@ -122,7 +151,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
   };
   
   const handleExportTrajectory = (name) => {
-    const json = trajectoryAPI.exportTrajectory(name);
+    const json = trajectoryAPI.exportTrajectory(name, activeRobotId);
     if (!json) return;
     
     // Create blob and download link
@@ -130,7 +159,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${name}.json`;
+    a.download = `${activeRobotId}_${name}.json`; // Include robot ID in filename
     document.body.appendChild(a);
     a.click();
     
@@ -143,20 +172,23 @@ const TrajectoryViewer = ({ viewerRef }) => {
   
   const handleImportTrajectory = (e) => {
     const file = e.target.files[0];
-    if (!file) return;
+    if (!file || !activeRobotId) return;
     
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const json = event.target.result;
-        const trajectory = trajectoryAPI.importTrajectory(json);
+        // Pass activeRobotId to import
+        const trajectory = trajectoryAPI.importTrajectory(json, activeRobotId);
         if (trajectory) {
           updateTrajectoryList();
           setSelectedTrajectory(trajectory.name);
+        } else {
+          alert('Failed to import trajectory. Please ensure the file is valid and contains trajectory data.');
         }
       } catch (error) {
         console.error('Error importing trajectory:', error);
-        alert('Error importing trajectory');
+        alert('Error importing trajectory. Please check the file format and try again.');
       }
     };
     reader.readAsText(file);
@@ -171,7 +203,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
   
   return (
     <div className="urdf-controls-section">
-      <h3>Trajectory Recording</h3>
+      <h3>Trajectory Recording - {activeRobotId || 'No Robot Selected'}</h3>
       
       {/* Recording controls */}
       <div className="trajectory-recording">
@@ -245,6 +277,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
           <LiveTrajectoryGraph 
             isOpen={showLiveGraph}
             onClose={() => setShowLiveGraph(false)}
+            activeRobotId={activeRobotId}
           />
         )}
       </div>
@@ -301,7 +334,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
       
       {/* Trajectory list */}
       <div className="trajectory-list">
-        <h4>Saved Trajectories</h4>
+        <h4>Saved Trajectories for {activeRobotId || 'No Robot Selected'}</h4>
         {trajectories.length === 0 ? (
           <div className="no-trajectories">No trajectories recorded</div>
         ) : (

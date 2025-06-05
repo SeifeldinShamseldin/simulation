@@ -17,158 +17,153 @@ class TrajectoryAPI {
     }
     TrajectoryAPI.instance = this;
     
-    this.trajectories = new Map(); // Store trajectories by name
-    this.recording = false;
-    this.currentTrajectory = null;
-    this.currentTrajectoryName = '';
-    this.recordingStartTime = 0;
-    this.recordingInterval = null;
-    this.playback = {
-      active: false,
-      trajectoryName: '',
-      startTime: 0,
-      duration: 0,
-      animationFrameId: null,
-      robot: null,
-      onComplete: null
-    };
-    
-    // Callbacks
-    this.onRecordUpdate = null;
+    this.trajectories = new Map(); // Map<robotId, Map<trajectoryName, trajectory>>
+    // Change from single state to robot-specific states
+    this.recordingStates = new Map(); // Map<robotId, recordingState>
+    this.playbackStates = new Map(); // Map<robotId, playbackState>
+    this.playbackUpdateCallbacks = [];
+  }
+
+  /**
+   * Get robot-specific trajectories
+   * @param {string} robotId - The ID of the robot
+   * @returns {Map} Map of trajectories for the specified robot
+   */
+  getRobotTrajectories(robotId) {
+    if (!this.trajectories.has(robotId)) {
+      this.trajectories.set(robotId, new Map());
+    }
+    return this.trajectories.get(robotId);
   }
 
   /**
    * Start recording a new trajectory
-   * @param {string} name - The name of the trajectory
-   * @param {Object} options - Recording options (robot, interval)
+   * @param {string} trajectoryName - The name of the trajectory
+   * @param {Object} options - Recording options (robot, robotId, interval, getJointValues, getTCPPosition)
    * @returns {boolean} Whether recording started successfully
    */
-  startRecording(name, options = {}) {
-    if (this.recording || this.playback.active) {
-      console.warn('Cannot start recording: already recording or playing back');
+  startRecording(trajectoryName, options = {}) {
+    const { 
+      robot, 
+      robotId, 
+      interval = 100,
+      getJointValues,
+      getTCPPosition
+    } = options;
+    
+    if (!robot || !robotId) {
+      console.error('Robot and robotId required for recording');
       return false;
     }
-    
-    if (!name) {
-      console.warn('Cannot start recording: no name provided');
-      return false;
+
+    // Stop any existing recording for THIS robot only
+    if (this.recordingStates.has(robotId)) {
+      this.stopRecording(robotId);
     }
-    
-    // Initialize new trajectory
-    this.currentTrajectoryName = name;
-    this.currentTrajectory = {
-      name,
-      keyframes: [],
-      duration: 0,
-      endEffectorPath: [] // Add end effector path tracking
+
+    // Create recording state for this robot
+    const recordingState = {
+      name: trajectoryName,
+      robotId: robotId,
+      robot: robot,
+      interval: interval,
+      startTime: Date.now(),
+      frames: [],
+      endEffectorPath: [],
+      getJointValues: getJointValues, // Store the getter functions
+      getTCPPosition: getTCPPosition
     };
-    
-    this.recording = true;
-    this.recordingStartTime = Date.now();
-    
-    // Set up automatic recording if interval is specified
-    const interval = options.interval || 0;
-    if (interval > 0 && options.robot) {
-      this.recordingInterval = setInterval(() => {
-        const jointValues = this._getJointValues(options.robot);
-        this.recordKeyframe(jointValues, null, options.robot);
-      }, interval);
-    }
-    
-    console.log(`Started recording trajectory '${name}'`);
+
+    // Start recording interval
+    recordingState.intervalId = setInterval(() => {
+      this._recordFrame(robotId);
+    }, interval);
+
+    // Store robot-specific recording state
+    this.recordingStates.set(robotId, recordingState);
+
+    console.log(`Started recording trajectory "${trajectoryName}" for robot ${robotId}`);
     return true;
   }
 
   /**
-   * Add current joint values to trajectory
-   * @param {Object} jointValues - Map of joint names to values
-   * @param {number} [timestamp] - Timestamp for the keyframe (default: current time relative to start)
-   * @param {Object} [robot] - Robot to get end effector position from
-   * @returns {Promise<boolean>} Whether keyframe was added successfully
+   * Record a single frame for a robot
+   * @private
+   * @param {string} robotId - The ID of the robot
    */
-  async recordKeyframe(jointValues, timestamp = null, robot = null) {
-    if (!this.recording || !this.currentTrajectory) {
-      console.warn('Cannot record keyframe: not recording');
-      return false;
-    }
-    
-    // Calculate timestamp if not provided
-    const time = timestamp !== null ? timestamp : Date.now() - this.recordingStartTime;
-    
-    // Get end effector position from TCPProvider
-    let endEffectorPosition = null;
-    if (robot) {
-      endEffectorPosition = await this._getEndEffectorPosition(robot);
-    }
-    
-    // Add keyframe
-    this.currentTrajectory.keyframes.push({
-      timestamp: time,
-      jointValues: {...jointValues},
-      endEffectorPosition
+  _recordFrame(robotId) {
+    const recordingState = this.recordingStates.get(robotId);
+    if (!recordingState) return;
+
+    const { 
+      startTime, 
+      frames, 
+      endEffectorPath,
+      getJointValues,
+      getTCPPosition
+    } = recordingState;
+
+    // Get current joint values using the provided function
+    const jointValues = getJointValues ? getJointValues() : {};
+
+    // Get TCP position using the provided function
+    const tcpPos = getTCPPosition ? getTCPPosition() : { x: 0, y: 0, z: 0 };
+
+    const timestamp = Date.now() - startTime;
+
+    frames.push({
+      timestamp,
+      jointValues
     });
-    
-    // Add to end effector path if position is available
-    if (endEffectorPosition) {
-      this.currentTrajectory.endEffectorPath.push({
-        time,
-        position: {...endEffectorPosition}
-      });
-    }
-    
-    // Update duration
-    this.currentTrajectory.duration = Math.max(
-      this.currentTrajectory.duration,
-      time
-    );
-    
-    // Notify listeners
-    if (this.onRecordUpdate) {
-      this.onRecordUpdate(this.currentTrajectory);
-    }
-    
-    // Emit playback update event
-    EventBus.emit('trajectory:playback-update', {
-      trajectoryName: this.playback.trajectoryName,
-      currentTime: time,
-      duration: this.currentTrajectory.duration,
-      progress: time / this.currentTrajectory.duration,
-      isPlaying: this.playback.active,
-      endEffectorPosition: endEffectorPosition
+
+    endEffectorPath.push({
+      timestamp,
+      position: {
+        x: tcpPos.x,
+        y: tcpPos.y,
+        z: tcpPos.z
+      }
     });
-    
-    return true;
+
+    // Emit update event
+    EventBus.emit('trajectory:recording-update', {
+      robotId,
+      trajectoryName: recordingState.name,
+      currentTime: timestamp,
+      frames: frames.length
+    });
+
+    console.log(`Recorded frame ${frames.length} at ${timestamp}ms - TCP: [${tcpPos.x.toFixed(3)}, ${tcpPos.y.toFixed(3)}, ${tcpPos.z.toFixed(3)}]`);
   }
 
   /**
-   * Stop recording
+   * Stop recording for a specific robot
+   * @param {string} robotId - The ID of the robot
    * @returns {Object|null} The recorded trajectory, or null if not recording
    */
-  stopRecording() {
-    if (!this.recording) {
-      console.warn('Cannot stop recording: not recording');
-      return null;
-    }
+  stopRecording(robotId) {
+    const recordingState = this.recordingStates.get(robotId);
+    if (!recordingState) return null;
+
+    clearInterval(recordingState.intervalId);
+
+    const trajectory = {
+      name: recordingState.name,
+      robotId: recordingState.robotId,
+      frames: recordingState.frames,
+      endEffectorPath: recordingState.endEffectorPath,
+      duration: Date.now() - recordingState.startTime,
+      recordedAt: new Date().toISOString()
+    };
+
+    // Save to robot-specific storage
+    const robotTrajectories = this.getRobotTrajectories(recordingState.robotId);
+    robotTrajectories.set(trajectory.name, trajectory);
+
+    // Clear recording state for this robot
+    this.recordingStates.delete(robotId);
     
-    // Clear automatic recording interval if active
-    if (this.recordingInterval) {
-      clearInterval(this.recordingInterval);
-      this.recordingInterval = null;
-    }
-    
-    // Finalize trajectory
-    const trajectory = {...this.currentTrajectory};
-    
-    // Store trajectory
-    this.trajectories.set(trajectory.name, trajectory);
-    
-    // Reset recording state
-    this.recording = false;
-    this.currentTrajectory = null;
-    this.currentTrajectoryName = '';
-    this.recordingStartTime = 0;
-    
-    console.log(`Stopped recording trajectory '${trajectory.name}' with ${trajectory.keyframes.length} keyframes`);
+    console.log(`Stopped recording for robot ${robotId}. Captured ${trajectory.frames.length} keyframes`);
     return trajectory;
   }
 
@@ -176,190 +171,186 @@ class TrajectoryAPI {
    * Play a recorded trajectory
    * @param {string} name - The name of the trajectory to play
    * @param {Object} robot - The robot to apply the trajectory to
-   * @param {Object} [options] - Playback options (speed, loop, onComplete)
+   * @param {string} robotId - The ID of the robot
+   * @param {Object} [options] - Playback options (speed, loop, onComplete, onFrame, setJointValues)
    * @returns {boolean} Whether playback started successfully
    */
-  playTrajectory(name, robot, options = {}) {
-    if (this.recording || this.playback.active) {
-      console.warn('Cannot play trajectory: already recording or playing back');
-      return false;
+  playTrajectory(name, robot, robotId, options = {}) {
+    // Only stop playback for THIS robot
+    if (this.playbackStates.has(robotId)) {
+      this.stopPlayback(robotId);
     }
     
-    if (!this.trajectories.has(name)) {
-      console.warn(`Cannot play trajectory: '${name}' not found`);
+    // Get robot-specific trajectory
+    const trajectory = this.getTrajectory(name, robotId);
+    if (!trajectory) {
+      console.error(`Trajectory "${name}" not found for robot ${robotId}`);
       return false;
     }
-    
-    const trajectory = this.trajectories.get(name);
-    if (!trajectory.keyframes.length) {
-      console.warn(`Cannot play trajectory: '${name}' has no keyframes`);
-      return false;
-    }
-    
-    // Set up playback
-    this.playback = {
-      active: true,
-      trajectoryName: name,
+
+    const {
+      speed = 1.0,
+      loop = false,
+      onComplete = () => {},
+      onFrame = () => {},
+      setJointValues
+    } = options;
+
+    // Create playback state for this robot
+    const playbackState = {
+      trajectory: trajectory,
+      robot: robot,
+      robotId: robotId,
+      currentFrameIndex: 0,
       startTime: Date.now(),
-      duration: trajectory.duration,
-      speed: options.speed || 1.0,
-      loop: options.loop || false,
-      robot,
-      onComplete: options.onComplete || null,
-      currentEndEffectorPosition: null // Track current end effector position
+      speed: speed,
+      loop: loop,
+      onComplete: onComplete,
+      onFrame: onFrame,
+      isPlaying: true,
+      setJointValues: setJointValues || ((values) => robot.setJointValues(values))
     };
+
+    // Store robot-specific playback state
+    this.playbackStates.set(robotId, playbackState);
+
+    console.log(`Starting playback of trajectory "${name}" for robot ${robotId} with ${trajectory.frames.length} keyframes`);
     
-    // Start animation loop
-    this._playbackFrame();
-    
-    console.log(`Started playing trajectory '${name}'`);
+    // Start playback for this robot
+    this._playbackFrame(robotId);
     return true;
   }
 
   /**
-   * Handle playback animation frame
+   * Handle playback animation frame for a specific robot
    * @private
+   * @param {string} robotId - The ID of the robot
    */
-  _playbackFrame() {
-    if (!this.playback.active) return;
-    
-    const trajectory = this.trajectories.get(this.playback.trajectoryName);
-    const elapsed = (Date.now() - this.playback.startTime) * this.playback.speed;
-    
-    // Check if playback is complete
-    if (elapsed >= trajectory.duration && !this.playback.loop) {
-      this._completePlayback();
+  _playbackFrame(robotId) {
+    const playbackState = this.playbackStates.get(robotId);
+    if (!playbackState || !playbackState.isPlaying) return;
+
+    const {
+      trajectory,
+      robot,
+      currentFrameIndex,
+      startTime,
+      speed,
+      loop,
+      onComplete,
+      onFrame,
+      setJointValues
+    } = playbackState;
+
+    // Check if trajectory exists and has frames
+    if (!trajectory || !trajectory.frames || trajectory.frames.length === 0) {
+      console.error('Invalid trajectory data');
+      this.stopPlayback(robotId);
       return;
     }
+
+    const elapsed = (Date.now() - startTime) * speed;
     
-    // Calculate current time in the trajectory (with looping)
-    const currentTime = this.playback.loop ? 
-      elapsed % trajectory.duration : 
-      Math.min(elapsed, trajectory.duration);
-    
-    // Find the keyframes before and after the current time
-    const keyframes = trajectory.keyframes;
-    let prevKeyframe = null;
-    let nextKeyframe = null;
-    
-    for (let i = 0; i < keyframes.length; i++) {
-      if (keyframes[i].timestamp <= currentTime) {
-        prevKeyframe = keyframes[i];
-      }
-      
-      if (keyframes[i].timestamp >= currentTime && (!nextKeyframe || keyframes[i].timestamp < nextKeyframe.timestamp)) {
-        nextKeyframe = keyframes[i];
+    // Find the appropriate frame based on elapsed time
+    let targetFrameIndex = 0;
+    for (let i = 0; i < trajectory.frames.length; i++) {
+      if (trajectory.frames[i].timestamp <= elapsed) {
+        targetFrameIndex = i;
+      } else {
+        break;
       }
     }
-    
-    // Apply interpolated joint values
-    if (prevKeyframe && nextKeyframe && prevKeyframe !== nextKeyframe) {
-      const t = (currentTime - prevKeyframe.timestamp) / (nextKeyframe.timestamp - prevKeyframe.timestamp);
-      const interpolatedValues = this._interpolateJointValues(prevKeyframe.jointValues, nextKeyframe.jointValues, t);
-      this._applyJointValues(interpolatedValues, this.playback.robot);
-      
-      // Interpolate end effector position if available
-      if (prevKeyframe.endEffectorPosition && nextKeyframe.endEffectorPosition) {
-        this.playback.currentEndEffectorPosition = this._interpolatePosition(
-          prevKeyframe.endEffectorPosition,
-          nextKeyframe.endEffectorPosition,
-          t
-        );
-      }
-    } else if (prevKeyframe) {
-      this._applyJointValues(prevKeyframe.jointValues, this.playback.robot);
-      if (prevKeyframe.endEffectorPosition) {
-        this.playback.currentEndEffectorPosition = {...prevKeyframe.endEffectorPosition};
+
+    // Apply joint values using the custom setter
+    if (targetFrameIndex < trajectory.frames.length) {
+      const frame = trajectory.frames[targetFrameIndex];
+      if (frame && frame.jointValues) {
+        setJointValues(frame.jointValues);
       }
     }
-    
-    // Update end effector position if not available from trajectory
-    if (!this.playback.currentEndEffectorPosition && this.playback.robot) {
-      this.playback.currentEndEffectorPosition = this._getEndEffectorPosition(this.playback.robot);
+
+    // Call frame callback
+    onFrame(trajectory.frames[targetFrameIndex]);
+
+    // Update progress
+    const progress = targetFrameIndex / (trajectory.frames.length - 1);
+    EventBus.emit('trajectory:playback-update', {
+      robotId,
+      progress,
+      currentFrame: targetFrameIndex,
+      totalFrames: trajectory.frames.length
+    });
+
+    // Check if we've reached the end
+    if (targetFrameIndex >= trajectory.frames.length - 1) {
+      if (loop) {
+        // Reset playback for looping
+        playbackState.startTime = Date.now();
+        playbackState.currentFrameIndex = 0;
+      } else {
+        // End playback
+        this.stopPlayback(robotId);
+        onComplete();
+        return;
+      }
     }
-    
-    // Notify listeners
-    if (this.onRecordUpdate) {
-      this.onRecordUpdate({
-        trajectoryName: this.playback.trajectoryName,
-        currentTime,
-        duration: trajectory.duration,
-        progress: currentTime / trajectory.duration,
-        endEffectorPosition: this.playback.currentEndEffectorPosition
-      });
-    }
-    
-    // Emit throttled playback update event
-    EventBus.emitThrottled('trajectory:playback-update', {
-      trajectoryName: this.playback.trajectoryName,
-      currentTime,
-      duration: trajectory.duration,
-      progress: currentTime / trajectory.duration,
-      isPlaying: this.playback.active,
-      endEffectorPosition: this.playback.currentEndEffectorPosition
-    }, 50);
-    
-    // Continue animation
-    this.playback.animationFrameId = requestAnimationFrame(() => this._playbackFrame());
+
+    // Schedule next frame
+    requestAnimationFrame(() => this._playbackFrame(robotId));
   }
 
   /**
-   * Complete playback and clean up
-   * @private
-   */
-  _completePlayback() {
-    const onComplete = this.playback.onComplete;
-    
-    // Reset playback state
-    this.playback = {
-      active: false,
-      trajectoryName: '',
-      startTime: 0,
-      duration: 0,
-      animationFrameId: null,
-      robot: null,
-      onComplete: null,
-      currentEndEffectorPosition: null
-    };
-    
-    // Notify completion callback
-    if (onComplete) {
-      onComplete();
-    }
-    
-    console.log('Playback complete');
-  }
-
-  /**
-   * Stop playback
+   * Stop playback for a specific robot
+   * @param {string} robotId - The ID of the robot
    * @returns {boolean} Whether playback was stopped
    */
-  stopPlayback() {
-    if (!this.playback.active) {
-      console.warn('Cannot stop playback: not playing');
-      return false;
-    }
+  stopPlayback(robotId) {
+    const playbackState = this.playbackStates.get(robotId);
+    if (!playbackState) return false;
+
+    playbackState.isPlaying = false;
+    this.playbackStates.delete(robotId);
     
-    // Cancel animation frame
-    if (this.playback.animationFrameId) {
-      cancelAnimationFrame(this.playback.animationFrameId);
-    }
-    
-    // Reset playback state
-    const trajectoryName = this.playback.trajectoryName;
-    this.playback = {
-      active: false,
-      trajectoryName: '',
-      startTime: 0,
-      duration: 0,
-      animationFrameId: null,
-      robot: null,
-      onComplete: null,
-      currentEndEffectorPosition: null
-    };
-    
-    console.log(`Stopped playing trajectory '${trajectoryName}'`);
+    console.log(`Stopped playback for robot ${robotId}`);
     return true;
+  }
+
+  /**
+   * Check if a robot is currently playing
+   * @param {string} robotId - The ID of the robot
+   * @returns {boolean} Whether the robot is playing
+   */
+  isPlaying(robotId) {
+    return this.playbackStates.has(robotId) && this.playbackStates.get(robotId).isPlaying;
+  }
+
+  /**
+   * Check if a robot is currently recording
+   * @param {string} robotId - The ID of the robot
+   * @returns {boolean} Whether the robot is recording
+   */
+  isRecording(robotId) {
+    return this.recordingStates.has(robotId);
+  }
+
+  /**
+   * Reset all states and data
+   */
+  reset() {
+    // Stop all recordings
+    for (const robotId of this.recordingStates.keys()) {
+      this.stopRecording(robotId);
+    }
+    
+    // Stop all playbacks
+    for (const robotId of this.playbackStates.keys()) {
+      this.stopPlayback(robotId);
+    }
+    
+    // Clear all data
+    this.trajectories.clear();
+    this.recordingStates.clear();
+    this.playbackStates.clear();
   }
 
   /**
@@ -431,148 +422,80 @@ class TrajectoryAPI {
   }
 
   /**
-   * Interpolate between two sets of joint values
-   * @private
-   * @param {Object} values1 - First set of joint values
-   * @param {Object} values2 - Second set of joint values
-   * @param {number} t - Interpolation factor (0-1)
-   * @returns {Object} Interpolated joint values
-   */
-  _interpolateJointValues(values1, values2, t) {
-    const result = {};
-    
-    // Combine all joint names from both sets
-    const allJoints = new Set([
-      ...Object.keys(values1),
-      ...Object.keys(values2)
-    ]);
-    
-    // Interpolate each joint value
-    allJoints.forEach(joint => {
-      const v1 = values1[joint] !== undefined ? values1[joint] : values2[joint];
-      const v2 = values2[joint] !== undefined ? values2[joint] : values1[joint];
-      
-      // If both values exist, interpolate
-      if (v1 !== undefined && v2 !== undefined) {
-        result[joint] = v1 + (v2 - v1) * t;
-      } 
-      // Otherwise use whichever value exists
-      else if (v1 !== undefined) {
-        result[joint] = v1;
-      } else if (v2 !== undefined) {
-        result[joint] = v2;
-      }
-    });
-    
-    return result;
-  }
-
-  /**
-   * Interpolate between two positions
-   * @private
-   * @param {Object} pos1 - First position {x, y, z}
-   * @param {Object} pos2 - Second position {x, y, z}
-   * @param {number} t - Interpolation factor (0-1)
-   * @returns {Object} Interpolated position {x, y, z}
-   */
-  _interpolatePosition(pos1, pos2, t) {
-    return {
-      x: pos1.x + (pos2.x - pos1.x) * t,
-      y: pos1.y + (pos2.y - pos1.y) * t,
-      z: pos1.z + (pos2.z - pos1.z) * t
-    };
-  }
-
-  /**
    * Export a trajectory to JSON
    * @param {string} name - The name of the trajectory to export
+   * @param {string} robotId - The ID of the robot
    * @returns {string|null} JSON string of the trajectory, or null if not found
    */
-  exportTrajectory(name) {
-    if (!this.trajectories.has(name)) {
-      console.warn(`Cannot export trajectory: '${name}' not found`);
-      return null;
-    }
+  exportTrajectory(name, robotId) {
+    const trajectory = this.getTrajectory(name, robotId);
+    if (!trajectory) return null;
     
-    const trajectory = this.trajectories.get(name);
-    return JSON.stringify(trajectory);
+    return JSON.stringify(trajectory, null, 2);
   }
 
   /**
    * Import a trajectory from JSON
-   * @param {string} json - JSON string of the trajectory
+   * @param {string} jsonData - JSON string of the trajectory
+   * @param {string} [robotId] - Optional robot ID to override trajectory's robotId
    * @returns {Object|null} The imported trajectory, or null if invalid
    */
-  importTrajectory(json) {
+  importTrajectory(jsonData, robotId) {
     try {
-      const trajectory = JSON.parse(json);
+      const trajectory = JSON.parse(jsonData);
       
-      if (!trajectory.name || !Array.isArray(trajectory.keyframes)) {
-        console.warn('Cannot import trajectory: invalid format');
+      // Use provided robotId or the one from trajectory
+      const targetRobotId = robotId || trajectory.robotId;
+      if (!targetRobotId) {
+        console.error('No robot ID specified for import');
         return null;
       }
       
-      // Ensure endEffectorPath exists
-      if (!trajectory.endEffectorPath) {
-        trajectory.endEffectorPath = [];
-        
-        // Try to construct endEffectorPath from keyframes
-        trajectory.keyframes.forEach(keyframe => {
-          if (keyframe.endEffectorPosition) {
-            trajectory.endEffectorPath.push({
-              time: keyframe.timestamp,
-              position: keyframe.endEffectorPosition
-            });
-          }
-        });
-      }
+      // Store in robot-specific storage
+      const robotTrajectories = this.getRobotTrajectories(targetRobotId);
+      robotTrajectories.set(trajectory.name, trajectory);
       
-      // Store trajectory
-      this.trajectories.set(trajectory.name, trajectory);
-      console.log(`Imported trajectory '${trajectory.name}'`);
+      console.log(`Imported trajectory "${trajectory.name}" for robot ${targetRobotId}`);
       return trajectory;
     } catch (error) {
-      console.error('Cannot import trajectory:', error);
+      console.error('Error importing trajectory:', error);
       return null;
     }
   }
 
   /**
    * Delete a trajectory
-   * @param {string} name - The name of the trajectory to delete
+   * @param {string} name - The name of the trajectory
+   * @param {string} robotId - The ID of the robot
    * @returns {boolean} Whether the trajectory was deleted
    */
-  deleteTrajectory(name) {
-    if (!this.trajectories.has(name)) {
-      console.warn(`Cannot delete trajectory: '${name}' not found`);
-      return false;
-    }
-    
-    this.trajectories.delete(name);
-    console.log(`Deleted trajectory '${name}'`);
-    return true;
+  deleteTrajectory(name, robotId) {
+    if (!robotId) return false;
+    const robotTrajectories = this.getRobotTrajectories(robotId);
+    return robotTrajectories.delete(name);
   }
 
   /**
-   * Get all trajectory names
+   * Get all trajectory names for a specific robot
+   * @param {string} robotId - The ID of the robot
    * @returns {string[]} Array of trajectory names
    */
-  getTrajectoryNames() {
-    return Array.from(this.trajectories.keys());
+  getTrajectoryNames(robotId) {
+    if (!robotId) return [];
+    const robotTrajectories = this.getRobotTrajectories(robotId);
+    return Array.from(robotTrajectories.keys());
   }
 
   /**
-   * Get specific trajectory data
+   * Get a specific trajectory
    * @param {string} name - The name of the trajectory
+   * @param {string} robotId - The ID of the robot
    * @returns {Object|null} The trajectory, or null if not found
    */
-  getTrajectory(name) {
-    if (!this.trajectories.has(name)) {
-      console.warn(`Trajectory '${name}' not found`);
-      return null;
-    }
-    
-    return {...this.trajectories.get(name)};
+  getTrajectory(name, robotId) {
+    if (!robotId) return null;
+    const robotTrajectories = this.getRobotTrajectories(robotId);
+    return robotTrajectories.get(name);
   }
 
   /**
@@ -588,41 +511,6 @@ class TrajectoryAPI {
     
     const trajectory = this.trajectories.get(name);
     return trajectory.endEffectorPath || [];
-  }
-
-  /**
-   * Check if currently recording
-   * @returns {boolean} Whether currently recording
-   */
-  isRecording() {
-    return this.recording;
-  }
-
-  /**
-   * Check if currently playing back
-   * @returns {boolean} Whether currently playing back
-   */
-  isPlaying() {
-    return this.playback.active;
-  }
-
-  /**
-   * Register a callback for recording updates
-   * @param {Function} callback - Function to call when recording updates
-   */
-  registerRecordUpdateCallback(callback) {
-    this.onRecordUpdate = callback;
-  }
-
-  /**
-   * Set callback for playback updates (deprecated - use EventBus instead)
-   * @param {Function} callback - Function to call with playback info
-   */
-  registerPlaybackUpdateCallback(callback) {
-    console.warn('registerPlaybackUpdateCallback is deprecated. Use EventBus.on("trajectory:playback-update") instead');
-    // Create a wrapper that listens to EventBus for backward compatibility
-    const unsubscribe = EventBus.on('trajectory:playback-update', callback);
-    return unsubscribe;
   }
 }
 

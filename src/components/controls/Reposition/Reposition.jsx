@@ -1,29 +1,24 @@
 // components/controls/Reposition/Reposition.jsx
 import React, { useState, useEffect } from 'react';
+import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 
 /**
  * Component for repositioning the robot in world space
  */
 const Reposition = ({ viewerRef }) => {
+  const { activeRobotId, robot, isReady } = useRobotControl(viewerRef);
   const [position, setPosition] = useState({ x: 0, y: 0, z: 0 });
   
-  // Initialize position when the component mounts
+  // Initialize position when robot changes
   useEffect(() => {
-    if (!viewerRef?.current) return;
-    
-    try {
-      const robot = viewerRef.current.getCurrentRobot();
-      if (robot) {
-        setPosition({
-          x: robot.position.x || 0,
-          y: robot.position.y || 0,
-          z: robot.position.z || 0
-        });
-      }
-    } catch (error) {
-      console.error('Error getting robot position:', error);
+    if (robot && isReady) {
+      setPosition({
+        x: robot.position.x || 0,
+        y: robot.position.y || 0,
+        z: robot.position.z || 0
+      });
     }
-  }, [viewerRef]);
+  }, [robot, isReady]);
   
   /**
    * Handle position input change
@@ -46,22 +41,19 @@ const Reposition = ({ viewerRef }) => {
    * Apply the current position to the robot
    */
   const applyPosition = () => {
-    if (!viewerRef?.current) return;
+    if (!robot || !isReady) return;
     
     try {
-      const robot = viewerRef.current.getCurrentRobot();
-      if (robot) {
-        // Apply the position
-        robot.position.set(position.x, position.y, position.z);
-        
-        // Update matrices
-        robot.updateMatrix();
-        robot.updateMatrixWorld(true);
-        
-        // Focus camera if needed
-        if (viewerRef.current.focusOnRobot) {
-          viewerRef.current.focusOnRobot();
-        }
+      // Apply the position
+      robot.position.set(position.x, position.y, position.z);
+      
+      // Update matrices
+      robot.updateMatrix();
+      robot.updateMatrixWorld(true);
+      
+      // Focus camera if available
+      if (viewerRef?.current?.focusOnRobot) {
+        viewerRef.current.focusOnRobot(activeRobotId);
       }
     } catch (error) {
       console.error('Error setting robot position:', error);
@@ -85,24 +77,21 @@ const Reposition = ({ viewerRef }) => {
    * Reset the position to origin
    */
   const resetPosition = () => {
+    if (!robot || !isReady) return;
+    
     setPosition({ x: 0, y: 0, z: 0 });
-    if (viewerRef?.current) {
-      const robot = viewerRef.current.getCurrentRobot();
-      if (robot) {
-        robot.position.set(0, 0, 0);
-        robot.updateMatrix();
-        robot.updateMatrixWorld(true);
-        
-        if (viewerRef.current.focusOnRobot) {
-          viewerRef.current.focusOnRobot();
-        }
-      }
+    robot.position.set(0, 0, 0);
+    robot.updateMatrix();
+    robot.updateMatrixWorld(true);
+    
+    if (viewerRef?.current?.focusOnRobot) {
+      viewerRef.current.focusOnRobot(activeRobotId);
     }
   };
   
   return (
     <div className="controls-section">
-      <h3 className="controls-section-title">Robot Position</h3>
+      <h3 className="controls-section-title">Robot Position - {activeRobotId}</h3>
       <p className="controls-text">
         Reposition the robot in world space
       </p>

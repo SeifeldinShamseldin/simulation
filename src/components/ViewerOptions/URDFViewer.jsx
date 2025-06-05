@@ -507,7 +507,10 @@ const URDFViewer = ({
       
       // Backward compatibility methods
       getCurrentRobot: () => robotManagerRef.current?.getCurrentRobot(),
-      focusOnRobot: (robotName) => {
+      focusOnRobot: (robotName, forceRefocus = false) => {
+        // Only focus if explicitly requested (forceRefocus = true)
+        if (!forceRefocus) return;
+        
         const robot = robotName 
           ? robotManagerRef.current?.getRobot(robotName)
           : robotManagerRef.current?.getCurrentRobot();

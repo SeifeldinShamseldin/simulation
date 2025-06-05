@@ -102,13 +102,6 @@ class RobotManager {
                 this.clearAllRobots();
             }
             
-            // Calculate position for multiple robots
-            if (!clearOthers && this.robots.size > 0) {
-                // Offset new robots so they don't overlap
-                const offset = this.robots.size * 2;
-                position.x += offset;
-            }
-            
             // Remove existing robot with same name if exists
             if (this.robots.has(robotName)) {
                 this.removeRobot(robotName);
@@ -173,8 +166,9 @@ class RobotManager {
             this.sceneSetup.setUpAxis('+Z'); // Default URDF convention
         }
         
-        // Focus camera on robot if it's the only one or first one
-        if (this.robots.size === 1) {
+        // Don't auto-focus when switching robots
+        // Only focus if it's the first robot being loaded
+        if (this.robots.size === 1 && this.sceneSetup.robotRoot.children.length === 1) {
             setTimeout(() => {
                 this.sceneSetup.focusOnObject(robot);
             }, 100);
@@ -236,6 +230,7 @@ class RobotManager {
             }
         }
         
+        // Don't trigger any camera movements here
         EventBus.emit('robot:active-changed', {
             robotName,
             isActive,

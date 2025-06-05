@@ -45,6 +45,16 @@ const LoadedRobots = ({
               <span className="controls-badge controls-badge-success">
                 Active
               </span>
+              <button
+                onClick={() => {
+                  if (viewerRef?.current?.focusOnRobot) {
+                    viewerRef.current.focusOnRobot(activeRobotId, true); // true = force refocus
+                  }
+                }}
+                className="controls-btn controls-btn-primary controls-btn-sm"
+              >
+                Center Camera
+              </button>
             </div>
           </div>
         </div>

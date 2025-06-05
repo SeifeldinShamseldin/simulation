@@ -7,7 +7,7 @@ import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
 import EventBus from '../../../utils/EventBus';
 import { createStandardGrids } from '../../../utils/threeHelpers';
 
-const LiveTrajectoryGraph = ({ isOpen, onClose }) => {
+const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
   const rendererRef = useRef(null);
@@ -34,14 +34,14 @@ const LiveTrajectoryGraph = ({ isOpen, onClose }) => {
 
   // Load available trajectories
   useEffect(() => {
-    if (isOpen) {
-      const trajNames = trajectoryAPI.getTrajectoryNames();
+    if (isOpen && activeRobotId) {
+      const trajNames = trajectoryAPI.getTrajectoryNames(activeRobotId);
       setTrajectories(trajNames);
       if (trajNames.length > 0 && !selectedTrajectory) {
         setSelectedTrajectory(trajNames[0]);
       }
     }
-  }, [isOpen]);
+  }, [isOpen, activeRobotId]);
 
   // Initialize 3D scene when displaying
   useEffect(() => {
@@ -141,7 +141,9 @@ const LiveTrajectoryGraph = ({ isOpen, onClose }) => {
   };
 
   const loadTrajectory = (trajectoryName) => {
-    const trajectory = trajectoryAPI.getTrajectory(trajectoryName);
+    if (!activeRobotId) return;
+    
+    const trajectory = trajectoryAPI.getTrajectory(trajectoryName, activeRobotId);
     if (!trajectory) return;
 
     const pathData = trajectory.endEffectorPath || [];

@@ -22,7 +22,7 @@ const RobotManager = ({
     
     setError(null);
     try {
-      // First add to workspace
+      // Create robot data
       const newRobot = {
         id: `${robot.id}_${Date.now()}`,
         robotId: robot.id,
@@ -34,12 +34,9 @@ const RobotManager = ({
       
       setWorkspaceRobots(prev => [...prev, newRobot]);
       
-      // Then automatically load it into the scene
-      const positions = calculateRobotPositions(workspaceRobots.length + 1);
-      const position = positions[workspaceRobots.length];
-      
+      // Load at origin (0,0,0) - no position calculation
       await loadRobot(newRobot.id, robot.urdfPath, {
-        position: position,
+        position: { x: 0, y: 0, z: 0 }, // Always at origin
         makeActive: true,
         clearOthers: false
       });

@@ -6,6 +6,7 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import tcpProvider from '../../../core/IK/TCP/TCPProvider';
 import EventBus from '../../../utils/EventBus';
 import { useRobot } from '../../../contexts/RobotContext';
+import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 
 /**
  * Comprehensive TCP Component - Combines display and management functionality
@@ -18,6 +19,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
   const [activeTcp, setActiveTcp] = useState(null);
   const [position, setPosition] = useState({ x: 0, y: 0, z: 0 });
   const [isConnected, setIsConnected] = useState(false);
+  const { activeRobotId, robot, isReady } = useRobotControl(viewerRef);
   
   // State for management
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -74,13 +76,12 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
 
   // Load initial data and set up EventBus listeners
   useEffect(() => {
-    // Connect TCP provider to robot
-    if (viewerRef?.current) {
-      const robot = viewerRef.current.getCurrentRobot();
-      if (robot) {
-        tcpProvider.setRobot(robot);
-        setIsConnected(true);
-      }
+    // Connect TCP provider to robot from hook
+    if (robot && isReady) {
+      tcpProvider.setRobot(robot);
+      setIsConnected(true);
+    } else {
+      setIsConnected(false);
     }
 
     // Load initial data
@@ -106,27 +107,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
       unsubscribeActiveSettings();
       unsubscribePositionsUpdated();
     };
-  }, []);
-
-  // Monitor robot changes
-  useEffect(() => {
-    if (!viewerRef?.current) return;
-
-    const checkRobot = () => {
-      const robot = viewerRef.current.getCurrentRobot();
-      if (robot) {
-        tcpProvider.setRobot(robot);
-        setIsConnected(true);
-      } else {
-        setIsConnected(false);
-      }
-    };
-
-    checkRobot();
-    const interval = setInterval(checkRobot, 1000);
-
-    return () => clearInterval(interval);
-  }, [viewerRef]);
+  }, [robot, isReady]);
 
   // 3D visualization effect (keeping as is for Three.js functionality)
   useEffect(() => {
@@ -456,16 +437,13 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
   };
 
   const updateTCPVisualization = () => {
-    if (!activeTcp || !viewerRef?.current) return;
-
+    if (!activeTcp || !robot || !isReady) return; // Use robot from hook
+    
     const tcpObject = tcpObjectsRef.current.get(activeTcp.id);
     if (!tcpObject) return;
-
+    
     try {
-      const robot = viewerRef.current.getCurrentRobot();
-      if (!robot) return;
-
-      const lastJoint = findLastJoint(robot);
+      const lastJoint = findLastJoint(robot); // Use robot from hook
       if (!lastJoint) return;
 
       lastJoint.updateMatrixWorld(true);
@@ -560,7 +538,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
     return (
       <div className={`controls-section ${compact ? 'controls-compact' : ''}`}>
         <div className="controls-section-header">
-          <h3 className="controls-h3 controls-mb-0">TCP</h3>
+          <h3 className="controls-h3 controls-mb-0">TCP - {activeRobotId}</h3>
           <span className={`controls-badge ${isConnected ? 'controls-badge-danger' : 'controls-badge-secondary'}`}>
             No TCP
           </span>
@@ -582,7 +560,7 @@ const TCPManager = ({ viewerRef, compact = false, showManagement = true }) => {
   return (
     <div className={`controls-section ${compact ? 'controls-compact' : ''}`}>
       <div className="controls-section-header">
-        <h3 className="controls-h3 controls-mb-0">TCP</h3>
+        <h3 className="controls-h3 controls-mb-0">TCP - {activeRobotId}</h3>
         <div className="controls-d-flex controls-align-items-center" style={{ gap: '0.5rem' }}>
           <span className={`controls-badge ${isConnected ? 'controls-badge-success' : 'controls-badge-secondary'}`}>
             {isConnected ? 'Connected' : 'Disconnected'}
