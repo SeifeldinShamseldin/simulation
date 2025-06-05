@@ -1,58 +1,49 @@
 // src/components/controls/ControlJoints/ControlJoints.jsx
 import React, { useState, useEffect } from 'react';
-import { useRobot } from '../../../contexts/RobotContext';
-import EventBus from '../../../utils/EventBus';
+import { useRobotControl } from '../../../hooks/useRobotControl';
 
 const ControlJoints = ({ viewerRef }) => {
+  const { 
+    activeRobotId, 
+    robot, 
+    setJointValue, 
+    resetJoints, 
+    isReady 
+  } = useRobotControl(viewerRef);
+  
   const [jointValues, setJointValues] = useState({});
   const [jointInfo, setJointInfo] = useState([]);
-  const [robot, setRobot] = useState(null);
 
-  // Listen for robot loaded events and update when viewerRef changes
   useEffect(() => {
-    const updateRobot = () => {
-      if (viewerRef?.current) {
-        const currentRobot = viewerRef.current.getCurrentRobot();
-        if (currentRobot) {
-          setRobot(currentRobot);
-          
-          // Extract joint information
-          const joints = [];
-          const values = {};
-          
-          currentRobot.traverse((child) => {
-            if (child.isURDFJoint && child.jointType !== 'fixed') {
-              joints.push({
-                name: child.name,
-                type: child.jointType,
-                limits: child.limit
-              });
-              values[child.name] = child.angle || 0;
-            }
-          });
-          
-          setJointInfo(joints);
-          setJointValues(values);
-        }
+    if (!robot) {
+      setJointInfo([]);
+      setJointValues({});
+      return;
+    }
+
+    const joints = [];
+    const values = {};
+    
+    robot.traverse((child) => {
+      if (child.isURDFJoint && child.jointType !== 'fixed') {
+        joints.push({
+          name: child.name,
+          type: child.jointType,
+          limits: child.limit
+        });
+        values[child.name] = child.angle || 0;
       }
-    };
-
-    // Initial update
-    updateRobot();
-
-    // Listen for robot loaded events
-    const unsubscribe = EventBus.on('robot:loaded', updateRobot);
-
-    return () => {
-      unsubscribe();
-    };
-  }, [viewerRef]);
+    });
+    
+    setJointInfo(joints);
+    setJointValues(values);
+  }, [robot]);
 
   const handleJointChange = (jointName, value) => {
-    if (!viewerRef?.current) return;
+    if (!isReady) return;
     
     const numValue = parseFloat(value);
-    viewerRef.current.setJointValue(jointName, numValue);
+    setJointValue(jointName, numValue);
     
     setJointValues(prev => ({
       ...prev,
@@ -61,11 +52,10 @@ const ControlJoints = ({ viewerRef }) => {
   };
 
   const handleReset = () => {
-    if (!viewerRef?.current) return;
+    if (!isReady) return;
     
-    viewerRef.current.resetJoints();
+    resetJoints();
     
-    // Reset local state
     const resetValues = {};
     jointInfo.forEach(joint => {
       resetValues[joint.name] = 0;
@@ -84,7 +74,7 @@ const ControlJoints = ({ viewerRef }) => {
 
   return (
     <div className="controls-section">
-      <h3 className="controls-section-title">Joint Control</h3>
+      <h3 className="controls-section-title">Joint Control - {activeRobotId}</h3>
       
       <div className="joint-controls-container">
         {jointInfo.map((joint) => {

@@ -1,5 +1,6 @@
 // components/controls/IKController/IKController.jsx
 import React, { useState, useEffect } from 'react';
+import { useRobotControl } from '../../../hooks/useRobotControl';
 import useTCP from '../../../contexts/hooks/useTCP';
 import ikAPI from '../../../core/IK/API/IKAPI';
 import tcpProvider from '../../../core/IK/TCP/TCPProvider';
@@ -10,15 +11,21 @@ import tcpProvider from '../../../core/IK/TCP/TCPProvider';
  */
 const IKController = ({
   viewerRef, 
-  onIKUpdate,
 }) => {
-  // Get TCP position and movement functions from hook
+  const { activeRobotId, robot, isReady } = useRobotControl(viewerRef);
   const { tcpPosition, moveToPosition } = useTCP();
   
   // State for target position input fields
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
   const [solverStatus, setSolverStatus] = useState('Ready to move robot');
   const [isAnimating, setIsAnimating] = useState(false);
+  
+  // Update TCP provider when robot changes
+  useEffect(() => {
+    if (robot && isReady) {
+      tcpProvider.setRobot(robot);
+    }
+  }, [robot, isReady]);
   
   // Auto-update the target position fields when TCP position changes
   useEffect(() => {
@@ -71,15 +78,12 @@ const IKController = ({
    * Move robot to target position using IK
    */
   const moveToTarget = async () => {
-    if (!viewerRef?.current || isAnimating) return;
+    if (!isReady || isAnimating) return;
     
     try {
       setIsAnimating(true);
       setSolverStatus('Moving to target...');
       
-      const robot = viewerRef.current.getCurrentRobot();
-      if (!robot) throw new Error('Robot not available');
-
       const currentPos = tcpPosition;
       const targetPos = targetPosition;
       
@@ -145,13 +149,11 @@ const IKController = ({
    * Move robot incrementally to target position
    */
   const moveIncrementally = async () => {
-    if (!viewerRef?.current || isAnimating) return;
+    if (!isReady || isAnimating) return;
     
     try {
       setIsAnimating(true);
-      const robot = viewerRef.current.getCurrentRobot();
-      if (!robot) throw new Error('Robot not available');
-
+      
       const currentPos = tcpPosition;
       const targetPos = targetPosition;
       
@@ -213,9 +215,18 @@ const IKController = ({
     }
   };
 
+  if (!isReady) {
+    return (
+      <div className="controls-section">
+        <h3 className="controls-section-title">Inverse Kinematics</h3>
+        <p className="controls-text-muted">No robot loaded</p>
+      </div>
+    );
+  }
+
   return (
     <div className="controls-section">
-      <h3 className="controls-section-title">Inverse Kinematics</h3>
+      <h3 className="controls-section-title">Inverse Kinematics - {activeRobotId}</h3>
       
       {/* Current TCP Position Display */}
       <div className="controls-group">

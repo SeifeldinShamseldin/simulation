@@ -6,6 +6,7 @@ import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import { SceneProvider } from './contexts/SceneContext';
 import { RobotProvider, useRobot } from './contexts/RobotContext';
+import { ActiveRobotProvider } from './contexts/ActiveRobotContext';
 import './App.css'; // Only App.css, NO ControlsTheme.css
 
 const AppContent = () => {
@@ -61,9 +62,11 @@ const AppContent = () => {
 const App = () => {
   return (
     <RobotProvider>
-      <SceneProvider>
-        <AppContent />
-      </SceneProvider>
+      <ActiveRobotProvider>
+        <SceneProvider>
+          <AppContent />
+        </SceneProvider>
+      </ActiveRobotProvider>
     </RobotProvider>
   );
 };
