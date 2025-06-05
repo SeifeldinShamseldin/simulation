@@ -1,6 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
-import EventBus from '../../utils/EventBus';
+import React, { useState } from 'react';
 import RobotManager from './RobotManager/RobotManager';
 import LoadedRobots from './LoadedRobots/LoadedRobots';
 import AddRobot from './AddRobot/AddRobot';
@@ -9,76 +7,51 @@ import IKController from '../controls/IKController/IKController';
 import TCPManager from '../controls/TCPDisplay/TCPManager';
 import Reposition from '../controls/Reposition/Reposition';
 import TrajectoryViewer from '../controls/RecordMap/TrajectoryViewer';
+import { useRobot } from '../../contexts/RobotContext';
+import EventBus from '../../utils/EventBus';
 
 const Robot = ({ viewerRef, isPanel = false, onClose }) => {
-  // Helper function for calculating robot positions
-  const calculateRobotPositions = (count) => {
-    const positions = [];
-    const spacing = 2.5; // Space between robots
-    
-    for (let i = 0; i < count; i++) {
-      positions.push({
-        x: (i - (count - 1) / 2) * spacing,
-        y: 0,
-        z: 0
-      });
-    }
-    
-    return positions;
-  };
-
   // State for user's workspace robots (starts empty)
   const [workspaceRobots, setWorkspaceRobots] = useState([]);
-  const [loadedRobots, setLoadedRobots] = useState([]); // Track all loaded robots
   const [showAddModal, setShowAddModal] = useState(false);
   const [activeRobotId, setActiveRobotId] = useState(null);
   const [showRobotSelection, setShowRobotSelection] = useState(true);
   
-  // Add effect to listen for robot loaded events
-  useEffect(() => {
-    const handleRobotLoaded = (data) => {
-      setLoadedRobots(prev => {
-        const exists = prev.find(r => r.id === data.robotId);
-        if (!exists) {
-          return [...prev, { id: data.robotId, name: data.name }];
-        }
-        return prev;
+  const { loadRobot } = useRobot();
+  
+  // Function to load robot into viewer
+  const loadRobotIntoViewer = async (robot) => {
+    console.log('Loading robot into viewer:', robot);
+    if (!viewerRef?.current) {
+      console.error('ViewerRef not available');
+      return;
+    }
+    
+    try {
+      console.log('Calling loadRobot with:', robot.id, robot.urdfPath);
+      await loadRobot(robot.id, robot.urdfPath);
+      
+      console.log('Robot loaded successfully, updating UI state');
+      setActiveRobotId(robot.id);
+      setShowRobotSelection(false);
+      
+      EventBus.emit('robot:loaded', {
+        robotId: robot.id,
+        name: robot.name
       });
-    };
-    
-    const unsubscribe = EventBus.on('robot:loaded', handleRobotLoaded);
-    return () => unsubscribe();
-  }, []);
-
-  // Auto-load workspace robots when component mounts
-  useEffect(() => {
-    const loadExistingRobots = async () => {
-      if (!viewerRef?.current || workspaceRobots.length === 0) return;
       
-      const positions = calculateRobotPositions(workspaceRobots.length);
-      
-      for (let i = 0; i < workspaceRobots.length; i++) {
-        const robot = workspaceRobots[i];
-        try {
-          await loadRobot(robot.id, robot.urdfPath, {
-            position: positions[i],
-            makeActive: i === workspaceRobots.length - 1, // Make last one active
-            clearOthers: false
-          });
-        } catch (error) {
-          console.error(`Failed to load robot ${robot.name}:`, error);
-        }
-      }
-    };
-    
-    // Small delay to ensure viewer is ready
-    setTimeout(loadExistingRobots, 500);
-  }, [viewerRef]); // Only run once when viewerRef is available
-
+    } catch (error) {
+      console.error('Error loading robot:', error);
+      alert(`Failed to load robot: ${error.message}\n\nPlease check the console for more details.`);
+      // Reset state if loading fails
+      setShowRobotSelection(true);
+    }
+  };
+  
   return (
     <div className="controls" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Always show robot selection if no active robot */}
-      {!activeRobotId && (
+      {/* Robot Selection Grid - Always visible unless a robot is active */}
+      {showRobotSelection && (
         <section className="controls-section-wrapper">
           <RobotManager 
             viewerRef={viewerRef}
@@ -90,12 +63,13 @@ const Robot = ({ viewerRef, isPanel = false, onClose }) => {
             activeRobotId={activeRobotId}
             setActiveRobotId={setActiveRobotId}
             setShowRobotSelection={setShowRobotSelection}
+            onLoadRobot={loadRobotIntoViewer}
           />
         </section>
       )}
       
-      {/* Show controls when robot is active */}
-      {activeRobotId && (
+      {/* Robot Controls - Only show when robot is active */}
+      {activeRobotId && !showRobotSelection && (
         <>
           <section className="controls-section-wrapper">
             <LoadedRobots
@@ -133,7 +107,10 @@ const Robot = ({ viewerRef, isPanel = false, onClose }) => {
       <AddRobot
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        onSuccess={(robot) => {
+        onSuccess={async (robot) => {
+          console.log('AddRobot onSuccess called with:', robot);
+          
+          // Add robot to workspace
           const newRobot = {
             id: `${robot.id}_${Date.now()}`,
             robotId: robot.id,
@@ -142,8 +119,16 @@ const Robot = ({ viewerRef, isPanel = false, onClose }) => {
             urdfPath: robot.urdfPath,
             icon: '🤖'
           };
+          
+          console.log('Created newRobot object:', newRobot);
           setWorkspaceRobots(prev => [...prev, newRobot]);
           setShowAddModal(false);
+          
+          // AUTOMATICALLY LOAD THE ROBOT INTO THE VIEWER
+          // Add small delay to ensure viewer is ready
+          setTimeout(() => {
+            loadRobotIntoViewer(newRobot);
+          }, 100);
         }}
       />
     </div>
