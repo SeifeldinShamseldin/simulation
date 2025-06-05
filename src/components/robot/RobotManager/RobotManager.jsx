@@ -17,20 +17,40 @@ const RobotManager = ({
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
 
-  const handleLoadRobot = async (robot) => {
+  const handleAddRobotToWorkspace = async (robot) => {
     if (!viewerRef?.current) return;
     
     setError(null);
     try {
-      await loadRobot(robot.id, robot.urdfPath);
+      // First add to workspace
+      const newRobot = {
+        id: `${robot.id}_${Date.now()}`,
+        robotId: robot.id,
+        name: robot.name,
+        manufacturer: robot.manufacturer,
+        urdfPath: robot.urdfPath,
+        icon: '🤖'
+      };
       
-      setActiveRobotId(robot.id);
+      setWorkspaceRobots(prev => [...prev, newRobot]);
+      
+      // Then automatically load it into the scene
+      const positions = calculateRobotPositions(workspaceRobots.length + 1);
+      const position = positions[workspaceRobots.length];
+      
+      await loadRobot(newRobot.id, robot.urdfPath, {
+        position: position,
+        makeActive: true,
+        clearOthers: false
+      });
+      
+      setActiveRobotId(newRobot.id);
       setShowRobotSelection(false);
       setSuccessMessage(`${robot.name} loaded successfully!`);
       setTimeout(() => setSuccessMessage(''), 3000);
       
       EventBus.emit('robot:loaded', {
-        robotId: robot.id,
+        robotId: newRobot.id,
         name: robot.name
       });
       
@@ -42,6 +62,21 @@ const RobotManager = ({
 
   const handleRemoveRobot = (robotId) => {
     setWorkspaceRobots(prev => prev.filter(r => r.id !== robotId));
+  };
+
+  const handleLoadRobot = async (robot) => {
+    if (!viewerRef?.current) return;
+    
+    try {
+      await loadRobot(robot.id, robot.urdfPath);
+      
+      setActiveRobotId(robot.id);
+      setShowRobotSelection(false);
+      
+    } catch (error) {
+      console.error('Error loading robot:', error);
+      setError('Failed to load robot: ' + error.message);
+    }
   };
 
   return (
@@ -94,13 +129,13 @@ const RobotManager = ({
         <div className="controls-grid controls-grid-cols-2 controls-gap-3">
           {/* Show workspace robots */}
           {workspaceRobots.map(robot => (
-            <div
+            <div 
               key={robot.id}
               className="controls-card"
               style={{
                 cursor: 'pointer',
-                position: 'relative',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                position: 'relative'
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-2px)';
@@ -111,36 +146,6 @@ const RobotManager = ({
                 e.currentTarget.style.boxShadow = '';
               }}
             >
-              {/* Delete button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRemoveRobot(robot.id);
-                }}
-                style={{
-                  position: 'absolute',
-                  top: '0.5rem',
-                  right: '0.5rem',
-                  background: '#dc3545',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '24px',
-                  height: '24px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 'bold',
-                  zIndex: 2
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = '#c82333'}
-                onMouseLeave={(e) => e.currentTarget.style.background = '#dc3545'}
-              >
-                ×
-              </button>
-              
               <div 
                 className="controls-card-body controls-text-center controls-p-4"
                 onClick={() => handleLoadRobot(robot)}
@@ -149,6 +154,30 @@ const RobotManager = ({
                 <h5 className="controls-h5 controls-mb-1">{robot.name}</h5>
                 <small className="controls-text-muted">{robot.manufacturer}</small>
               </div>
+              <button
+                className="controls-btn controls-btn-danger controls-btn-sm"
+                style={{
+                  position: 'absolute',
+                  top: '0.5rem',
+                  right: '0.5rem',
+                  padding: '0.25rem 0.5rem',
+                  fontSize: '0.75rem',
+                  opacity: 0,
+                  transition: 'opacity 0.2s'
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveRobot(robot.id);
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.opacity = '1';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.opacity = '0';
+                }}
+              >
+                Delete
+              </button>
             </div>
           ))}
           

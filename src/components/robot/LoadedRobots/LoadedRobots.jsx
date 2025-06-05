@@ -10,18 +10,10 @@ const LoadedRobots = ({
 }) => {
   
   const goBackToSelection = () => {
-    if (!viewerRef?.current) return;
-    
-    // Clear the robot from the scene
-    const sceneSetup = viewerRef.current.getSceneSetup();
-    if (sceneSetup) {
-      sceneSetup.clearRobot();
-    }
-    
-    setActiveRobotId(null);
+    // Don't clear the robot - just go back to selection
     setShowRobotSelection(true);
     
-    EventBus.emit('robot:unloaded', { robotId: activeRobotId });
+    EventBus.emit('robot:controls-hidden', { robotId: activeRobotId });
   };
 
   const activeRobot = workspaceRobots.find(r => r.id === activeRobotId);

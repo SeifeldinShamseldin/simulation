@@ -58,14 +58,18 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
     }
   };
 
-  const handleSelectRobot = (robot) => {
-    onSuccess({
+  const handleSelectRobot = async (robot) => {
+    // Create the robot data
+    const newRobot = {
       id: robot.id,
       name: robot.name,
       manufacturer: robot.manufacturer,
       urdfPath: robot.urdfPath,
       model: robot.name
-    });
+    };
+    
+    // Call onSuccess which will add to workspace AND load into scene
+    onSuccess(newRobot);
   };
 
   const getIconForManufacturer = (name) => {

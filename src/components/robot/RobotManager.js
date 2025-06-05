@@ -97,9 +97,16 @@ class RobotManager {
                 isActive: makeActive
             };
             
-            // Clear other robots if requested
+            // Only clear if explicitly requested
             if (clearOthers) {
                 this.clearAllRobots();
+            }
+            
+            // Calculate position for multiple robots
+            if (!clearOthers && this.robots.size > 0) {
+                // Offset new robots so they don't overlap
+                const offset = this.robots.size * 2;
+                position.x += offset;
             }
             
             // Remove existing robot with same name if exists
