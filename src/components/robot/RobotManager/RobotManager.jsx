@@ -13,7 +13,7 @@ const RobotManager = ({
   setActiveRobotId,
   setShowRobotSelection
 }) => {
-  const { loadRobot, isLoading } = useRobot();
+  const { loadRobot, isLoading, setActiveRobotId: setContextActiveRobotId, setActiveRobot } = useRobot();
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -34,9 +34,9 @@ const RobotManager = ({
       
       setWorkspaceRobots(prev => [...prev, newRobot]);
       
-      // Load at origin (0,0,0) - no position calculation
+      // Use the context's loadRobot which properly updates state
       await loadRobot(newRobot.id, robot.urdfPath, {
-        position: { x: 0, y: 0, z: 0 }, // Always at origin
+        position: { x: 0, y: 0, z: 0 },
         makeActive: true,
         clearOthers: false
       });
@@ -71,15 +71,21 @@ const RobotManager = ({
         const existingRobot = robotManager.getRobot(robot.id);
         
         if (existingRobot) {
-          // Robot already loaded, just make it active and close selection
+          // Robot already loaded, just make it active
           setActiveRobotId(robot.id);
+          setContextActiveRobotId(robot.id);
+          setActiveRobot(existingRobot);
           setShowRobotSelection(false);
           return;
         }
       }
       
-      // Only load if not already loaded
-      await loadRobot(robot.id, robot.urdfPath);
+      // Use the context's loadRobot to ensure proper state updates
+      await loadRobot(robot.id, robot.urdfPath, {
+        position: { x: 0, y: 0, z: 0 },
+        makeActive: true,
+        clearOthers: false
+      });
       
       setActiveRobotId(robot.id);
       setShowRobotSelection(false);

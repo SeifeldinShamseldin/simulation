@@ -20,6 +20,8 @@ const AppContent = () => {
   useEffect(() => {
     if (viewerRef.current) {
       setViewerInstance(viewerRef.current);
+      // Temporary global reference for context
+      window.viewerInstance = viewerRef.current;
     }
   }, [setViewerInstance]);
 
@@ -66,15 +68,15 @@ const AppContent = () => {
 // Wrap your app content with SceneProvider
 const App = () => {
   return (
-    <ViewerProvider>
-      <RobotProvider>
-        <WorldProvider>
-          <SceneProvider>
+    <SceneProvider>
+      <ViewerProvider>
+        <RobotProvider>
+          <WorldProvider>
             <AppContent />
-          </SceneProvider>
-        </WorldProvider>
-      </RobotProvider>
-    </ViewerProvider>
+          </WorldProvider>
+        </RobotProvider>
+      </ViewerProvider>
+    </SceneProvider>
   );
 };
 
