@@ -70,7 +70,7 @@ const Robot = ({ viewerRef, isPanel = false, onClose }) => {
       <AddRobot
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        onSuccess={(robot) => {
+        onSuccess={async (robot) => {
           const newRobot = {
             id: `${robot.id}_${Date.now()}`,
             robotId: robot.id,
@@ -79,8 +79,29 @@ const Robot = ({ viewerRef, isPanel = false, onClose }) => {
             urdfPath: robot.urdfPath,
             icon: '🤖'
           };
+          
+          // Add to workspace
           setWorkspaceRobots(prev => [...prev, newRobot]);
           setShowAddModal(false);
+          
+          // Load the robot using viewerRef directly
+          if (viewerRef?.current) {
+            try {
+              await viewerRef.current.loadRobot(newRobot.id, robot.urdfPath, {
+                position: { x: 0, y: 0, z: 0 },
+                makeActive: true,
+                clearOthers: false
+              });
+              
+              // Set as active but stay on My Robots page
+              setActiveRobotId(newRobot.id);
+              // Keep showing robot selection
+              // setShowRobotSelection(false); // Keep this commented out
+              
+            } catch (error) {
+              console.error('Error auto-loading robot:', error);
+            }
+          }
         }}
       />
     </div>
