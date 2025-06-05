@@ -3,7 +3,6 @@ import RobotManager from './RobotManager/RobotManager';
 import LoadedRobots from './LoadedRobots/LoadedRobots';
 import ControlJoints from '../controls/ControlJoints/ControlJoints';
 import IKController from '../controls/IKController/IKController';
-import TCPManager from '../controls/TCPDisplay/TCPManager';
 import Reposition from '../controls/Reposition/Reposition';
 import TrajectoryViewer from '../controls/RecordMap/TrajectoryViewer';
 import AddRobot from './AddRobot/AddRobot';
@@ -57,10 +56,6 @@ const Robot = ({ isPanel = false, onClose }) => {
           
           <section className="controls-section-wrapper">
             <IKController />
-          </section>
-          
-          <section className="controls-section-wrapper">
-            <TCPManager viewerRef={{ current: viewerInstance }} />
           </section>
           
           <section className="controls-section-wrapper">

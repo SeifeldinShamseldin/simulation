@@ -12,6 +12,5 @@ const unsubscribePlayback = EventBus.on('trajectory:playback-update', (info) => 
 });
 
 return () => {
-  unsubscribeTCP();
   unsubscribePlayback();
 }; 

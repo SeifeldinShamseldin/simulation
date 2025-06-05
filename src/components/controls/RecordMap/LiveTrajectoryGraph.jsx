@@ -64,13 +64,6 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
   useEffect(() => {
     if (!isLive || step !== 2) return;
 
-    const unsubscribeTCP = EventBus.on('tcp:active-position-updated', (data) => {
-      if (data.position) {
-        setCurrentPosition(data.position);
-        updateCurrentMarker(data.position);
-      }
-    });
-
     const unsubscribePlayback = EventBus.on('trajectory:playback-update', (info) => {
       if (info.endEffectorPosition) {
         setCurrentPosition(info.endEffectorPosition);
@@ -79,7 +72,6 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     });
 
     return () => {
-      unsubscribeTCP();
       unsubscribePlayback();
     };
   }, [isLive, step]);
@@ -478,7 +470,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
                 <label htmlFor="live" style={{ cursor: 'pointer' }}>
                   <strong>Live Tracking</strong>
                   <p style={{ margin: '0.5rem 0 0 0', color: '#666' }}>
-                    View real-time TCP movement
+                    View real-time end effector movement
                   </p>
                 </label>
               </div>
@@ -486,7 +478,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
           ) : (
             /* Step 2: Display */
             <div>
-              <h3 style={{ marginBottom: '1.5rem' }}>{isLive ? 'Live TCP Tracking' : selectedTrajectory}</h3>
+              <h3 style={{ marginBottom: '1.5rem' }}>{isLive ? 'Live End Effector Tracking' : selectedTrajectory}</h3>
               
               <div className="controls-form-group">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>

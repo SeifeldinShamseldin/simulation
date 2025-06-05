@@ -5,14 +5,13 @@ import RecordMap from './RecordMap';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
 import EventBus from '../../../utils/EventBus';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
-import useTCP from '../../../contexts/hooks/useTCP';
+import ikAPI from '../../../core/IK/API/IKAPI';
 
 /**
  * Integrated component for trajectory control and visualization
  */
 const TrajectoryViewer = ({ viewerRef }) => {
   const { activeRobotId, robot, isReady, getJointValues, robotManager } = useRobotControl(viewerRef);
-  const { tcpPosition } = useTCP();
   const [trajectories, setTrajectories] = useState([]);
   const [recording, setRecording] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -25,6 +24,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
     speed: 1.0,
     loop: false
   });
+  const [endEffectorPosition, setEndEffectorPosition] = useState({ x: 0, y: 0, z: 0 });
   
   // Initialize and load trajectories
   useEffect(() => {
@@ -59,6 +59,17 @@ const TrajectoryViewer = ({ viewerRef }) => {
     setRecording(false);
   }, [activeRobotId]);
   
+  useEffect(() => {
+    if (!robot || !isReady) return;
+    const updatePosition = () => {
+      const pos = ikAPI.getEndEffectorPosition(robot);
+      setEndEffectorPosition(pos);
+    };
+    const interval = setInterval(updatePosition, 100);
+    updatePosition();
+    return () => clearInterval(interval);
+  }, [robot, isReady]);
+  
   const updateTrajectoryList = () => {
     if (!activeRobotId) {
       setTrajectories([]);
@@ -76,7 +87,6 @@ const TrajectoryViewer = ({ viewerRef }) => {
       interval: recordInterval,
       // Pass functions to get current state
       getJointValues: () => getJointValues(),
-      getTCPPosition: () => tcpPosition
     });
     
     if (success) {

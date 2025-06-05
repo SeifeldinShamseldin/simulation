@@ -39,7 +39,7 @@ class TrajectoryAPI {
   /**
    * Start recording a new trajectory
    * @param {string} trajectoryName - The name of the trajectory
-   * @param {Object} options - Recording options (robot, robotId, interval, getJointValues, getTCPPosition)
+   * @param {Object} options - Recording options (robot, robotId, interval, getJointValues)
    * @returns {boolean} Whether recording started successfully
    */
   startRecording(trajectoryName, options = {}) {
@@ -47,8 +47,7 @@ class TrajectoryAPI {
       robot, 
       robotId, 
       interval = 100,
-      getJointValues,
-      getTCPPosition
+      getJointValues
     } = options;
     
     if (!robot || !robotId) {
@@ -70,8 +69,7 @@ class TrajectoryAPI {
       startTime: Date.now(),
       frames: [],
       endEffectorPath: [],
-      getJointValues: getJointValues, // Store the getter functions
-      getTCPPosition: getTCPPosition
+      getJointValues: getJointValues // Store the getter function
     };
 
     // Start recording interval
@@ -100,14 +98,14 @@ class TrajectoryAPI {
       frames, 
       endEffectorPath,
       getJointValues,
-      getTCPPosition
+      robot
     } = recordingState;
 
     // Get current joint values using the provided function
     const jointValues = getJointValues ? getJointValues() : {};
 
-    // Get TCP position using the provided function
-    const tcpPos = getTCPPosition ? getTCPPosition() : { x: 0, y: 0, z: 0 };
+    // Get end effector position directly from robot
+    const endEffectorPos = ikAPI.getEndEffectorPosition(robot);
 
     const timestamp = Date.now() - startTime;
 
@@ -119,9 +117,9 @@ class TrajectoryAPI {
     endEffectorPath.push({
       timestamp,
       position: {
-        x: tcpPos.x,
-        y: tcpPos.y,
-        z: tcpPos.z
+        x: endEffectorPos.x,
+        y: endEffectorPos.y,
+        z: endEffectorPos.z
       }
     });
 
@@ -133,7 +131,7 @@ class TrajectoryAPI {
       frames: frames.length
     });
 
-    console.log(`Recorded frame ${frames.length} at ${timestamp}ms - TCP: [${tcpPos.x.toFixed(3)}, ${tcpPos.y.toFixed(3)}, ${tcpPos.z.toFixed(3)}]`);
+    console.log(`Recorded frame ${frames.length} at ${timestamp}ms - End Effector: [${endEffectorPos.x.toFixed(3)}, ${endEffectorPos.y.toFixed(3)}, ${endEffectorPos.z.toFixed(3)}]`);
   }
 
   /**
@@ -373,37 +371,14 @@ class TrajectoryAPI {
   }
 
   /**
-   * Get end effector position using TCPProvider via EventBus
+   * Get current end effector position
+   * @private
    * @param {Object} robot - Robot instance
-   * @returns {Promise<Object>} Position {x, y, z}
+   * @returns {Object} Current position {x, y, z}
    */
   _getEndEffectorPosition(robot) {
-    try {
-      // Request real-time TCP position from TCPProvider
-      return new Promise((resolve) => {
-        const requestId = `tcp_traj_${Date.now()}`;
-        
-        // Set up one-time listener for response
-        const unsubscribe = EventBus.on('tcp:realtime-result', (data) => {
-          if (data.requestId === requestId) {
-            unsubscribe();
-            resolve(data.position || { x: 0, y: 0, z: 0 });
-          }
-        });
-        
-        // Request calculation
-        EventBus.emit('tcp:calculate-realtime', { robot, requestId });
-        
-        // Timeout fallback
-        setTimeout(() => {
-          unsubscribe();
-          resolve({ x: 0, y: 0, z: 0 });
-        }, 100);
-      });
-    } catch (error) {
-      console.warn('Error getting end effector position:', error);
-      return { x: 0, y: 0, z: 0 };
-    }
+    if (!robot) return { x: 0, y: 0, z: 0 };
+    return ikAPI.getEndEffectorPosition(robot);
   }
 
   /**

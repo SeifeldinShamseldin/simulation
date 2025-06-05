@@ -1,6 +1,5 @@
 import EventBus from '../../utils/EventBus';
 import trajectoryAPI from '../Trajectory/TrajectoryAPI';
-import tcpProvider from '../IK/TCP/TCPProvider';
 
 class WorldAPI {
   constructor() {
@@ -58,10 +57,7 @@ class WorldAPI {
       })),
       
       // Humans
-      humans: sceneData.humans || [],
-      
-      // TCP settings for each robot
-      tcpSettings: {}
+      humans: sceneData.humans || []
     };
     
     // Save trajectories for each robot
@@ -72,15 +68,6 @@ class WorldAPI {
       trajectoryNames.forEach(trajName => {
         worldState.trajectories[robot.id][trajName] = trajectoryAPI.getTrajectory(trajName, robot.id);
       });
-    });
-    
-    // Save TCP settings for each robot
-    sceneData.robots.forEach(robot => {
-      const tcps = tcpProvider.getAllTCPs();
-      worldState.tcpSettings[robot.id] = {
-        tcps: tcps,
-        activeTcpId: tcpProvider.getActiveTCP()?.id
-      };
     });
     
     this.worlds.set(worldState.id, worldState);
@@ -140,18 +127,6 @@ class WorldAPI {
           Object.values(world.trajectories[robotData.id]).forEach(trajectory => {
             trajectoryAPI.importTrajectory(JSON.stringify(trajectory), robotData.id);
           });
-        }
-        
-        // Load TCP settings
-        if (world.tcpSettings[robotData.id]) {
-          const tcpData = world.tcpSettings[robotData.id];
-          // Restore TCPs
-          tcpData.tcps.forEach(tcp => {
-            tcpProvider.addTCP(tcp);
-          });
-          if (tcpData.activeTcpId) {
-            tcpProvider.setActiveTCP(tcpData.activeTcpId);
-          }
         }
       }
       

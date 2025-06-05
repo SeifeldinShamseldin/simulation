@@ -1,46 +1,53 @@
 // components/controls/IKController/IKController.jsx
 import React, { useState, useEffect } from 'react';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
-import useTCP from '../../../contexts/hooks/useTCP';
 import ikAPI from '../../../core/IK/API/IKAPI';
-import tcpProvider from '../../../core/IK/TCP/TCPProvider';
 
 /**
  * Component for controlling Inverse Kinematics
- * Uses the useTCP hook for TCP position and movement
+ * Uses direct end effector position tracking for robot movement
  */
 const IKController = () => {
   const { activeRobotId, robot, isReady } = useRobotControl();
-  const { tcpPosition } = useTCP();
   
-  // State for target position
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
+  const [currentPosition, setCurrentPosition] = useState({ x: 0, y: 0, z: 0 });
   const [solverStatus, setSolverStatus] = useState('Ready to move robot');
   const [isAnimating, setIsAnimating] = useState(false);
+  const [isSolving, setIsSolving] = useState(false);
+  const [error, setError] = useState(null);
   
-  // Update TCP provider when robot changes
+  // Update current position periodically
   useEffect(() => {
-    if (robot && isReady) {
-      tcpProvider.setRobot(robot);
-    }
+    if (!robot || !isReady) return;
+
+    const updatePosition = () => {
+      const position = ikAPI.getEndEffectorPosition(robot);
+      setCurrentPosition(position);
+    };
+
+    const intervalId = setInterval(updatePosition, 100);
+    updatePosition(); // Initial update
+
+    return () => clearInterval(intervalId);
   }, [robot, isReady]);
   
-  // Initialize target position from current TCP position
+  // Initialize target from current position
   useEffect(() => {
-    if (tcpPosition && !isAnimating) {
+    if (currentPosition && !isAnimating) {
       setTargetPosition({
-        x: parseFloat(tcpPosition.x) || 0,
-        y: parseFloat(tcpPosition.y) || 0,
-        z: parseFloat(tcpPosition.z) || 0
+        x: parseFloat(currentPosition.x) || 0,
+        y: parseFloat(currentPosition.y) || 0,
+        z: parseFloat(currentPosition.z) || 0
       });
     }
-  }, [tcpPosition.x, tcpPosition.y, tcpPosition.z]);
+  }, [currentPosition.x, currentPosition.y, currentPosition.z]);
 
   const useCurrentPosition = () => {
     setTargetPosition({
-      x: parseFloat(tcpPosition.x) || 0,
-      y: parseFloat(tcpPosition.y) || 0,
-      z: parseFloat(tcpPosition.z) || 0
+      x: parseFloat(currentPosition.x) || 0,
+      y: parseFloat(currentPosition.y) || 0,
+      z: parseFloat(currentPosition.z) || 0
     });
     setSolverStatus('Target set to current position');
   };
@@ -144,15 +151,15 @@ const IKController = () => {
         <div className="controls-grid controls-grid-cols-3 controls-gap-2">
           <div>
             <label className="controls-form-label">X</label>
-            <div className="controls-form-control-static">{tcpPosition.x.toFixed(4)}</div>
+            <div className="controls-form-control-static">{currentPosition.x.toFixed(4)}</div>
           </div>
           <div>
             <label className="controls-form-label">Y</label>
-            <div className="controls-form-control-static">{tcpPosition.y.toFixed(4)}</div>
+            <div className="controls-form-control-static">{currentPosition.y.toFixed(4)}</div>
           </div>
           <div>
             <label className="controls-form-label">Z</label>
-            <div className="controls-form-control-static">{tcpPosition.z.toFixed(4)}</div>
+            <div className="controls-form-control-static">{currentPosition.z.toFixed(4)}</div>
           </div>
         </div>
       </div>

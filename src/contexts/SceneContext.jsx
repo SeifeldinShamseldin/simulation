@@ -22,7 +22,6 @@ const useSceneSetup = (config) => {
   const registriesRef = useRef({
     robots: new Map(),
     environment: new Map(),
-    tcp: new Map(),
     trajectories: new Map(),
     humans: new Map(),
     custom: new Map()
