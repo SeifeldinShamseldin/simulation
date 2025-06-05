@@ -1,26 +1,27 @@
 // src/App.jsx - NO ControlsTheme.css import here
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
 import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import { SceneProvider } from './contexts/SceneContext';
-import { RobotProvider, useRobot } from './contexts/RobotContext';
+import { RobotProvider } from './contexts/RobotContext';
 import { WorldProvider } from './contexts/WorldContext';
+import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import WorldManager from './components/World/WorldManager';
 import './App.css'; // Only App.css, NO ControlsTheme.css
 
 const AppContent = () => {
   const [activePanel, setActivePanel] = useState(null);
+  const { setViewerInstance } = useViewer();
   const viewerRef = useRef(null);
-  const { setViewer } = useRobot();
 
-  // Connect the viewer instance (not the ref) to the context when it's ready
+  // Register viewer instance when ready
   useEffect(() => {
     if (viewerRef.current) {
-      setViewer(viewerRef.current); // Pass the actual instance, not the ref
+      setViewerInstance(viewerRef.current);
     }
-  }, [setViewer]);
+  }, [setViewerInstance]);
 
   return (
     <div className="app-wrapper">
@@ -31,15 +32,11 @@ const AppContent = () => {
       
       <div className="app-container">
         <div className={`controls-panel ${activePanel === 'robot' ? 'panel-open' : 'panel-closed'}`}>
-          <Controls 
-            viewerRef={viewerRef}
-            onClose={() => setActivePanel(null)}
-          />
+          <Controls onClose={() => setActivePanel(null)} />
         </div>
         
         <div className={`environment-panel ${activePanel === 'environment' ? 'panel-open' : 'panel-closed'}`}>
           <Environment 
-            viewerRef={viewerRef}
             isPanel={true}
             onClose={() => setActivePanel(null)}
           />
@@ -47,7 +44,6 @@ const AppContent = () => {
 
         <div className={`world-panel ${activePanel === 'world' ? 'panel-open' : 'panel-closed'}`}>
           <WorldManager 
-            viewerRef={viewerRef}
             isOpen={activePanel === 'world'}
             onClose={() => setActivePanel(null)}
           />
@@ -70,13 +66,15 @@ const AppContent = () => {
 // Wrap your app content with SceneProvider
 const App = () => {
   return (
-    <RobotProvider>
-      <WorldProvider>
-        <SceneProvider>
-          <AppContent />
-        </SceneProvider>
-      </WorldProvider>
-    </RobotProvider>
+    <ViewerProvider>
+      <RobotProvider>
+        <WorldProvider>
+          <SceneProvider>
+            <AppContent />
+          </SceneProvider>
+        </WorldProvider>
+      </RobotProvider>
+    </ViewerProvider>
   );
 };
 

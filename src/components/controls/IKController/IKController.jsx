@@ -9,10 +9,8 @@ import tcpProvider from '../../../core/IK/TCP/TCPProvider';
  * Component for controlling Inverse Kinematics
  * Uses the useTCP hook for TCP position and movement
  */
-const IKController = ({
-  viewerRef, 
-}) => {
-  const { activeRobotId, robot, isReady } = useRobotControl(viewerRef);
+const IKController = () => {
+  const { activeRobotId, robot, isReady } = useRobotControl();
   const { tcpPosition, moveToPosition } = useTCP();
   
   // State for target position input fields
@@ -133,11 +131,11 @@ const IKController = ({
   
   // Reset the robot to home position
   const resetRobot = () => {
-    if (!viewerRef?.current) return;
+    if (!robot) return;
     
     try {
       stopAnimation();
-      viewerRef.current.resetJoints();
+      robot.resetJoints();
       setSolverStatus('Robot reset to home position');
     } catch (error) {
       console.error("Error resetting robot:", error);
@@ -248,75 +246,90 @@ const IKController = ({
       </div>
       
       {/* Target Position Inputs */}
-      <div className="controls-card controls-ik-target controls-mb-md">
-        <div className="controls-card-body">
-          <div className="controls-section-header">
-            <h4 className="controls-h4 controls-mb-0">MOVE ROBOT TO:</h4>
-            <button
-              className="controls-btn controls-btn-success controls-btn-sm"
-              onClick={useCurrentPosition}
-            >
-              Use Current Position
-            </button>
-          </div>
-          
-          <div className="controls-grid controls-grid-cols-3 controls-gap-sm controls-mb-md">
-            {['x', 'y', 'z'].map(axis => (
-              <div key={axis} className="controls-form-group">
-                <label className="controls-form-label">{axis.toUpperCase()} Position:</label>
-                <div className="controls-input-group">
-                  <input
-                    type="number"
-                    className="controls-form-control"
-                    value={targetPosition[axis]}
-                    onChange={(e) => handleInputChange(axis, e.target.value)}
-                    step="0.1"
-                  />
-                  <div className="controls-btn-group">
-                    <button 
-                      className="controls-btn controls-btn-secondary controls-btn-sm controls-btn-icon"
-                      onClick={() => moveRelative(axis, -0.1)}
-                    >
-                      -
-                    </button>
-                    <button 
-                      className="controls-btn controls-btn-secondary controls-btn-sm controls-btn-icon"
-                      onClick={() => moveRelative(axis, 0.1)}
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          
-          <button 
-            className="controls-btn controls-btn-primary controls-btn-block controls-mb-sm"
-            onClick={moveToTarget}
-            disabled={isAnimating}
-          >
-            {isAnimating ? 'Moving...' : 'Move Robot to Target'}
-          </button>
-          
-          {isAnimating && (
-            <button
-              className="controls-btn controls-btn-danger controls-btn-block"
-              onClick={stopAnimation}
-            >
-              Stop Movement
-            </button>
-          )}
+      <div className="controls-group">
+        <p className="controls-text-muted controls-mb-1"><strong>Target Position:</strong></p>
+        <div className="controls-grid controls-grid-cols-3 controls-gap-sm">
+          {['x', 'y', 'z'].map((axis) => (
+            <div key={axis}>
+              <label className="controls-form-label">{axis.toUpperCase()}</label>
+              <input
+                type="number"
+                className="controls-form-control"
+                value={targetPosition[axis]}
+                onChange={(e) => handleInputChange(axis, e.target.value)}
+                step="0.001"
+              />
+            </div>
+          ))}
         </div>
       </div>
       
-      {/* Status Display */}
-      <div className="controls-info-block controls-mb-md">
-        <p className="controls-text-muted controls-mb-0">Status: {solverStatus}</p>
+      {/* Relative Movement Controls */}
+      <div className="controls-group">
+        <p className="controls-text-muted controls-mb-1"><strong>Relative Movement:</strong></p>
+        <div className="controls-grid controls-grid-cols-3 controls-gap-sm">
+          {['x', 'y', 'z'].map((axis) => (
+            <div key={axis} className="controls-d-flex controls-gap-2">
+              <button
+                className="controls-btn controls-btn-sm controls-btn-outline"
+                onClick={() => moveRelative(axis, -0.01)}
+              >
+                -1cm
+              </button>
+              <button
+                className="controls-btn controls-btn-sm controls-btn-outline"
+                onClick={() => moveRelative(axis, 0.01)}
+              >
+                +1cm
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
       
-      {/* Reset Button */}
-      {/* Removed Reset Robot Position Button */}
+      {/* Action Buttons */}
+      <div className="controls-group controls-d-flex controls-gap-2">
+        <button
+          className="controls-btn controls-btn-primary"
+          onClick={moveToTarget}
+          disabled={isAnimating}
+        >
+          Move to Target
+        </button>
+        <button
+          className="controls-btn controls-btn-secondary"
+          onClick={moveIncrementally}
+          disabled={isAnimating}
+        >
+          Move Incrementally
+        </button>
+        <button
+          className="controls-btn controls-btn-warning"
+          onClick={stopAnimation}
+          disabled={!isAnimating}
+        >
+          Stop
+        </button>
+        <button
+          className="controls-btn controls-btn-outline"
+          onClick={useCurrentPosition}
+        >
+          Use Current
+        </button>
+        <button
+          className="controls-btn controls-btn-outline"
+          onClick={resetRobot}
+        >
+          Reset
+        </button>
+      </div>
+      
+      {/* Status Display */}
+      <div className="controls-group">
+        <p className="controls-text-muted">
+          <strong>Status:</strong> {solverStatus}
+        </p>
+      </div>
     </div>
   );
 };

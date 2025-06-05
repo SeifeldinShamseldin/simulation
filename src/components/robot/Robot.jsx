@@ -1,63 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { useRobot } from '../../contexts/RobotContext';
-import RobotManager from './RobotManager/RobotManager';
-import LoadedRobots from './LoadedRobots/LoadedRobots';
-import AddRobot from './AddRobot/AddRobot';
-import ControlJoints from '../controls/ControlJoints/ControlJoints';
-import IKController from '../controls/IKController/IKController';
-import TCPManager from '../controls/TCPDisplay/TCPManager';
-import Reposition from '../controls/Reposition/Reposition';
-import TrajectoryViewer from '../controls/RecordMap/TrajectoryViewer';
-import EventBus from '../../utils/EventBus';
+import React, { useState } from 'react';
+import RobotManager from './RobotManager';
+import LoadedRobots from './LoadedRobots';
+import ControlJoints from './ControlJoints';
+import IKController from './IKController';
+import TCPManager from './TCPManager';
+import Reposition from './Reposition';
+import TrajectoryViewer from './TrajectoryViewer';
+import AddRobot from './AddRobot';
 
-const Robot = ({ viewerRef, isPanel = false, onClose }) => {
-  const { activeRobotId, setActiveRobotId } = useRobot();
-  const [workspaceRobots, setWorkspaceRobots] = useState([]);
-  const [showAddModal, setShowAddModal] = useState(false);
+const Robot = ({ isPanel = false, onClose }) => {
   const [showRobotSelection, setShowRobotSelection] = useState(true);
-  
-  useEffect(() => {
-    // Listen for world fully loaded event
-    const handleWorldFullyLoaded = (data) => {
-      if (data.robots && data.robots.length > 0) {
-        // Extract manufacturer from robot name or use generic
-        const newRobots = data.robots.map(robot => {
-          const parts = robot.name.split('_');
-          const manufacturer = parts.length > 1 ? parts[0] : 'Unknown';
-          
-          return {
-            id: robot.id,
-            robotId: robot.id,
-            name: robot.name,
-            manufacturer: manufacturer.toUpperCase(),
-            urdfPath: robot.urdfPath,
-            icon: '🤖'
-          };
-        });
-        
-        setWorkspaceRobots(newRobots);
-        
-        // Set first active robot
-        const activeRobot = data.robots.find(r => r.isActive);
-        if (activeRobot) {
-          setActiveRobotId(activeRobot.id);
-        }
-      }
-    };
-    
-    const unsubscribe = EventBus.on('world:fully-loaded', handleWorldFullyLoaded);
-    
-    return () => {
-      unsubscribe();
-    };
-  }, []);
-  
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [workspaceRobots, setWorkspaceRobots] = useState([]);
+  const [activeRobotId, setActiveRobotId] = useState(null);
+
+  const handleAddRobotSuccess = (newRobot) => {
+    setWorkspaceRobots(prev => [...prev, newRobot]);
+    setShowAddModal(false);
+  };
+
   return (
     <div className="controls" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {showRobotSelection && (
         <section className="controls-section-wrapper">
           <RobotManager 
-            viewerRef={viewerRef}
             isPanel={isPanel}
             onClose={onClose}
             workspaceRobots={workspaceRobots}
@@ -74,7 +40,6 @@ const Robot = ({ viewerRef, isPanel = false, onClose }) => {
         <>
           <section className="controls-section-wrapper">
             <LoadedRobots
-              viewerRef={viewerRef}
               workspaceRobots={workspaceRobots}
               activeRobotId={activeRobotId}
               setActiveRobotId={setActiveRobotId}
@@ -83,23 +48,23 @@ const Robot = ({ viewerRef, isPanel = false, onClose }) => {
           </section>
           
           <section className="controls-section-wrapper">
-            <ControlJoints viewerRef={viewerRef} />
+            <ControlJoints />
           </section>
           
           <section className="controls-section-wrapper">
-            <IKController viewerRef={viewerRef} />
+            <IKController />
           </section>
           
           <section className="controls-section-wrapper">
-            <TCPManager viewerRef={viewerRef} />
+            <TCPManager />
           </section>
           
           <section className="controls-section-wrapper">
-            <Reposition viewerRef={viewerRef} />
+            <Reposition />
           </section>
           
           <section className="controls-section-wrapper">
-            <TrajectoryViewer viewerRef={viewerRef} />
+            <TrajectoryViewer />
           </section>
         </>
       )}
@@ -107,39 +72,7 @@ const Robot = ({ viewerRef, isPanel = false, onClose }) => {
       <AddRobot
         isOpen={showAddModal}
         onClose={() => setShowAddModal(false)}
-        onSuccess={async (robot) => {
-          const newRobot = {
-            id: `${robot.id}_${Date.now()}`,
-            robotId: robot.id,
-            name: robot.name,
-            manufacturer: robot.manufacturer,
-            urdfPath: robot.urdfPath,
-            icon: '🤖'
-          };
-          
-          // Add to workspace
-          setWorkspaceRobots(prev => [...prev, newRobot]);
-          setShowAddModal(false);
-          
-          // Load the robot using viewerRef directly
-          if (viewerRef?.current) {
-            try {
-              await viewerRef.current.loadRobot(newRobot.id, robot.urdfPath, {
-                position: { x: 0, y: 0, z: 0 },
-                makeActive: true,
-                clearOthers: false
-              });
-              
-              // Set as active but stay on My Robots page
-              setActiveRobotId(newRobot.id);
-              // Keep showing robot selection
-              // setShowRobotSelection(false); // Keep this commented out
-              
-            } catch (error) {
-              console.error('Error auto-loading robot:', error);
-            }
-          }
-        }}
+        onSuccess={handleAddRobotSuccess}
       />
     </div>
   );

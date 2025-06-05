@@ -3,9 +3,9 @@ import React from 'react';
 import Robot from '../robot/Robot';
 // NO import for ControlsTheme.css here!
 
-const Controls = ({ viewerRef }) => {
+const Controls = ({ onClose }) => {
   return (
-    <Robot viewerRef={viewerRef} />
+    <Robot isPanel={true} onClose={onClose} />
   );
 };
 

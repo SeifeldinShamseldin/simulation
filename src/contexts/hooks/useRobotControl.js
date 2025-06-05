@@ -1,20 +1,22 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRobot } from '../RobotContext';
+import { useViewer } from '../ViewerContext';
 import EventBus from '@/utils/EventBus';
 
-export const useRobotControl = (viewerRef) => {
+export const useRobotControl = () => {
   const { activeRobotId } = useRobot();
+  const { isViewerReady, getRobotManager } = useViewer();
   const [robot, setRobot] = useState(null);
   const [robotManager, setRobotManager] = useState(null);
 
   useEffect(() => {
-    if (!viewerRef?.current || !activeRobotId) {
+    if (!isViewerReady || !activeRobotId) {
       setRobot(null);
       setRobotManager(null);
       return;
     }
 
-    const manager = viewerRef.current.robotLoaderRef?.current;
+    const manager = getRobotManager();
     if (!manager) return;
 
     setRobotManager(manager);
@@ -40,7 +42,7 @@ export const useRobotControl = (viewerRef) => {
 
     const unsubscribe = EventBus.on('robot:updated', handleUpdate);
     return () => unsubscribe();
-  }, [viewerRef, activeRobotId]);
+  }, [isViewerReady, activeRobotId, getRobotManager]);
 
   const setJointValue = useCallback((jointName, value) => {
     if (!robotManager || !activeRobotId) return false;

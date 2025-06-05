@@ -2,14 +2,14 @@
 import React, { useState, useEffect } from 'react';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 
-const ControlJoints = ({ viewerRef }) => {
+const ControlJoints = () => {
   const { 
     activeRobotId, 
     robot, 
     setJointValue, 
     resetJoints, 
     isReady 
-  } = useRobotControl(viewerRef);
+  } = useRobotControl();
   
   const [jointValues, setJointValues] = useState({});
   const [jointInfo, setJointInfo] = useState([]);

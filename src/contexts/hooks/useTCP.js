@@ -1,11 +1,14 @@
 // src/contexts/hooks/useTCP.js - Updated to work with TCP Provider
 import { useState, useEffect } from 'react';
 import { useRobot } from '../RobotContext';
+import { useViewer } from '../ViewerContext';
+import { useRobotControl } from './useRobotControl';
 import tcpProvider from '../../core/IK/TCP/TCPProvider';
 import EventBus from '../../utils/EventBus';
 
 const useTCP = () => {
-  const { viewerRef } = useRobot();
+  const { isViewerReady } = useViewer();
+  const { robot, isReady } = useRobotControl();
   const [tcpPosition, setTcpPosition] = useState({ x: 0, y: 0, z: 0 });
   const [tcpSettings, setTcpSettings] = useState({
     visible: true,
@@ -14,27 +17,20 @@ const useTCP = () => {
     offset: { x: 0.0, y: 0, z: 0 }
   });
   
-  // Subscribe to EventBus instead of direct TCP provider
   useEffect(() => {
-    // Check if viewer is ready before trying to use it
-    if (viewerRef?.current && viewerRef.current.getCurrentRobot) {
-      const robot = viewerRef.current.getCurrentRobot();
-      if (robot) {
-        tcpProvider.setRobot(robot);
-      }
+    if (robot && isReady) {
+      tcpProvider.setRobot(robot);
     }
 
-    // LISTEN TO EVENTBUS for position updates
+    // EventBus listeners
     const unsubscribePosition = EventBus.on('tcp:active-position-updated', (data) => {
       setTcpPosition(data.position);
     });
     
-    // LISTEN TO EVENTBUS for settings updates
     const unsubscribeSettings = EventBus.on('tcp:active-settings-updated', (data) => {
       setTcpSettings(data.settings);
     });
     
-    // LISTEN TO EVENTBUS for TCP activation
     const unsubscribeActivated = EventBus.on('tcp:activated', (data) => {
       if (data.tcp) {
         setTcpPosition(data.tcp.position);
@@ -54,26 +50,8 @@ const useTCP = () => {
       unsubscribeSettings();
       unsubscribeActivated();
     };
-  }, [viewerRef]);
+  }, [robot, isReady]);
   
-  // Monitor robot changes and update TCP Provider
-  useEffect(() => {
-    if (!viewerRef?.current || !viewerRef.current.getCurrentRobot) return;
-
-    const checkRobot = () => {
-      const robot = viewerRef.current.getCurrentRobot();
-      if (robot) {
-        tcpProvider.setRobot(robot);
-      }
-    };
-
-    checkRobot();
-    const interval = setInterval(checkRobot, 1000);
-
-    return () => clearInterval(interval);
-  }, [viewerRef]);
-  
-  // Handle TCP setting changes (delegates to TCP Provider)
   const handleTcpChange = (name, value) => {
     const activeTcp = tcpProvider.getActiveTCP();
     if (!activeTcp) return;
@@ -98,19 +76,13 @@ const useTCP = () => {
     }
   };
   
-  // Move TCP to a target position using IK
   const moveToPosition = async (targetPosition) => {
     try {
-      if (!viewerRef?.current || !viewerRef.current.getCurrentRobot) {
-        throw new Error("Viewer not initialized");
-      }
-      
-      const robot = viewerRef.current.getCurrentRobot();
+      const { robot } = useRobotControl();
       if (!robot) {
         throw new Error("No robot loaded");
       }
       
-      // Use the updated IKAPI which now integrates with TCP Provider
       const ikAPI = await import('../../core/IK/API/IKAPI');
       return await ikAPI.default.executeIK(robot, targetPosition, {
         animate: true,
@@ -126,8 +98,7 @@ const useTCP = () => {
     tcpSettings,
     handleTcpChange,
     moveToPosition,
-    // Additional TCP management functions
-    tcpProvider, // Expose provider for advanced usage
+    tcpProvider,
   };
 };
 
