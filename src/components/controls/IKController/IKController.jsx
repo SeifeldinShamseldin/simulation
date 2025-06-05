@@ -32,16 +32,16 @@ const IKController = () => {
     return () => clearInterval(intervalId);
   }, [robot, isReady]);
   
-  // Initialize target from current position
+  // Initialize target from current position ONLY ONCE
   useEffect(() => {
-    if (currentPosition && !isAnimating) {
+    if (currentPosition && targetPosition.x === 0 && targetPosition.y === 0 && targetPosition.z === 0) {
       setTargetPosition({
         x: parseFloat(currentPosition.x) || 0,
         y: parseFloat(currentPosition.y) || 0,
         z: parseFloat(currentPosition.z) || 0
       });
     }
-  }, [currentPosition.x, currentPosition.y, currentPosition.z]);
+  }, []); // Empty dependency array - only run once on mount
 
   const useCurrentPosition = () => {
     setTargetPosition({

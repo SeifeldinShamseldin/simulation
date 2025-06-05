@@ -54,16 +54,75 @@ class IKAPI {
    */
   getEndEffectorPosition(robot) {
     if (!robot) return { x: 0, y: 0, z: 0 };
-    
-    const endEffector = robot.getEndEffector();
+    // Find the end effector - it's typically the last link in the kinematic chain
+    const endEffector = this.findEndEffector(robot);
     if (!endEffector) return { x: 0, y: 0, z: 0 };
-    
-    const worldPos = endEffector.getWorldPosition(this._worldEndPos);
+    const worldPos = new THREE.Vector3();
+    endEffector.getWorldPosition(worldPos);
     return {
       x: worldPos.x,
       y: worldPos.y,
       z: worldPos.z
     };
+  }
+  
+  /**
+   * Find the end effector link of the robot
+   * @param {Object} robot - The robot object
+   * @returns {Object|null} The end effector link or null
+   */
+  findEndEffector(robot) {
+    if (!robot) return null;
+    // Method 1: Look for common end effector names
+    const endEffectorNames = [
+      'end_effector', 'tool0', 'ee_link', 'gripper_link', 
+      'link_6', 'link_7', 'wrist_3_link', 'tool_link',
+      'flange', 'tool_flange'
+    ];
+    for (const name of endEffectorNames) {
+      if (robot.links && robot.links[name]) {
+        return robot.links[name];
+      }
+    }
+    // Method 2: Find the link that has no child joints
+    if (robot.links && robot.joints) {
+      const linksWithChildJoints = new Set();
+      // Find all links that are parents of joints
+      Object.values(robot.joints).forEach(joint => {
+        joint.traverse(child => {
+          if (child.parent && child.parent.isURDFLink) {
+            linksWithChildJoints.add(child.parent.name);
+          }
+        });
+      });
+      // Find links that have no child joints
+      const leafLinks = [];
+      Object.values(robot.links).forEach(link => {
+        if (!linksWithChildJoints.has(link.name)) {
+          leafLinks.push(link);
+        }
+      });
+      // Return the last leaf link (typically the end effector)
+      if (leafLinks.length > 0) {
+        return leafLinks[leafLinks.length - 1];
+      }
+    }
+    // Method 3: Fallback - traverse to find the deepest link
+    let deepestLink = null;
+    let maxDepth = 0;
+    const findDeepestLink = (obj, depth = 0) => {
+      if (obj.isURDFLink && depth > maxDepth) {
+        maxDepth = depth;
+        deepestLink = obj;
+      }
+      if (obj.children) {
+        obj.children.forEach(child => {
+          findDeepestLink(child, depth + 1);
+        });
+      }
+    };
+    findDeepestLink(robot);
+    return deepestLink;
   }
   
   /**
@@ -107,7 +166,8 @@ class IKAPI {
     // Use CCD (Cyclic Coordinate Descent) algorithm
     for (let iter = 0; iter < this.solverSettings.maxIterations; iter++) {
       // Get current end effector position
-      const currentPos = await this.getEndEffectorPosition(robot);
+      const currentPosData = this.getEndEffectorPosition(robot);
+      const currentPos = new THREE.Vector3(currentPosData.x, currentPosData.y, currentPosData.z);
       
       // Check convergence
       const distanceToTarget = currentPos.distanceTo(targetPos);
