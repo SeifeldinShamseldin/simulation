@@ -65,6 +65,20 @@ const RobotManager = ({
     if (!viewerRef?.current) return;
     
     try {
+      // Check if robot is already loaded
+      const robotManager = viewerRef.current.robotManagerRef?.current;
+      if (robotManager) {
+        const existingRobot = robotManager.getRobot(robot.id);
+        
+        if (existingRobot) {
+          // Robot already loaded, just make it active and close selection
+          setActiveRobotId(robot.id);
+          setShowRobotSelection(false);
+          return;
+        }
+      }
+      
+      // Only load if not already loaded
       await loadRobot(robot.id, robot.urdfPath);
       
       setActiveRobotId(robot.id);
