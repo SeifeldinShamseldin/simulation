@@ -6,19 +6,32 @@ import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
  * Component for repositioning the robot in world space
  */
 const Reposition = ({ viewerRef }) => {
-  const { activeRobotId, robot, isReady } = useRobotControl(viewerRef);
+  const { activeRobotId, robot, isReady, robotManager } = useRobotControl(viewerRef);
   const [position, setPosition] = useState({ x: 0, y: 0, z: 0 });
   
   // Initialize position when robot changes
   useEffect(() => {
-    if (robot && isReady) {
-      setPosition({
-        x: robot.position.x || 0,
-        y: robot.position.y || 0,
-        z: robot.position.z || 0
-      });
+    if (robot && isReady && robotManager && activeRobotId) {
+      // Get the robot data from the manager which includes the container
+      const robotData = robotManager.getAllRobots().get(activeRobotId);
+      
+      if (robotData && robotData.container) {
+        // Read position from container, not the robot model
+        setPosition({
+          x: robotData.container.position.x || 0,
+          y: robotData.container.position.y || 0,
+          z: robotData.container.position.z || 0
+        });
+      } else {
+        // Fallback to robot position
+        setPosition({
+          x: robot.position.x || 0,
+          y: robot.position.y || 0,
+          z: robot.position.z || 0
+        });
+      }
     }
-  }, [robot, isReady]);
+  }, [robot, isReady, robotManager, activeRobotId]);
   
   /**
    * Handle position input change
@@ -41,15 +54,25 @@ const Reposition = ({ viewerRef }) => {
    * Apply the current position to the robot
    */
   const applyPosition = () => {
-    if (!robot || !isReady) return;
+    if (!robot || !isReady || !robotManager || !activeRobotId) return;
     
     try {
-      // Apply the position
-      robot.position.set(position.x, position.y, position.z);
+      // Get the robot data from the manager
+      const robotData = robotManager.getAllRobots().get(activeRobotId);
       
-      // Update matrices
-      robot.updateMatrix();
-      robot.updateMatrixWorld(true);
+      if (robotData && robotData.container) {
+        // Apply position to container, not the robot model
+        robotData.container.position.set(position.x, position.y, position.z);
+        
+        // Update matrices
+        robotData.container.updateMatrix();
+        robotData.container.updateMatrixWorld(true);
+      } else {
+        // Fallback: apply to robot directly
+        robot.position.set(position.x, position.y, position.z);
+        robot.updateMatrix();
+        robot.updateMatrixWorld(true);
+      }
       
       // Focus camera if available
       if (viewerRef?.current?.focusOnRobot) {
@@ -77,12 +100,24 @@ const Reposition = ({ viewerRef }) => {
    * Reset the position to origin
    */
   const resetPosition = () => {
-    if (!robot || !isReady) return;
+    if (!robot || !isReady || !robotManager || !activeRobotId) return;
     
     setPosition({ x: 0, y: 0, z: 0 });
-    robot.position.set(0, 0, 0);
-    robot.updateMatrix();
-    robot.updateMatrixWorld(true);
+    
+    // Get the robot data from the manager
+    const robotData = robotManager.getAllRobots().get(activeRobotId);
+    
+    if (robotData && robotData.container) {
+      // Reset container position
+      robotData.container.position.set(0, 0, 0);
+      robotData.container.updateMatrix();
+      robotData.container.updateMatrixWorld(true);
+    } else {
+      // Fallback: reset robot position
+      robot.position.set(0, 0, 0);
+      robot.updateMatrix();
+      robot.updateMatrixWorld(true);
+    }
     
     if (viewerRef?.current?.focusOnRobot) {
       viewerRef.current.focusOnRobot(activeRobotId);
