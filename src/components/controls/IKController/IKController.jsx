@@ -67,12 +67,13 @@ const IKController = () => {
       setIsAnimating(true);
       setSolverStatus('Moving to target...');
       
-      // Execute IK without animation first to check if position is reachable
-      const solution = await ikAPI.solve(robot, targetPosition);
+      // Use executeIK with animation instead of solve + direct setJointValues
+      const success = await ikAPI.executeIK(robot, targetPosition, {
+        animate: true,
+        duration: 1000  // 1 second smooth animation
+      });
       
-      if (solution) {
-        // Apply the solution directly without animation
-        robot.setJointValues(solution);
+      if (success) {
         setSolverStatus('Target reached!');
       } else {
         setSolverStatus('Target position unreachable');

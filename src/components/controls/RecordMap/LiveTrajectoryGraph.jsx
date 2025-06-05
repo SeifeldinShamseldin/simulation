@@ -71,7 +71,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
       }
     });
 
-    trajectoryAPI.registerPlaybackUpdateCallback((info) => {
+    const unsubscribePlayback = EventBus.on('trajectory:playback-update', (info) => {
       if (info.endEffectorPosition) {
         setCurrentPosition(info.endEffectorPosition);
         updateCurrentMarker(info.endEffectorPosition);
@@ -80,6 +80,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
 
     return () => {
       unsubscribeTCP();
+      unsubscribePlayback();
     };
   }, [isLive, step]);
 
@@ -246,7 +247,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
 
     // Add current position marker
     const currentGeometry = new THREE.SphereGeometry(0.03, 16, 16);
-    const currentMaterial = new THREE.MeshBasicMaterial({ 
+    const currentMaterial = new THREE.MeshPhongMaterial({ 
       color: 0xff9900,
       emissive: 0xff9900,
       emissiveIntensity: 0.5
@@ -525,7 +526,8 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
                 border: '1px solid #e0e0e0',
                 borderRadius: '4px',
                 background: '#fafafa',
-                marginBottom: '1rem'
+                marginBottom: '1rem',
+                width: '100%'
               }}></div>
 
               <div style={{

@@ -518,7 +518,10 @@ class IKAPI {
     if (!robot) return false;
     
     try {
-      const { joints } = this.tcpProvider.getJoints(robot);
+      const joints = Object.values(robot.joints).filter(
+        j => j.jointType !== 'fixed' && j.limit && typeof j.limit.lower === 'number'
+      );
+      
       if (joints.length === 0) return false;
       
       // Calculate max reach
