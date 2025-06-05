@@ -183,6 +183,13 @@ class WorldAPI {
       this.currentWorld = worldId;
       EventBus.emit('world:loaded', { worldId, name: world.name });
       
+      // Emit a single event with all loaded data
+      EventBus.emit('world:fully-loaded', {
+        worldId: worldId,
+        robots: world.robots,
+        environment: world.environment
+      });
+      
       return true;
       
     } catch (error) {

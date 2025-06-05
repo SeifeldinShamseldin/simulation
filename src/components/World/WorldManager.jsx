@@ -237,6 +237,12 @@ const WorldManager = ({ viewerRef, isOpen, onClose }) => {
     
     try {
       await loadWorld(worldId, callbacks);
+      
+      // Force a re-render of the scene
+      if (sceneSetup.renderer && sceneSetup.scene && sceneSetup.camera) {
+        sceneSetup.renderer.render(sceneSetup.scene, sceneSetup.camera);
+      }
+      
     } catch (error) {
       console.error('Error in handleLoadWorld:', error);
     }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useActiveRobot } from '../../contexts/ActiveRobotContext';
 import RobotManager from './RobotManager/RobotManager';
 import LoadedRobots from './LoadedRobots/LoadedRobots';
@@ -8,12 +8,49 @@ import IKController from '../controls/IKController/IKController';
 import TCPManager from '../controls/TCPDisplay/TCPManager';
 import Reposition from '../controls/Reposition/Reposition';
 import TrajectoryViewer from '../controls/RecordMap/TrajectoryViewer';
+import EventBus from '../../utils/EventBus';
 
 const Robot = ({ viewerRef, isPanel = false, onClose }) => {
   const { activeRobotId, setActiveRobotId } = useActiveRobot();
   const [workspaceRobots, setWorkspaceRobots] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showRobotSelection, setShowRobotSelection] = useState(true);
+  
+  useEffect(() => {
+    // Listen for world fully loaded event
+    const handleWorldFullyLoaded = (data) => {
+      if (data.robots && data.robots.length > 0) {
+        // Extract manufacturer from robot name or use generic
+        const newRobots = data.robots.map(robot => {
+          const parts = robot.name.split('_');
+          const manufacturer = parts.length > 1 ? parts[0] : 'Unknown';
+          
+          return {
+            id: robot.id,
+            robotId: robot.id,
+            name: robot.name,
+            manufacturer: manufacturer.toUpperCase(),
+            urdfPath: robot.urdfPath,
+            icon: '🤖'
+          };
+        });
+        
+        setWorkspaceRobots(newRobots);
+        
+        // Set first active robot
+        const activeRobot = data.robots.find(r => r.isActive);
+        if (activeRobot) {
+          setActiveRobotId(activeRobot.id);
+        }
+      }
+    };
+    
+    const unsubscribe = EventBus.on('world:fully-loaded', handleWorldFullyLoaded);
+    
+    return () => {
+      unsubscribe();
+    };
+  }, []);
   
   return (
     <div className="controls" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
