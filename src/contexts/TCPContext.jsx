@@ -175,6 +175,57 @@ export const TCPProvider = ({ children }) => {
     return deepestLink;
   }, []);
   
+  // Find the effective tool tip (the actual TCP point)
+  const findToolTip = useCallback((toolObject, toolContainer) => {
+    console.log('Finding tool tip in:', toolObject);
+    
+    let toolTip = toolObject;
+    
+    // Method 1: Look for explicit TCP/tip markers
+    const tcpNames = ['tcp', 'tip', 'end', 'tool_tip', 'flange'];
+    toolObject.traverse(child => {
+      if (child.name && tcpNames.some(name => child.name.toLowerCase().includes(name))) {
+        console.log(`Found TCP by name: ${child.name}`);
+        toolTip = child;
+        return;
+      }
+    });
+    
+    // Method 2: If no explicit tip, find the furthest point from container
+    if (toolTip === toolObject) {
+      let furthestChild = null;
+      let maxDistance = 0;
+      
+      toolContainer.updateMatrixWorld(true);
+      const containerPos = new THREE.Vector3();
+      toolContainer.getWorldPosition(containerPos);
+      
+      toolObject.traverse(child => {
+        if (child.isMesh && child !== toolContainer && child !== toolObject) {
+          child.updateMatrixWorld(true);
+          const childPos = new THREE.Vector3();
+          child.getWorldPosition(childPos);
+          const distance = childPos.distanceTo(containerPos);
+          
+          if (distance > maxDistance) {
+            maxDistance = distance;
+            furthestChild = child;
+          }
+        }
+      });
+      
+      if (furthestChild) {
+        console.log(`Found tool tip as furthest point: ${furthestChild.name || 'unnamed'} at distance ${maxDistance.toFixed(3)}`);
+        toolTip = furthestChild;
+      } else {
+        console.log('Using tool container as tool tip');
+        toolTip = toolContainer;
+      }
+    }
+    
+    return toolTip;
+  }, []);
+  
   // Load single mesh file
   const loadSingleMesh = useCallback(async (meshPath) => {
     return new Promise((resolve, reject) => {
@@ -312,13 +363,11 @@ export const TCPProvider = ({ children }) => {
     // Add to end effector
     endEffector.add(toolContainer);
     
-    // Store reference for easy access - MAKE SURE THESE ARE SET
+    // Store reference for easy access
     toolObject.userData.isToolObject = true;
     toolContainer.userData.isToolContainer = true;
     
-    // Add extra debugging
-    console.log('Tool container userData after setting:', toolContainer.userData);
-    console.log('Tool object userData after setting:', toolObject.userData);
+    console.log('Tool container children after adding:', toolContainer.children.length);
     console.log('End effector children after adding tool:', endEffector.children.length);
     
     // Force matrix update
@@ -362,7 +411,6 @@ export const TCPProvider = ({ children }) => {
       
       // Remove existing tool if present
       if (attachedTools.has(robotId)) {
-        // Handle removal inline instead of calling removeTool
         const currentToolInfo = attachedTools.get(robotId);
         const toolObjects = toolObjectsRef.current.get(robotId);
         if (toolObjects) {
@@ -417,56 +465,18 @@ export const TCPProvider = ({ children }) => {
       // Attach to end effector
       const toolContainer = attachToEndEffector(endEffector, toolObject);
       
-      // Find the actual end effector tip to use
-      let endEffectorTip = toolObject;
+      // Find the effective tool tip
+      const toolTip = findToolTip(toolObject, toolContainer);
       
-      // Look for a specific tip within the tool
-      toolObject.traverse(child => {
-        if (child.name && (
-          child.name.includes('tcp') || 
-          child.name.includes('tip') || 
-          child.name.includes('end') ||
-          child.name.includes('tool_tip')
-        )) {
-          endEffectorTip = child;
-        }
-      });
-      
-      // If no specific tip found, find the furthest point from container
-      if (endEffectorTip === toolObject) {
-        let furthestChild = null;
-        let maxDistance = 0;
-        
-        toolContainer.traverse(child => {
-          if (child.isMesh && child !== toolContainer) {
-            const worldPos = new THREE.Vector3();
-            child.getWorldPosition(worldPos);
-            const containerPos = new THREE.Vector3();
-            toolContainer.getWorldPosition(containerPos);
-            const distance = worldPos.distanceTo(containerPos);
-            
-            if (distance > maxDistance) {
-              maxDistance = distance;
-              furthestChild = child;
-            }
-          }
-        });
-        
-        if (furthestChild) {
-          endEffectorTip = furthestChild;
-        } else {
-          endEffectorTip = toolContainer; // Use container as fallback
-        }
-      }
-      
-      console.log(`[TCP] Using end effector tip:`, endEffectorTip.name || 'unnamed');
+      console.log(`[TCP] Using tool tip:`, toolTip.name || 'unnamed');
       
       // Store tool objects reference
       toolObjectsRef.current.set(robotId, {
         toolContainer,
         endEffector,
         toolObject,
-        tool // Store tool info too
+        toolTip, // Store the actual TCP point
+        tool
       });
       
       // Get initial bounds and dimensions
@@ -503,8 +513,9 @@ export const TCPProvider = ({ children }) => {
       // Tell EndEffectorContext about the new end effector
       EventBus.emit('tcp:endeffector-changed', {
         robotId,
-        endEffectorObject: endEffectorTip,
-        type: 'tcp-attached'
+        endEffectorObject: toolTip, // Use the tool tip, not the container
+        type: 'tcp-attached',
+        toolContainer: toolContainer // Also provide container for transform tracking
       });
       
       // Emit detailed attachment event
@@ -516,7 +527,8 @@ export const TCPProvider = ({ children }) => {
         toolInfo,
         endEffectorName: endEffector.name,
         containerObject: toolContainer,
-        toolObject: toolObject
+        toolObject: toolObject,
+        toolTip: toolTip
       });
       
       return true;
@@ -531,7 +543,7 @@ export const TCPProvider = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [isInitialized, attachedTools, availableTools, findEndEffector, loadUrdfTool, loadMultiMeshTool, loadSingleMeshTool, attachToEndEffector, emitTCPEvent]);
+  }, [isInitialized, attachedTools, availableTools, findEndEffector, findToolTip, loadUrdfTool, loadMultiMeshTool, loadSingleMeshTool, attachToEndEffector, emitTCPEvent]);
   
   // Update removeTool to handle end effector reversion
   const removeTool = useCallback(async (robotId) => {
@@ -575,7 +587,7 @@ export const TCPProvider = ({ children }) => {
         return newMap;
       });
       
-      // Tell EndEffectorContext to revert - ADD NULL CHECK HERE
+      // Tell EndEffectorContext to revert
       if (robotManagerRef.current) {
         const robot = robotManagerRef.current.getRobot(robotId);
         if (robot) {
@@ -606,48 +618,7 @@ export const TCPProvider = ({ children }) => {
     }
   }, [attachedTools, emitTCPEvent, findEndEffector]);
   
-  // Clean up when robots are removed
-  useEffect(() => {
-    const handleRobotRemoved = (data) => {
-      if (attachedTools.has(data.robotName)) {
-        // Handle removal directly without calling removeTool
-        const toolObjects = toolObjectsRef.current.get(data.robotName);
-        if (toolObjects) {
-          const { endEffector, toolContainer } = toolObjects;
-          if (endEffector && toolContainer) {
-            endEffector.remove(toolContainer);
-          }
-          toolObjectsRef.current.delete(data.robotName);
-        }
-        
-        setAttachedTools(prev => {
-          const newMap = new Map(prev);
-          newMap.delete(data.robotName);
-          return newMap;
-        });
-      }
-    };
-    
-    const unsubscribe = EventBus.on('robot:removed', handleRobotRemoved);
-    return () => unsubscribe();
-  }, [attachedTools]);
-  
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      // Remove all tools
-      for (const [robotId] of attachedTools) {
-        removeTool(robotId);
-      }
-      
-      toolObjectsRef.current.clear();
-      sceneSetupRef.current = null;
-      robotManagerRef.current = null;
-      urdfLoaderRef.current = null;
-    };
-  }, [attachedTools]);
-  
-  // Update setToolTransform to emit events
+  // FIXED: Enhanced setToolTransform with proper updates and event emission
   const setToolTransform = useCallback((robotId, transforms) => {
     if (!attachedTools.has(robotId)) return;
     
@@ -658,9 +629,11 @@ export const TCPProvider = ({ children }) => {
         return;
       }
       
-      const { toolContainer } = toolObjects;
+      const { toolContainer, toolTip } = toolObjects;
       
-      // Apply transforms - MAKE SURE TO UPDATE THE ACTUAL OBJECT
+      console.log(`[TCP] Applying transforms to robot ${robotId}:`, transforms);
+      
+      // Apply transforms to the container
       if (transforms.position) {
         toolContainer.position.set(
           transforms.position.x || 0,
@@ -685,9 +658,14 @@ export const TCPProvider = ({ children }) => {
         );
       }
       
-      // FORCE UPDATE - This is crucial
+      // CRITICAL: Force immediate matrix updates
       toolContainer.updateMatrix();
       toolContainer.updateMatrixWorld(true);
+      
+      // Update the tool tip matrices too
+      if (toolTip && toolTip !== toolContainer) {
+        toolTip.updateMatrixWorld(true);
+      }
       
       // Update state
       setAttachedTools(prev => {
@@ -700,12 +678,29 @@ export const TCPProvider = ({ children }) => {
         return newMap;
       });
       
-      console.log(`[TCP] Applied transforms:`, transforms);
+      console.log(`[TCP] Successfully applied transforms to robot ${robotId}`);
+      
+      // CRITICAL: Notify EndEffector context that the tool has moved
+      EventBus.emit('tcp:transform-changed', {
+        robotId,
+        transforms,
+        toolTip: toolTip,
+        toolContainer: toolContainer
+      });
+      
+      // Also emit general TCP change event
+      emitTCPEvent('tcp:tool-transform-changed', {
+        robotId,
+        transforms,
+        toolContainer: toolContainer,
+        toolTip: toolTip
+      });
       
     } catch (err) {
       console.error(`Error setting tool transform:`, err);
+      setError(`Error setting tool transform: ${err.message}`);
     }
-  }, [attachedTools]);
+  }, [attachedTools, emitTCPEvent]);
   
   // Update setToolVisibility to emit events
   const setToolVisibility = useCallback((robotId, visible) => {
@@ -745,6 +740,46 @@ export const TCPProvider = ({ children }) => {
       });
     }
   }, [attachedTools, emitTCPEvent]);
+  
+  // Clean up when robots are removed
+  useEffect(() => {
+    const handleRobotRemoved = (data) => {
+      if (attachedTools.has(data.robotName)) {
+        const toolObjects = toolObjectsRef.current.get(data.robotName);
+        if (toolObjects) {
+          const { endEffector, toolContainer } = toolObjects;
+          if (endEffector && toolContainer) {
+            endEffector.remove(toolContainer);
+          }
+          toolObjectsRef.current.delete(data.robotName);
+        }
+        
+        setAttachedTools(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(data.robotName);
+          return newMap;
+        });
+      }
+    };
+    
+    const unsubscribe = EventBus.on('robot:removed', handleRobotRemoved);
+    return () => unsubscribe();
+  }, [attachedTools]);
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      // Remove all tools
+      for (const [robotId] of attachedTools) {
+        removeTool(robotId);
+      }
+      
+      toolObjectsRef.current.clear();
+      sceneSetupRef.current = null;
+      robotManagerRef.current = null;
+      urdfLoaderRef.current = null;
+    };
+  }, [attachedTools]);
   
   // Get tool info for specific robot
   const getToolInfo = useCallback((robotId) => {

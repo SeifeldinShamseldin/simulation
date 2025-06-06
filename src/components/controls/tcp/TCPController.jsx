@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import { useTCP } from '../../../contexts/hooks/useTCP';
+import EventBus from '../../../utils/EventBus';
 
 const TCPController = ({ viewerRef }) => {
   const { activeRobotId, isReady } = useRobotControl();
@@ -32,6 +33,11 @@ const TCPController = ({ viewerRef }) => {
     scale: { x: 1, y: 1, z: 1 }
   });
 
+  // Real-time update state
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState(null);
+  const updateTimeoutRef = useRef(null);
+
   // Sync local transforms with actual tool transforms
   useEffect(() => {
     if (toolTransforms) {
@@ -45,51 +51,110 @@ const TCPController = ({ viewerRef }) => {
     }
   }, [toolTransforms]);
 
+  // Listen for TCP events to provide feedback
+  useEffect(() => {
+    const handleTCPEvent = (data) => {
+      if (data.robotId === activeRobotId) {
+        setLastUpdateTime(new Date().toLocaleTimeString());
+        setIsUpdating(true);
+        
+        // Clear updating state after a brief moment
+        if (updateTimeoutRef.current) {
+          clearTimeout(updateTimeoutRef.current);
+        }
+        updateTimeoutRef.current = setTimeout(() => {
+          setIsUpdating(false);
+        }, 200);
+      }
+    };
+    
+    const unsubscribeTransform = EventBus.on('tcp:tool-transform-changed', handleTCPEvent);
+    const unsubscribeAttached = EventBus.on('tcp:tool-attached', handleTCPEvent);
+    const unsubscribeRemoved = EventBus.on('tcp:tool-removed', handleTCPEvent);
+    
+    return () => {
+      unsubscribeTransform();
+      unsubscribeAttached();
+      unsubscribeRemoved();
+      
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
+    };
+  }, [activeRobotId]);
+
   // Handle tool selection
   const handleToolSelect = async (toolId) => {
     try {
+      setIsUpdating(true);
       await attachTool(toolId);
     } catch (err) {
       console.error('Error attaching tool:', err);
+    } finally {
+      setTimeout(() => setIsUpdating(false), 500);
     }
   };
 
   // Handle tool removal
   const handleRemoveTool = async () => {
     try {
+      setIsUpdating(true);
       await removeTool();
     } catch (err) {
       console.error('Error removing tool:', err);
+    } finally {
+      setTimeout(() => setIsUpdating(false), 500);
     }
   };
 
   // Handle toggle visibility
   const handleToggleVisibility = () => {
+    setIsUpdating(true);
     setToolVisibility(!isToolVisible);
+    setTimeout(() => setIsUpdating(false), 200);
   };
 
-  // Handle transform changes
+  // Enhanced transform change handler with immediate feedback
   const handleTransformChange = (type, axis, value) => {
+    const numValue = parseFloat(value) || 0;
+    
     const newTransforms = {
       ...localTransforms,
       [type]: {
         ...localTransforms[type],
-        [axis]: parseFloat(value) || 0
+        [axis]: numValue
       }
     };
     
+    // Update local state immediately for responsive UI
     setLocalTransforms(newTransforms);
-    setToolTransform(newTransforms);
+    
+    // Show updating state
+    setIsUpdating(true);
+    
+    // Apply to 3D scene with slight delay for batching
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+    }
+    
+    updateTimeoutRef.current = setTimeout(() => {
+      setToolTransform(newTransforms);
+      setIsUpdating(false);
+    }, 50); // Small delay to batch rapid changes
   };
 
   // Handle reset transforms
   const handleResetTransforms = () => {
+    setIsUpdating(true);
     resetTransforms();
+    setTimeout(() => setIsUpdating(false), 200);
   };
 
   // Handle quick scale
   const handleQuickScale = (scale) => {
+    setIsUpdating(true);
     scaleUniform(scale);
+    setTimeout(() => setIsUpdating(false), 200);
   };
 
   // Get current tool info
@@ -106,7 +171,21 @@ const TCPController = ({ viewerRef }) => {
 
   return (
     <div className="controls-section">
-      <h3 className="controls-section-title">TCP Tools - {activeRobotId}</h3>
+      <h3 className="controls-section-title">
+        TCP Tools - {activeRobotId}
+        {isUpdating && (
+          <span className="controls-badge controls-badge-primary controls-ml-2">
+            Updating...
+          </span>
+        )}
+      </h3>
+      
+      {/* Update Status */}
+      {lastUpdateTime && (
+        <div className="controls-text-muted controls-small controls-mb-2">
+          Last updated: {lastUpdateTime}
+        </div>
+      )}
       
       {/* Initialization Status */}
       {!isInitialized && (
@@ -129,7 +208,7 @@ const TCPController = ({ viewerRef }) => {
 
       {/* Current Tool Status */}
       {hasTool && (
-        <div className="controls-card controls-mb-3">
+        <div className={`controls-card controls-mb-3 ${isUpdating ? 'controls-updating' : ''}`}>
           <div className="controls-card-body">
             <h5 className="controls-h5">Current Tool</h5>
             <div className="controls-d-flex controls-justify-content-between controls-align-items-center">
@@ -163,7 +242,7 @@ const TCPController = ({ viewerRef }) => {
 
       {/* Tool Transform Controls */}
       {hasTool && (
-        <div className="controls-card controls-mb-3">
+        <div className={`controls-card controls-mb-3 ${isUpdating ? 'controls-updating' : ''}`}>
           <div className="controls-card-body">
             <div className="controls-d-flex controls-justify-content-between controls-align-items-center controls-mb-3">
               <h5 className="controls-h5 controls-mb-0">Tool Transform</h5>
@@ -395,6 +474,8 @@ const TCPController = ({ viewerRef }) => {
           Place tool files in <code>/public/tcp/</code> directory.
           {!isInitialized && <br />}
           {!isInitialized && <strong>Waiting for TCP Manager initialization...</strong>}
+          {hasTool && <br />}
+          {hasTool && <strong>Tool transforms update IK and end effector tracking in real-time.</strong>}
         </small>
       </div>
     </div>

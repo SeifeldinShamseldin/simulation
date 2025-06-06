@@ -17,12 +17,13 @@ export const useEndEffector = () => {
     effectiveEndEffector,
     hasTCP,
     effectiveType,
+    toolInfo,
     getWorldMatrix,
     getLocalMatrix,
     getDistanceFromBase,
     updatePose,
-    isReady,
-    toolInfo
+    forceUpdate,
+    isReady
   } = context;
 
   // Convenience methods
@@ -44,22 +45,19 @@ export const useEndEffector = () => {
 
   // Get the actual Three.js object for the effective end effector
   const getEndEffectorObject = useCallback(() => {
-    return effectiveEndEffector?.object || null;
+    return effectiveEndEffector || null;
   }, [effectiveEndEffector]);
 
   // Get transform relative to robot base
   const getRelativeTransform = useCallback(() => {
-    if (!effectiveEndEffector?.baseObject) return null;
+    if (!effectiveEndEffector) return null;
     
     const worldMatrix = getWorldMatrix();
-    const baseMatrix = new THREE.Matrix4();
-    effectiveEndEffector.baseObject.updateMatrixWorld(true);
-    baseMatrix.copy(effectiveEndEffector.baseObject.matrixWorld);
+    if (!worldMatrix) return null;
     
-    // Calculate relative transform
+    // For TCP tools, we need to account for the robot's base transform
     const relativeMatrix = new THREE.Matrix4();
     relativeMatrix.copy(worldMatrix);
-    relativeMatrix.premultiply(baseMatrix.invert());
     
     return relativeMatrix;
   }, [effectiveEndEffector, getWorldMatrix]);
@@ -69,6 +67,30 @@ export const useEndEffector = () => {
     const distance = getDistanceFromBase();
     return distance <= bounds.radius;
   }, [getDistanceFromBase]);
+
+  // Get TCP information
+  const getTCPInfo = useCallback(() => {
+    return {
+      hasTCP,
+      type: effectiveType,
+      toolInfo: toolInfo || null,
+      isRobotEndEffector: effectiveType === 'robot',
+      isTCPEndEffector: effectiveType === 'tcp'
+    };
+  }, [hasTCP, effectiveType, toolInfo]);
+
+  // Get detailed position info
+  const getDetailedPosition = useCallback(() => {
+    return {
+      position: currentPosition,
+      rotation: currentRotation,
+      type: effectiveType,
+      hasTCP,
+      toolInfo,
+      distance: getDistanceFromBase(),
+      timestamp: Date.now()
+    };
+  }, [currentPosition, currentRotation, effectiveType, hasTCP, toolInfo, getDistanceFromBase]);
 
   return {
     // State
@@ -107,10 +129,18 @@ export const useEndEffector = () => {
     getDistanceFromBase,
     isWithinWorkspace,
     updatePose,
+    forceUpdate, // Expose force update for external use
+    getTCPInfo,
+    getDetailedPosition,
     
     // Status
     isReady: isReady && isTracking,
-    hasValidEndEffector: !!effectiveEndEffector
+    hasValidEndEffector: !!effectiveEndEffector,
+    
+    // TCP-specific info
+    isTCPMode: hasTCP,
+    isRobotMode: !hasTCP,
+    currentMode: effectiveType
   };
 };
 

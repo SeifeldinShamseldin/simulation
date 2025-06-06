@@ -1740,3 +1740,75 @@ input[type="range"]:focus::-moz-range-thumb {
 .controls-grid-cols-6 {
   grid-template-columns: repeat(6, 1fr);
 }
+
+/* === TCP Visual Feedback Enhancements === */
+
+/* Updating state animation */
+.controls-updating {
+  border-color: #007bff !important;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25) !important;
+  transition: all 0.15s ease-in-out;
+}
+
+/* Badge animations */
+.controls-badge {
+  animation: fadeInScale 0.3s ease-out;
+}
+
+@keyframes fadeInScale {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Spinner for loading states */
+.controls-spinner-border {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  vertical-align: text-bottom;
+  border: 0.125em solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spinner-border 0.75s linear infinite;
+}
+
+.controls-spinner-border-sm {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-width: 0.125em;
+}
+
+@keyframes spinner-border {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Input focus states for real-time updates */
+.controls-form-control:focus {
+  border-color: #80bdff;
+  outline: 0;
+  box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+}
+
+/* List item hover effects */
+.controls-list-item:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  transition: background-color 0.15s ease-in-out;
+}
+
+.controls-list-item.controls-active {
+  background-color: rgba(40, 167, 69, 0.1);
+  border-color: rgba(40, 167, 69, 0.3);
+}
+
+/* Button group enhancements */
+.controls-btn-group .controls-btn:focus {
+  z-index: 3;
+}

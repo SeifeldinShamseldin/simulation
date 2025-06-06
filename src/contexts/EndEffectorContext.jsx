@@ -13,12 +13,19 @@ export const EndEffectorProvider = ({ children }) => {
   const [currentRotation, setCurrentRotation] = useState({ x: 0, y: 0, z: 0, w: 1 });
   const [isTracking, setIsTracking] = useState(false);
   const [effectiveEndEffector, setEffectiveEndEffector] = useState(null);
+  const [hasTCP, setHasTCP] = useState(false);
+  const [effectiveType, setEffectiveType] = useState('robot');
+  const [toolInfo, setToolInfo] = useState(null);
   
-  // Refs for calculations
+  // Refs for calculations and tracking
   const updateIntervalRef = useRef(null);
   const vectorsRef = useRef({
     worldPos: new THREE.Vector3(),
     worldQuat: new THREE.Quaternion()
+  });
+  const tcpTrackingRef = useRef({
+    toolContainer: null,
+    toolTip: null
   });
 
   // Find robot end effector (only called once when robot loads)
@@ -86,41 +93,76 @@ export const EndEffectorProvider = ({ children }) => {
     
     const { worldPos, worldQuat } = vectorsRef.current;
     
-    // Get world position and rotation
-    effectiveEndEffector.getWorldPosition(worldPos);
-    effectiveEndEffector.getWorldQuaternion(worldQuat);
-    
-    // Update state
-    setCurrentPosition({
-      x: worldPos.x,
-      y: worldPos.y,
-      z: worldPos.z
-    });
-    
-    setCurrentRotation({
-      x: worldQuat.x,
-      y: worldQuat.y,
-      z: worldQuat.z,
-      w: worldQuat.w
-    });
-    
-    // Emit update event
-    EventBus.emitThrottled('endeffector:pose-updated', {
-      robotId: activeRobotId,
-      position: { x: worldPos.x, y: worldPos.y, z: worldPos.z },
-      rotation: { x: worldQuat.x, y: worldQuat.y, z: worldQuat.z, w: worldQuat.w }
-    }, 16); // 60fps
-  }, [effectiveEndEffector, activeRobotId]);
+    try {
+      // Get world position and rotation
+      effectiveEndEffector.getWorldPosition(worldPos);
+      effectiveEndEffector.getWorldQuaternion(worldQuat);
+      
+      // Update state
+      setCurrentPosition({
+        x: worldPos.x,
+        y: worldPos.y,
+        z: worldPos.z
+      });
+      
+      setCurrentRotation({
+        x: worldQuat.x,
+        y: worldQuat.y,
+        z: worldQuat.z,
+        w: worldQuat.w
+      });
+      
+      // Emit update event with throttling
+      EventBus.emitThrottled('endeffector:pose-updated', {
+        robotId: activeRobotId,
+        position: { x: worldPos.x, y: worldPos.y, z: worldPos.z },
+        rotation: { x: worldQuat.x, y: worldQuat.y, z: worldQuat.z, w: worldQuat.w },
+        hasTCP,
+        effectiveType
+      }, 16); // 60fps
+    } catch (error) {
+      console.warn(`[EndEffector:${activeRobotId}] Error updating pose:`, error);
+    }
+  }, [effectiveEndEffector, activeRobotId, hasTCP, effectiveType]);
+
+  // Force immediate update (for when transforms change)
+  const forceUpdate = useCallback(() => {
+    if (effectiveEndEffector) {
+      // Force matrix updates first
+      effectiveEndEffector.updateMatrixWorld(true);
+      
+      // Update TCP tracking objects if they exist
+      if (tcpTrackingRef.current.toolContainer) {
+        tcpTrackingRef.current.toolContainer.updateMatrixWorld(true);
+      }
+      if (tcpTrackingRef.current.toolTip) {
+        tcpTrackingRef.current.toolTip.updateMatrixWorld(true);
+      }
+      
+      // Update pose immediately
+      updateEndEffectorPose();
+      
+      console.log(`[EndEffector:${activeRobotId}] Forced update completed`);
+    }
+  }, [effectiveEndEffector, activeRobotId, updateEndEffectorPose]);
 
   // Initialize with robot end effector when robot loads
   useEffect(() => {
     if (!robot || !isReady) {
       setEffectiveEndEffector(null);
+      setHasTCP(false);
+      setEffectiveType('robot');
+      setToolInfo(null);
+      tcpTrackingRef.current = { toolContainer: null, toolTip: null };
       return;
     }
     
     const robotEndEffector = findRobotEndEffector(robot);
     setEffectiveEndEffector(robotEndEffector);
+    setHasTCP(false);
+    setEffectiveType('robot');
+    setToolInfo(null);
+    tcpTrackingRef.current = { toolContainer: null, toolTip: null };
     
     console.log(`[EndEffector:${activeRobotId}] Using robot end effector:`, robotEndEffector?.name);
   }, [robot, isReady, activeRobotId, findRobotEndEffector]);
@@ -130,18 +172,67 @@ export const EndEffectorProvider = ({ children }) => {
     const handleTCPEndEffectorChange = (data) => {
       if (data.robotId === activeRobotId) {
         console.log(`[EndEffector:${activeRobotId}] TCP provided new end effector:`, data.endEffectorObject?.name);
+        console.log(`[EndEffector:${activeRobotId}] Change type:`, data.type);
+        
         setEffectiveEndEffector(data.endEffectorObject);
+        
+        if (data.type === 'tcp-attached') {
+          setHasTCP(true);
+          setEffectiveType('tcp');
+          
+          // Store TCP tracking references
+          tcpTrackingRef.current = {
+            toolContainer: data.toolContainer || null,
+            toolTip: data.endEffectorObject || null
+          };
+          
+          setToolInfo({
+            name: data.toolName || 'Unknown Tool',
+            type: data.toolType || 'Unknown Type'
+          });
+        } else if (data.type === 'tcp-removed') {
+          setHasTCP(false);
+          setEffectiveType('robot');
+          setToolInfo(null);
+          tcpTrackingRef.current = { toolContainer: null, toolTip: null };
+        }
+        
+        // Force immediate update after change
+        setTimeout(() => forceUpdate(), 10);
       }
     };
     
     const unsubscribe = EventBus.on('tcp:endeffector-changed', handleTCPEndEffectorChange);
     return () => unsubscribe();
-  }, [activeRobotId]);
+  }, [activeRobotId, forceUpdate]);
+
+  // CRITICAL: Listen for TCP transform changes and update immediately
+  useEffect(() => {
+    const handleTCPTransformChange = (data) => {
+      if (data.robotId === activeRobotId && hasTCP) {
+        console.log(`[EndEffector:${activeRobotId}] TCP transform changed, forcing update`);
+        
+        // Update TCP tracking references if provided
+        if (data.toolContainer) {
+          tcpTrackingRef.current.toolContainer = data.toolContainer;
+        }
+        if (data.toolTip) {
+          tcpTrackingRef.current.toolTip = data.toolTip;
+        }
+        
+        // Force immediate update
+        setTimeout(() => forceUpdate(), 0);
+      }
+    };
+    
+    const unsubscribe = EventBus.on('tcp:transform-changed', handleTCPTransformChange);
+    return () => unsubscribe();
+  }, [activeRobotId, hasTCP, forceUpdate]);
 
   // Start/stop tracking
   useEffect(() => {
     if (effectiveEndEffector && isReady) {
-      console.log(`[EndEffector:${activeRobotId}] Starting tracking:`, effectiveEndEffector.name);
+      console.log(`[EndEffector:${activeRobotId}] Starting tracking:`, effectiveEndEffector.name, `(Type: ${effectiveType})`);
       
       setIsTracking(true);
       updateEndEffectorPose(); // Update immediately
@@ -161,13 +252,14 @@ export const EndEffectorProvider = ({ children }) => {
         updateIntervalRef.current = null;
       }
     }
-  }, [effectiveEndEffector, isReady, updateEndEffectorPose, activeRobotId]);
+  }, [effectiveEndEffector, isReady, updateEndEffectorPose, activeRobotId, effectiveType]);
 
   // Listen for joint changes to trigger updates
   useEffect(() => {
     const handleJointChange = (data) => {
       if (data.robotId === activeRobotId || data.robotName === activeRobotId) {
-        setTimeout(updateEndEffectorPose, 0);
+        // For joint changes, force update after a brief delay to allow joint to settle
+        setTimeout(updateEndEffectorPose, 5);
       }
     };
     
@@ -219,12 +311,19 @@ export const EndEffectorProvider = ({ children }) => {
     
     // Configuration
     effectiveEndEffector,
+    hasTCP,
+    effectiveType,
+    toolInfo,
+    
+    // Objects (for compatibility)
+    endEffectorLink: effectiveEndEffector, // Alias for backward compatibility
     
     // Methods
     getWorldMatrix,
     getLocalMatrix,
     getDistanceFromBase,
     updatePose: updateEndEffectorPose,
+    forceUpdate, // Expose force update for external triggers
     
     // Info
     isReady: isReady && !!effectiveEndEffector
