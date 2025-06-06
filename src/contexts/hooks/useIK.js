@@ -1,5 +1,6 @@
 // src/contexts/hooks/useIK.js
-import { useContext, useCallback } from 'react';
+import { useContext } from 'react';
+import * as THREE from 'three';
 import IKContext from '../IKContext';
 
 export const useIK = () => {
@@ -13,26 +14,31 @@ export const useIK = () => {
     targetPosition,
     isAnimating,
     solverStatus,
+    currentSolver,
+    availableSolvers,
     setTargetPosition,
+    setCurrentSolver,
     executeIK,
-    stopAnimation
+    stopAnimation,
+    configureSolver,
+    getSolverSettings
   } = context;
 
-  // Convenience methods
-  const moveToTarget = useCallback(async (animate = true) => {
+  // Convenience methods for common operations
+  const moveToTarget = (animate = true) => {
     return executeIK(targetPosition, { animate });
-  }, [targetPosition, executeIK]);
+  };
 
-  const moveRelative = useCallback((axis, delta) => {
-    setTargetPosition(prev => ({
-      ...prev,
-      [axis]: prev[axis] + delta
-    }));
-  }, [setTargetPosition]);
+  const moveRelative = (axis, amount) => {
+    const newTarget = { ...targetPosition };
+    newTarget[axis] += amount;
+    setTargetPosition(newTarget);
+    return executeIK(newTarget);
+  };
 
-  const syncTargetToCurrent = useCallback(() => {
+  const syncTargetToCurrent = () => {
     setTargetPosition(currentPosition);
-  }, [currentPosition, setTargetPosition]);
+  };
 
   return {
     // State
@@ -40,13 +46,18 @@ export const useIK = () => {
     targetPosition,
     isAnimating,
     solverStatus,
+    currentSolver,
+    availableSolvers,
     
     // Methods
     setTargetPosition,
+    setCurrentSolver,
     moveToTarget,
     moveRelative,
     syncTargetToCurrent,
     stopAnimation,
+    configureSolver,
+    getSolverSettings,
     
     // Direct access to executeIK for custom targets
     executeIK

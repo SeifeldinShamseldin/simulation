@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import * as THREE from 'three';
 import { useRobotControl } from './hooks/useRobotControl';
 import EventBus from '../utils/EventBus';
+import CCDSolver from '../components/controls/IKSolvers/CCD';
 
 const IKContext = createContext(null);
 
@@ -14,14 +15,16 @@ export const IKProvider = ({ children }) => {
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
   const [isAnimating, setIsAnimating] = useState(false);
   const [solverStatus, setSolverStatus] = useState('Ready');
+  const [currentSolver, setCurrentSolver] = useState('CCD');
   
-  // Refs for solver state
-  const solverSettingsRef = useRef({
-    maxIterations: 10,
-    tolerance: 0.01,
-    dampingFactor: 0.5
+  // Available solvers
+  const solversRef = useRef({
+    CCD: new CCDSolver(),
+    // Future: FABRIK: new FABRIKSolver(),
+    // Future: Jacobian: new JacobianSolver(),
   });
   
+  // Animation state
   const animationRef = useRef({
     startAngles: {},
     goalAngles: {},
@@ -138,95 +141,21 @@ export const IKProvider = ({ children }) => {
   const solve = useCallback(async (targetPos) => {
     if (!robot || !isReady) return null;
     
-    // Store start angles
-    animationRef.current.startAngles = {};
-    Object.values(robot.joints).forEach(joint => {
-      animationRef.current.startAngles[joint.name] = joint.angle || 0;
-    });
-    
-    // Use CCD (Cyclic Coordinate Descent) algorithm
-    for (let iter = 0; iter < solverSettingsRef.current.maxIterations; iter++) {
-      const endEffector = findEndEffector(robot);
-      if (!endEffector) return null;
-      
-      const currentPos = new THREE.Vector3();
-      endEffector.getWorldPosition(currentPos);
-      
-      // Check convergence
-      const distanceToTarget = currentPos.distanceTo(targetPos);
-      if (distanceToTarget < solverSettingsRef.current.tolerance) {
-        break;
-      }
-      
-      // Process joints
-      for (const jointName in animationRef.current.startAngles) {
-        const joint = robot.joints[jointName];
-        if (joint.jointType === 'fixed') continue;
-        
-        // Get joint world position and axis
-        joint.getWorldPosition(vectorsRef.current.jointPos);
-        vectorsRef.current.axis.copy(joint.axis)
-          .applyQuaternion(joint.getWorldQuaternion(vectorsRef.current.tempQuat))
-          .normalize();
-        
-        // Vectors from joint to current end effector and target
-        vectorsRef.current.toEnd.copy(currentPos).sub(vectorsRef.current.jointPos);
-        vectorsRef.current.toTarget.copy(targetPos).sub(vectorsRef.current.jointPos);
-        
-        if (vectorsRef.current.toEnd.length() < 0.001 || vectorsRef.current.toTarget.length() < 0.001) continue;
-        
-        vectorsRef.current.toEnd.normalize();
-        vectorsRef.current.toTarget.normalize();
-        
-        // Calculate angle
-        const dotProduct = THREE.MathUtils.clamp(vectorsRef.current.toEnd.dot(vectorsRef.current.toTarget), -0.999, 0.999);
-        let angle = Math.acos(dotProduct);
-        
-        // Determine direction
-        const cross = vectorsRef.current.toEnd.clone().cross(vectorsRef.current.toTarget);
-        if (cross.dot(vectorsRef.current.axis) < 0) {
-          angle = -angle;
-        }
-        
-        // Apply damping
-        angle *= solverSettingsRef.current.dampingFactor;
-        
-        // Limit angle change per iteration
-        angle = THREE.MathUtils.clamp(angle, -0.2, 0.2);
-        
-        // Update joint
-        let newAngle = joint.angle + angle;
-        
-        // Apply limits
-        if (!joint.ignoreLimits && joint.limit) {
-          newAngle = THREE.MathUtils.clamp(newAngle, joint.limit.lower, joint.limit.upper);
-        }
-        
-        robot.setJointValue(joint.name, newAngle);
-        joint.updateMatrixWorld(true);
-      }
+    const solver = solversRef.current[currentSolver];
+    if (!solver) {
+      setSolverStatus(`Unknown solver: ${currentSolver}`);
+      return null;
     }
     
-    // Store goal angles
-    animationRef.current.goalAngles = {};
-    Object.values(robot.joints).forEach(joint => {
-      animationRef.current.goalAngles[joint.name] = joint.angle || 0;
-    });
-    
-    // Reset to start for animation
-    Object.values(robot.joints).forEach(joint => {
-      robot.setJointValue(joint.name, animationRef.current.startAngles[joint.name]);
-    });
-    
-    return animationRef.current.goalAngles;
-  }, [robot, isReady, findEndEffector]);
+    return await solver.solve(robot, targetPos, findEndEffector);
+  }, [robot, isReady, currentSolver, findEndEffector]);
 
   const executeIK = useCallback(async (target, options = {}) => {
     if (!robot || !isReady || isAnimating) return false;
     
     try {
       setIsAnimating(true);
-      setSolverStatus('Solving...');
+      setSolverStatus(`Solving with ${currentSolver}...`);
       
       const targetPos = target instanceof THREE.Vector3 ? 
         target : new THREE.Vector3(target.x, target.y, target.z);
@@ -237,11 +166,18 @@ export const IKProvider = ({ children }) => {
         return false;
       }
       
+      animationRef.current = solution;
+      
       if (options.animate !== false) {
-        await animateToSolution(solution, options.duration || 1000);
+        await animateToSolution(solution.goalAngles, options.duration || 1000);
+      } else {
+        // Apply immediately
+        Object.entries(solution.goalAngles).forEach(([name, angle]) => {
+          robot.setJointValue(name, angle);
+        });
       }
       
-      setSolverStatus('Success');
+      setSolverStatus(solution.converged ? 'Converged' : 'Best effort - did not fully converge');
       return true;
       
     } catch (error) {
@@ -250,7 +186,7 @@ export const IKProvider = ({ children }) => {
     } finally {
       setIsAnimating(false);
     }
-  }, [robot, isReady, isAnimating, solve]);
+  }, [robot, isReady, isAnimating, solve, currentSolver]);
 
   const animateToSolution = useCallback((solution, duration) => {
     return new Promise((resolve) => {
@@ -303,15 +239,32 @@ export const IKProvider = ({ children }) => {
     isAnimating,
     solverStatus,
     activeRobotId,
+    currentSolver,
+    availableSolvers: Object.keys(solversRef.current),
     
     // Methods
     setTargetPosition,
     executeIK,
     stopAnimation,
+    setCurrentSolver,
     
-    // Settings
-    configureSolver: (settings) => {
-      solverSettingsRef.current = { ...solverSettingsRef.current, ...settings };
+    // Solver configuration
+    configureSolver: (solverName, settings) => {
+      const solver = solversRef.current[solverName];
+      if (solver && solver.configure) {
+        solver.configure(settings);
+      }
+    },
+    
+    // Get current solver settings
+    getSolverSettings: (solverName) => {
+      const solver = solversRef.current[solverName || currentSolver];
+      return solver ? {
+        maxIterations: solver.maxIterations,
+        tolerance: solver.tolerance,
+        dampingFactor: solver.dampingFactor,
+        angleLimit: solver.angleLimit
+      } : null;
     }
   };
 
