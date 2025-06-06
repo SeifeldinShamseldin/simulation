@@ -10,6 +10,7 @@ import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
+import { EndEffectorProvider } from './contexts/EndEffectorContext';
 import WorldManager from './components/World/WorldManager';
 import './App.css'; // Only App.css, NO ControlsTheme.css
 
@@ -82,19 +83,21 @@ const AppContent = () => {
   );
 };
 
-// Wrap your app content with SceneProvider
+// Fix provider order - TCPProvider must come before EndEffectorProvider
 const App = () => {
   return (
     <SceneProvider>
       <ViewerProvider>
         <RobotProvider>
-          <IKProvider>
-            <TCPProvider>
-              <WorldProvider>
-                <AppContent />
-              </WorldProvider>
-            </TCPProvider>
-          </IKProvider>
+          <TCPProvider>
+            <EndEffectorProvider>
+              <IKProvider>
+                <WorldProvider>
+                  <AppContent />
+                </WorldProvider>
+              </IKProvider>
+            </EndEffectorProvider>
+          </TCPProvider>
         </RobotProvider>
       </ViewerProvider>
     </SceneProvider>

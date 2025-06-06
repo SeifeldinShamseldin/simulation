@@ -4,14 +4,19 @@ import * as THREE from 'three';
 import { useRobotControl } from './hooks/useRobotControl';
 import EventBus from '../utils/EventBus';
 import CCDSolver from '../components/controls/IKSolvers/CCD';
+import { useEndEffector } from './hooks/useEndEffector';
 
 const IKContext = createContext(null);
 
 export const IKProvider = ({ children }) => {
   const { activeRobotId, robot, isReady } = useRobotControl();
+  const { 
+    position: currentPosition, 
+    getEndEffectorObject,
+    isReady: endEffectorReady 
+  } = useEndEffector();
   
   // State
-  const [currentPosition, setCurrentPosition] = useState({ x: 0, y: 0, z: 0 });
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
   const [isAnimating, setIsAnimating] = useState(false);
   const [solverStatus, setSolverStatus] = useState('Ready');
@@ -40,45 +45,6 @@ export const IKProvider = ({ children }) => {
     axis: new THREE.Vector3(),
     tempQuat: new THREE.Quaternion()
   });
-
-  // Update current position periodically
-  useEffect(() => {
-    if (!robot || !isReady) return;
-    
-    const updatePosition = () => {
-      const endEffector = findEndEffector(robot);
-      if (endEffector) {
-        const worldPos = new THREE.Vector3();
-        endEffector.getWorldPosition(worldPos);
-        setCurrentPosition({
-          x: worldPos.x,
-          y: worldPos.y,
-          z: worldPos.z
-        });
-      }
-    };
-    
-    const interval = setInterval(updatePosition, 100);
-    updatePosition(); // Initial update
-    
-    return () => clearInterval(interval);
-  }, [robot, isReady]);
-
-  // Reset target when robot changes
-  useEffect(() => {
-    if (robot && isReady) {
-      const endEffector = findEndEffector(robot);
-      if (endEffector) {
-        const worldPos = new THREE.Vector3();
-        endEffector.getWorldPosition(worldPos);
-        setTargetPosition({
-          x: worldPos.x,
-          y: worldPos.y,
-          z: worldPos.z
-        });
-      }
-    }
-  }, [robot, activeRobotId, isReady]);
 
   // Core IK methods
   const findEndEffector = useCallback((robot) => {
@@ -139,7 +105,10 @@ export const IKProvider = ({ children }) => {
   }, []);
 
   const solve = useCallback(async (targetPos) => {
-    if (!robot || !isReady) return null;
+    if (!robot || !isReady || !endEffectorReady) return null;
+    
+    const endEffectorObject = getEndEffectorObject();
+    if (!endEffectorObject) return null;
     
     const solver = solversRef.current[currentSolver];
     if (!solver) {
@@ -147,8 +116,8 @@ export const IKProvider = ({ children }) => {
       return null;
     }
     
-    return await solver.solve(robot, targetPos, findEndEffector);
-  }, [robot, isReady, currentSolver, findEndEffector]);
+    return await solver.solve(robot, targetPos, () => endEffectorObject);
+  }, [robot, isReady, endEffectorReady, currentSolver, getEndEffectorObject]);
 
   const executeIK = useCallback(async (target, options = {}) => {
     if (!robot || !isReady || isAnimating) return false;

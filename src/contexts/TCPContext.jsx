@@ -312,16 +312,43 @@ export const TCPProvider = ({ children }) => {
     // Add to end effector
     endEffector.add(toolContainer);
     
-    // Store reference for easy access
+    // Store reference for easy access - MAKE SURE THESE ARE SET
     toolObject.userData.isToolObject = true;
     toolContainer.userData.isToolContainer = true;
+    
+    // Add extra debugging
+    console.log('Tool container userData after setting:', toolContainer.userData);
+    console.log('Tool object userData after setting:', toolObject.userData);
+    console.log('End effector children after adding tool:', endEffector.children.length);
+    
+    // Force matrix update
+    toolContainer.updateMatrixWorld(true);
+    toolObject.updateMatrixWorld(true);
     
     console.log('Tool attached to end effector successfully');
     
     return toolContainer;
   }, []);
   
-  // Attach tool to robot
+  // Enhanced event emission helper
+  const emitTCPEvent = useCallback((eventType, data) => {
+    const eventData = {
+      robotId: data.robotId,
+      timestamp: Date.now(),
+      ...data
+    };
+    
+    console.log(`[TCP Event] ${eventType}:`, eventData);
+    EventBus.emit(eventType, eventData);
+    
+    // Also emit a general TCP change event
+    EventBus.emit('tcp:changed', {
+      type: eventType,
+      ...eventData
+    });
+  }, []);
+  
+  // Update attachTool function to emit detailed events
   const attachTool = useCallback(async (robotId, toolId) => {
     if (!robotManagerRef.current || !isInitialized) {
       throw new Error('TCP Manager not ready');
@@ -331,7 +358,7 @@ export const TCPProvider = ({ children }) => {
       setIsLoading(true);
       setError(null);
       
-      console.log(`Attaching tool ${toolId} to robot ${robotId}`);
+      console.log(`[TCP] Attaching tool ${toolId} to robot ${robotId}`);
       
       // Remove existing tool if present
       if (attachedTools.has(robotId)) {
@@ -355,7 +382,7 @@ export const TCPProvider = ({ children }) => {
         throw new Error('End effector not found');
       }
       
-      console.log('Loading tool:', tool);
+      console.log('[TCP] Loading tool:', tool);
       
       // Load the tool based on type
       let toolObject;
@@ -371,7 +398,7 @@ export const TCPProvider = ({ children }) => {
         throw new Error('Failed to load tool object');
       }
       
-      console.log('Tool loaded successfully:', toolObject);
+      console.log('[TCP] Tool loaded successfully:', toolObject);
       
       // Attach to end effector
       const toolContainer = attachToEndEffector(endEffector, toolObject);
@@ -380,11 +407,17 @@ export const TCPProvider = ({ children }) => {
       toolObjectsRef.current.set(robotId, {
         toolContainer,
         endEffector,
-        toolObject
+        toolObject,
+        tool // Store tool info too
       });
       
+      // Get initial bounds and dimensions
+      const bounds = new THREE.Box3().setFromObject(toolObject);
+      const size = bounds.getSize(new THREE.Vector3());
+      const center = bounds.getCenter(new THREE.Vector3());
+      
       // Update state
-      setAttachedTools(prev => new Map(prev).set(robotId, {
+      const toolInfo = {
         toolId,
         tool,
         visible: true,
@@ -392,34 +425,58 @@ export const TCPProvider = ({ children }) => {
           position: { x: 0, y: 0, z: 0 },
           rotation: { x: 0, y: 0, z: 0 },
           scale: { x: 1, y: 1, z: 1 }
+        },
+        dimensions: {
+          width: size.x,
+          height: size.y,
+          depth: size.z,
+          center: { x: center.x, y: center.y, z: center.z }
+        },
+        bounds: {
+          min: { x: bounds.min.x, y: bounds.min.y, z: bounds.min.z },
+          max: { x: bounds.max.x, y: bounds.max.y, z: bounds.max.z }
         }
-      }));
+      };
       
-      console.log(`Tool ${toolId} attached to robot ${robotId}`);
+      setAttachedTools(prev => new Map(prev).set(robotId, toolInfo));
       
-      // Emit event
-      EventBus.emit('tcp:tool-attached', {
+      console.log(`[TCP] Tool ${toolId} attached to robot ${robotId}`);
+      
+      // Emit detailed attachment event
+      emitTCPEvent('tcp:tool-attached', {
         robotId,
         toolId,
-        toolName: tool.name
+        toolName: tool.name,
+        toolType: tool.type,
+        toolInfo,
+        endEffectorName: endEffector.name,
+        containerObject: toolContainer,
+        toolObject: toolObject
       });
       
       return true;
     } catch (err) {
       setError(`Error attaching tool: ${err.message}`);
+      emitTCPEvent('tcp:attachment-failed', {
+        robotId,
+        toolId,
+        error: err.message
+      });
       throw err;
     } finally {
       setIsLoading(false);
     }
-  }, [isInitialized, attachedTools, availableTools, findEndEffector, loadUrdfTool, loadMultiMeshTool, loadSingleMeshTool, attachToEndEffector]);
+  }, [isInitialized, attachedTools, availableTools, findEndEffector, loadUrdfTool, loadMultiMeshTool, loadSingleMeshTool, attachToEndEffector, emitTCPEvent]);
   
-  // Remove tool from robot
+  // Update removeTool to emit events
   const removeTool = useCallback(async (robotId) => {
     if (!attachedTools.has(robotId)) return;
     
     try {
       setIsLoading(true);
-      console.log(`Removing tool from robot ${robotId}`);
+      console.log(`[TCP] Removing tool from robot ${robotId}`);
+      
+      const currentToolInfo = attachedTools.get(robotId);
       
       // Get tool objects
       const toolObjects = toolObjectsRef.current.get(robotId);
@@ -441,7 +498,7 @@ export const TCPProvider = ({ children }) => {
             }
           });
           
-          console.log('Tool container removed and disposed');
+          console.log('[TCP] Tool container removed and disposed');
         }
         
         // Remove from tracking
@@ -455,28 +512,37 @@ export const TCPProvider = ({ children }) => {
         return newMap;
       });
       
-      // Emit event
-      EventBus.emit('tcp:tool-removed', { robotId });
+      // Emit removal event
+      emitTCPEvent('tcp:tool-removed', {
+        robotId,
+        toolId: currentToolInfo?.toolId,
+        toolName: currentToolInfo?.tool?.name
+      });
     } catch (err) {
       setError(`Error removing tool: ${err.message}`);
+      emitTCPEvent('tcp:removal-failed', {
+        robotId,
+        error: err.message
+      });
       throw err;
     } finally {
       setIsLoading(false);
     }
-  }, [attachedTools]);
+  }, [attachedTools, emitTCPEvent]);
   
-  // Set tool transform
+  // Update setToolTransform to emit events
   const setToolTransform = useCallback((robotId, transforms) => {
     if (!attachedTools.has(robotId)) return;
     
     try {
       const toolObjects = toolObjectsRef.current.get(robotId);
       if (!toolObjects || !toolObjects.toolContainer) {
-        console.warn(`No tool found for robot ${robotId}`);
+        console.warn(`[TCP] No tool found for robot ${robotId}`);
         return;
       }
       
-      const { toolContainer } = toolObjects;
+      const { toolContainer, toolObject } = toolObjects;
+      const previousTransforms = attachedTools.get(robotId)?.transforms;
       
       // Apply position
       if (transforms.position) {
@@ -509,30 +575,61 @@ export const TCPProvider = ({ children }) => {
       toolContainer.updateMatrix();
       toolContainer.updateMatrixWorld(true);
       
-      console.log(`Applied transforms to tool for robot ${robotId}:`, transforms);
+      // Recalculate bounds after transform
+      const bounds = new THREE.Box3().setFromObject(toolObject);
+      const size = bounds.getSize(new THREE.Vector3());
+      const center = bounds.getCenter(new THREE.Vector3());
       
-      // Update state
+      console.log(`[TCP] Applied transforms to tool for robot ${robotId}:`, transforms);
+      
+      // Update state with new dimensions
       setAttachedTools(prev => {
         const newMap = new Map(prev);
         const toolData = newMap.get(robotId);
         if (toolData) {
           toolData.transforms = { ...transforms };
+          toolData.dimensions = {
+            width: size.x,
+            height: size.y,
+            depth: size.z,
+            center: { x: center.x, y: center.y, z: center.z }
+          };
+          toolData.bounds = {
+            min: { x: bounds.min.x, y: bounds.min.y, z: bounds.min.z },
+            max: { x: bounds.max.x, y: bounds.max.y, z: bounds.max.z }
+          };
           newMap.set(robotId, toolData);
         }
         return newMap;
       });
       
-      // Emit transform update event
-      EventBus.emit('tcp:tool-transformed', {
+      // Emit transform update event with detailed info
+      emitTCPEvent('tcp:tool-transformed', {
         robotId,
-        transforms
+        transforms,
+        previousTransforms,
+        newDimensions: {
+          width: size.x,
+          height: size.y,
+          depth: size.z,
+          center: { x: center.x, y: center.y, z: center.z }
+        },
+        newBounds: {
+          min: { x: bounds.min.x, y: bounds.min.y, z: bounds.min.z },
+          max: { x: bounds.max.x, y: bounds.max.y, z: bounds.max.z }
+        }
       });
     } catch (err) {
       setError(`Error setting tool transform: ${err.message}`);
+      emitTCPEvent('tcp:transform-failed', {
+        robotId,
+        transforms,
+        error: err.message
+      });
     }
-  }, [attachedTools]);
+  }, [attachedTools, emitTCPEvent]);
   
-  // Set tool visibility
+  // Update setToolVisibility to emit events
   const setToolVisibility = useCallback((robotId, visible) => {
     if (!attachedTools.has(robotId)) return;
     
@@ -540,8 +637,9 @@ export const TCPProvider = ({ children }) => {
       const toolObjects = toolObjectsRef.current.get(robotId);
       if (!toolObjects || !toolObjects.toolContainer) return;
       
+      const previousVisibility = toolObjects.toolContainer.visible;
       toolObjects.toolContainer.visible = visible;
-      console.log(`Tool visibility set to ${visible} for robot ${robotId}`);
+      console.log(`[TCP] Tool visibility set to ${visible} for robot ${robotId}`);
       
       // Update state
       setAttachedTools(prev => {
@@ -554,11 +652,21 @@ export const TCPProvider = ({ children }) => {
         return newMap;
       });
       
-      EventBus.emit('tcp:tool-visibility-changed', { robotId, visible });
+      // Emit visibility change event
+      emitTCPEvent('tcp:tool-visibility-changed', {
+        robotId,
+        visible,
+        previousVisibility
+      });
     } catch (err) {
       setError(`Error setting tool visibility: ${err.message}`);
+      emitTCPEvent('tcp:visibility-failed', {
+        robotId,
+        visible,
+        error: err.message
+      });
     }
-  }, [attachedTools]);
+  }, [attachedTools, emitTCPEvent]);
   
   // Get tool info for specific robot
   const getToolInfo = useCallback((robotId) => {
