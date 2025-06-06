@@ -114,33 +114,20 @@ const TCPController = ({ viewerRef }) => {
     setTimeout(() => setIsUpdating(false), 200);
   };
 
-  // Enhanced transform change handler with immediate feedback
+  // Handle transform changes
   const handleTransformChange = (type, axis, value) => {
-    const numValue = parseFloat(value) || 0;
-    
     const newTransforms = {
       ...localTransforms,
       [type]: {
         ...localTransforms[type],
-        [axis]: numValue
+        [axis]: parseFloat(value) || 0
       }
     };
     
-    // Update local state immediately for responsive UI
     setLocalTransforms(newTransforms);
     
-    // Show updating state
-    setIsUpdating(true);
-    
-    // Apply to 3D scene with slight delay for batching
-    if (updateTimeoutRef.current) {
-      clearTimeout(updateTimeoutRef.current);
-    }
-    
-    updateTimeoutRef.current = setTimeout(() => {
-      setToolTransform(newTransforms);
-      setIsUpdating(false);
-    }, 50); // Small delay to batch rapid changes
+    // Apply immediately
+    setToolTransform(newTransforms);
   };
 
   // Handle reset transforms

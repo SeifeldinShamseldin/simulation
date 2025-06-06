@@ -470,14 +470,20 @@ export const TCPProvider = ({ children }) => {
       
       console.log(`[TCP] Using tool tip:`, toolTip.name || 'unnamed');
       
-      // Store tool objects reference
+      // Store tool objects reference - ADD DEBUG AND FORCE SET
+      console.log('[TCP DEBUG] Storing tool objects for robot:', robotId);
+      console.log('[TCP DEBUG] toolContainer:', toolContainer);
+      console.log('[TCP DEBUG] Before set - toolObjectsRef size:', toolObjectsRef.current.size);
+
       toolObjectsRef.current.set(robotId, {
         toolContainer,
         endEffector,
         toolObject,
-        toolTip, // Store the actual TCP point
         tool
       });
+
+      console.log('[TCP DEBUG] After set - toolObjectsRef size:', toolObjectsRef.current.size);
+      console.log('[TCP DEBUG] Can retrieve?', toolObjectsRef.current.get(robotId));
       
       // Get initial bounds and dimensions
       const bounds = new THREE.Box3().setFromObject(toolObject);
@@ -547,7 +553,10 @@ export const TCPProvider = ({ children }) => {
   
   // Update removeTool to handle end effector reversion
   const removeTool = useCallback(async (robotId) => {
-    if (!attachedTools.has(robotId)) return;
+    if (!attachedTools.has(robotId)) {
+      console.warn(`[TCP] No tool attached to robot ${robotId}`);
+      return;
+    }
     
     try {
       setIsLoading(true);
@@ -559,7 +568,11 @@ export const TCPProvider = ({ children }) => {
         const { endEffector, toolContainer } = toolObjects;
         
         if (endEffector && toolContainer) {
+          // Remove from scene
           endEffector.remove(toolContainer);
+          
+          // Force update the parent
+          endEffector.updateMatrixWorld(true);
           
           // Dispose of resources
           toolContainer.traverse(child => {
@@ -603,15 +616,14 @@ export const TCPProvider = ({ children }) => {
       // Emit removal event
       emitTCPEvent('tcp:tool-removed', {
         robotId,
-        toolId: toolObjects?.tool?.id,
-        toolName: toolObjects?.tool?.name
+        toolRemoved: true
       });
+      
+      console.log(`[TCP] Tool successfully removed from robot ${robotId}`);
+      
     } catch (err) {
       setError(`Error removing tool: ${err.message}`);
-      emitTCPEvent('tcp:removal-failed', {
-        robotId,
-        error: err.message
-      });
+      console.error('Error removing TCP tool:', err);
       throw err;
     } finally {
       setIsLoading(false);
@@ -620,87 +632,63 @@ export const TCPProvider = ({ children }) => {
   
   // FIXED: Enhanced setToolTransform with proper updates and event emission
   const setToolTransform = useCallback((robotId, transforms) => {
-    if (!attachedTools.has(robotId)) return;
+    const sceneSetup = sceneSetupRef.current;
+    if (!sceneSetup) return;
     
-    try {
-      const toolObjects = toolObjectsRef.current.get(robotId);
-      if (!toolObjects || !toolObjects.toolContainer) {
-        console.warn(`[TCP] No tool found for robot ${robotId}`);
-        return;
+    console.log('[TCP] Searching for tool mesh in scene...');
+    
+    // Find the actual tool mesh (not container)
+    let toolMesh = null;
+    sceneSetup.scene.traverse(child => {
+      // Look for mesh objects that are tools
+      if (child.isMesh && child.userData?.isToolObject) {
+        toolMesh = child;
+        console.log('[TCP] Found tool mesh:', child);
       }
-      
-      const { toolContainer, toolTip } = toolObjects;
-      
-      console.log(`[TCP] Applying transforms to robot ${robotId}:`, transforms);
-      
-      // Apply transforms to the container
-      if (transforms.position) {
-        toolContainer.position.set(
-          transforms.position.x || 0,
-          transforms.position.y || 0,
-          transforms.position.z || 0
-        );
+      // Also check for any mesh with tool-related names
+      if (child.isMesh && (
+        child.name.includes('robotiq') || 
+        child.name.includes('gripper') || 
+        child.name.includes('tool') ||
+        child.name.includes('tcp')
+      )) {
+        toolMesh = child;
+        console.log('[TCP] Found tool mesh by name:', child.name);
       }
-      
-      if (transforms.rotation) {
-        toolContainer.rotation.set(
-          transforms.rotation.x || 0,
-          transforms.rotation.y || 0,
-          transforms.rotation.z || 0
-        );
-      }
-      
-      if (transforms.scale) {
-        toolContainer.scale.set(
-          transforms.scale.x || 1,
-          transforms.scale.y || 1,
-          transforms.scale.z || 1
-        );
-      }
-      
-      // CRITICAL: Force immediate matrix updates
-      toolContainer.updateMatrix();
-      toolContainer.updateMatrixWorld(true);
-      
-      // Update the tool tip matrices too
-      if (toolTip && toolTip !== toolContainer) {
-        toolTip.updateMatrixWorld(true);
-      }
-      
-      // Update state
-      setAttachedTools(prev => {
-        const newMap = new Map(prev);
-        const toolData = newMap.get(robotId);
-        if (toolData) {
-          toolData.transforms = { ...transforms };
-          newMap.set(robotId, toolData);
-        }
-        return newMap;
-      });
-      
-      console.log(`[TCP] Successfully applied transforms to robot ${robotId}`);
-      
-      // CRITICAL: Notify EndEffector context that the tool has moved
-      EventBus.emit('tcp:transform-changed', {
-        robotId,
-        transforms,
-        toolTip: toolTip,
-        toolContainer: toolContainer
-      });
-      
-      // Also emit general TCP change event
-      emitTCPEvent('tcp:tool-transform-changed', {
-        robotId,
-        transforms,
-        toolContainer: toolContainer,
-        toolTip: toolTip
-      });
-      
-    } catch (err) {
-      console.error(`Error setting tool transform:`, err);
-      setError(`Error setting tool transform: ${err.message}`);
+    });
+    
+    if (!toolMesh) {
+      console.error('[TCP] No tool mesh found');
+      return;
     }
-  }, [attachedTools, emitTCPEvent]);
+    
+    console.log('[TCP] Applying transforms to mesh:', toolMesh.name);
+    
+    // Apply transforms directly to the mesh
+    if (transforms.position) {
+      toolMesh.position.x = transforms.position.x || 0;
+      toolMesh.position.y = transforms.position.y || 0;
+      toolMesh.position.z = transforms.position.z || 0;
+    }
+    
+    if (transforms.rotation) {
+      toolMesh.rotation.x = transforms.rotation.x || 0;
+      toolMesh.rotation.y = transforms.rotation.y || 0;
+      toolMesh.rotation.z = transforms.rotation.z || 0;
+    }
+    
+    if (transforms.scale) {
+      toolMesh.scale.x = transforms.scale.x || 1;
+      toolMesh.scale.y = transforms.scale.y || 1;
+      toolMesh.scale.z = transforms.scale.z || 1;
+    }
+    
+    // Force update
+    toolMesh.updateMatrix();
+    toolMesh.updateMatrixWorld(true);
+    
+    console.log('[TCP] Applied to mesh - pos:', toolMesh.position, 'rot:', toolMesh.rotation, 'scale:', toolMesh.scale);
+  }, []);
   
   // Update setToolVisibility to emit events
   const setToolVisibility = useCallback((robotId, visible) => {
