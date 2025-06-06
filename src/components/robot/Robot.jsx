@@ -7,6 +7,7 @@ import Reposition from '../controls/Reposition/Reposition';
 import TrajectoryViewer from '../controls/RecordMap/TrajectoryViewer';
 import AddRobot from './AddRobot/AddRobot';
 import { useViewer } from '../../contexts/ViewerContext';
+import TCPController from '../controls/tcp/TCPController';
 
 const Robot = ({ isPanel = false, onClose }) => {
   const { viewerInstance } = useViewer();
@@ -60,6 +61,10 @@ const Robot = ({ isPanel = false, onClose }) => {
           
           <section className="controls-section-wrapper">
             <Reposition viewerRef={{ current: viewerInstance }} />
+          </section>
+          
+          <section className="controls-section-wrapper">
+            <TCPController viewerRef={{ current: viewerInstance }} />
           </section>
           
           <section className="controls-section-wrapper">

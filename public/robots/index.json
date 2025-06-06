@@ -43,27 +43,6 @@
       ]
     },
     {
-      "id": "robotiq",
-      "name": "robotiq",
-      "robots": [
-        {
-          "id": "robotiqarg2f85model",
-          "name": "Robotiqarg2f85model",
-          "urdfPath": "/robots/robotiq/robotiqarg2f85model/robotiq_arg2f_85_model.urdf",
-          "packagePath": "/robots/robotiq/robotiqarg2f85model",
-          "meshFiles": [
-            "robotiq_arg2f_85_base_link.dae",
-            "robotiq_arg2f_85_inner_finger.dae",
-            "robotiq_arg2f_85_inner_knuckle.dae",
-            "robotiq_arg2f_85_outer_finger.dae",
-            "robotiq_arg2f_85_outer_knuckle.dae",
-            "robotiq_arg2f_85_pad.dae",
-            "robotiq_gripper_coupling.stl"
-          ]
-        }
-      ]
-    },
-    {
       "id": "techmanroboter",
       "name": "techmanroboter",
       "robots": [
