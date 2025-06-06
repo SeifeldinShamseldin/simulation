@@ -1,4 +1,4 @@
-// src/App.jsx - NO ControlsTheme.css import here
+// src/App.jsx - Updated to use TCP-based end effector system
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
@@ -10,7 +10,6 @@ import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
-import { EndEffectorProvider } from './contexts/EndEffectorContext';
 import WorldManager from './components/World/WorldManager';
 import './App.css'; // Only App.css, NO ControlsTheme.css
 
@@ -83,20 +82,18 @@ const AppContent = () => {
   );
 };
 
-// Fix provider order - TCPProvider must come before EndEffectorProvider
+// Updated provider order - TCPProvider provides end effector functionality
 const App = () => {
   return (
     <SceneProvider>
       <ViewerProvider>
         <RobotProvider>
           <TCPProvider>
-            <EndEffectorProvider>
-              <IKProvider>
-                <WorldProvider>
-                  <AppContent />
-                </WorldProvider>
-              </IKProvider>
-            </EndEffectorProvider>
+            <IKProvider>
+              <WorldProvider>
+                <AppContent />
+              </WorldProvider>
+            </IKProvider>
           </TCPProvider>
         </RobotProvider>
       </ViewerProvider>
