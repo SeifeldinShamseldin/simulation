@@ -99,14 +99,20 @@ class TCPManager {
       console.log('Tool loaded successfully:', toolObject);
 
       // Attach to end effector
-      this.attachToEndEffector(endEffector, toolObject);
+      const toolContainer = this.attachToEndEffector(endEffector, toolObject);
 
       // Store tool data
       this.attachedTools.set(robotId, {
         toolId,
         tool,
         toolObject,
-        endEffector
+        toolContainer,
+        endEffector,
+        transforms: {
+          position: { x: 0, y: 0, z: 0 },
+          rotation: { x: 0, y: 0, z: 0 },
+          scale: { x: 1, y: 1, z: 1 }
+        }
       });
 
       console.log(`Tool ${toolId} attached to robot ${robotId}`);
@@ -123,6 +129,77 @@ class TCPManager {
       console.error('Error attaching tool:', error);
       throw error;
     }
+  }
+
+  /**
+   * Set tool transform (position, rotation, scale)
+   */
+  setToolTransform(robotId, transforms) {
+    const toolData = this.attachedTools.get(robotId);
+    if (!toolData || !toolData.toolContainer) {
+      console.warn(`No tool found for robot ${robotId}`);
+      return;
+    }
+
+    try {
+      const { toolContainer } = toolData;
+      
+      // Apply position
+      if (transforms.position) {
+        toolContainer.position.set(
+          transforms.position.x || 0,
+          transforms.position.y || 0,
+          transforms.position.z || 0
+        );
+      }
+
+      // Apply rotation
+      if (transforms.rotation) {
+        toolContainer.rotation.set(
+          transforms.rotation.x || 0,
+          transforms.rotation.y || 0,
+          transforms.rotation.z || 0
+        );
+      }
+
+      // Apply scale
+      if (transforms.scale) {
+        toolContainer.scale.set(
+          transforms.scale.x || 1,
+          transforms.scale.y || 1,
+          transforms.scale.z || 1
+        );
+      }
+
+      // Update stored transforms
+      toolData.transforms = { ...transforms };
+
+      // Force matrix update
+      toolContainer.updateMatrix();
+      toolContainer.updateMatrixWorld(true);
+
+      console.log(`Applied transforms to tool for robot ${robotId}:`, transforms);
+
+      // Emit transform update event
+      EventBus.emit('tcp:tool-transformed', {
+        robotId,
+        toolId: toolData.toolId,
+        transforms
+      });
+
+    } catch (error) {
+      console.error('Error applying tool transforms:', error);
+    }
+  }
+
+  /**
+   * Get current tool transforms
+   */
+  getToolTransform(robotId) {
+    const toolData = this.attachedTools.get(robotId);
+    if (!toolData) return null;
+
+    return { ...toolData.transforms };
   }
 
   /**
@@ -332,7 +409,7 @@ class TCPManager {
   attachToEndEffector(endEffector, toolObject) {
     console.log('Attaching tool to end effector:', endEffector.name);
     
-    // Create a tool container for proper positioning
+    // Create a tool container for proper positioning and transforms
     const toolContainer = new THREE.Group();
     toolContainer.name = 'tcp_tool_container';
     toolContainer.add(toolObject);
@@ -345,6 +422,8 @@ class TCPManager {
     toolContainer.userData.isToolContainer = true;
     
     console.log('Tool attached to end effector successfully');
+    
+    return toolContainer;
   }
 
   /**
@@ -357,29 +436,23 @@ class TCPManager {
     console.log(`Removing tool from robot ${robotId}`);
     
     // Remove from end effector
-    const { endEffector, toolObject } = toolData;
-    if (endEffector && toolObject) {
-      // Find and remove tool container
-      const toolContainer = endEffector.children.find(
-        child => child.userData.isToolContainer
-      );
-      if (toolContainer) {
-        endEffector.remove(toolContainer);
-        
-        // Dispose of resources
-        toolContainer.traverse(child => {
-          if (child.geometry) child.geometry.dispose();
-          if (child.material) {
-            if (Array.isArray(child.material)) {
-              child.material.forEach(m => m.dispose());
-            } else {
-              child.material.dispose();
-            }
+    const { endEffector, toolContainer } = toolData;
+    if (endEffector && toolContainer) {
+      endEffector.remove(toolContainer);
+      
+      // Dispose of resources
+      toolContainer.traverse(child => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+          if (Array.isArray(child.material)) {
+            child.material.forEach(m => m.dispose());
+          } else {
+            child.material.dispose();
           }
-        });
-        
-        console.log('Tool container removed and disposed');
-      }
+        }
+      });
+      
+      console.log('Tool container removed and disposed');
     }
     
     // Remove from tracking
@@ -397,17 +470,10 @@ class TCPManager {
    */
   setToolVisibility(robotId, visible) {
     const toolData = this.attachedTools.get(robotId);
-    if (!toolData) return;
+    if (!toolData || !toolData.toolContainer) return;
     
-    const { endEffector } = toolData;
-    const toolContainer = endEffector.children.find(
-      child => child.userData.isToolContainer
-    );
-    
-    if (toolContainer) {
-      toolContainer.visible = visible;
-      console.log(`Tool visibility set to ${visible} for robot ${robotId}`);
-    }
+    toolData.toolContainer.visible = visible;
+    console.log(`Tool visibility set to ${visible} for robot ${robotId}`);
   }
 
   /**
