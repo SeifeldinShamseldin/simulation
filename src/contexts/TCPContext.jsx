@@ -25,52 +25,62 @@ export const TCPProvider = ({ children }) => {
   const urdfLoaderRef = useRef(null);
   const toolObjectsRef = useRef(new Map()); // robotId -> { toolContainer, endEffector }
   
-  // Initialize when viewer and robots are ready
-  useEffect(() => {
-    let retryCount = 0;
-    const maxRetries = 10;
+  // Enhanced readiness check with detailed logging
+  const checkTCPReadiness = useCallback((operation = 'operation') => {
+    console.log(`[TCP] Checking readiness for ${operation}...`);
     
-    const tryInitialize = () => {
-      if (isViewerReady && loadedRobots.size > 0) {
-        const sceneSetup = getSceneSetup();
-        const robotManager = getRobotManager();
-        
-        if (sceneSetup && robotManager) {
-          try {
-            sceneSetupRef.current = sceneSetup;
-            robotManagerRef.current = robotManager;
-            urdfLoaderRef.current = new URDFLoader(new THREE.LoadingManager());
-            
-            // Configure URDF loader for TCP tools
-            urdfLoaderRef.current.parseVisual = true;
-            urdfLoaderRef.current.parseCollision = false;
-            
-            setIsInitialized(true);
-            setError(null);
-            loadAvailableTools();
-            
-            console.log('TCP Manager initialized successfully');
-            return;
-          } catch (err) {
-            console.error('TCP Manager initialization error:', err);
-            setError(`Initialization failed: ${err.message}`);
-          }
-        }
-      }
-      
-      // Retry logic
-      if (retryCount < maxRetries) {
-        retryCount++;
-        setTimeout(tryInitialize, 500);
-      } else {
-        setError('TCP Manager initialization timeout');
-      }
-    };
+    if (!isInitialized) {
+      console.log(`[TCP] ${operation} failed: not initialized`);
+      return false;
+    }
     
-    tryInitialize();
-  }, [isViewerReady, loadedRobots, getSceneSetup, getRobotManager]);
-  
-  // Scan for available TCP tools
+    if (!robotManagerRef.current) {
+      console.log(`[TCP] ${operation} failed: robotManager not available`);
+      return false;
+    }
+    
+    if (!sceneSetupRef.current) {
+      console.log(`[TCP] ${operation} failed: sceneSetup not available`);
+      return false;
+    }
+    
+    if (!urdfLoaderRef.current) {
+      console.log(`[TCP] ${operation} failed: urdfLoader not available`);
+      return false;
+    }
+    
+    // Additional check: verify robot manager has robots
+    const allRobots = robotManagerRef.current.getAllRobots();
+    if (!allRobots || allRobots.size === 0) {
+      console.log(`[TCP] ${operation} failed: no robots in robotManager`);
+      return false;
+    }
+    
+    console.log(`[TCP] Readiness check passed for ${operation}`);
+    return true;
+  }, [isInitialized]);
+
+  // Simplified wait for readiness - just wait for basic initialization
+  const waitForReadiness = useCallback(async (timeoutMs = 3000, operation = 'operation') => {
+    const startTime = Date.now();
+    let checkCount = 0;
+    
+    while (!checkTCPReadiness(operation) && (Date.now() - startTime) < timeoutMs) {
+      checkCount++;
+      console.log(`[TCP] Waiting for ${operation} readiness... (check ${checkCount}, ${Date.now() - startTime}ms elapsed)`);
+      await new Promise(resolve => setTimeout(resolve, 200)); // Check every 200ms
+    }
+    
+    const isReady = checkTCPReadiness(operation);
+    if (!isReady) {
+      throw new Error(`TCP Manager not ready for ${operation} after ${timeoutMs}ms timeout`);
+    }
+    
+    console.log(`[TCP] Ready for ${operation} after ${Date.now() - startTime}ms`);
+    return true;
+  }, [checkTCPReadiness]);
+
+  // Scan for available TCP tools (moved up before useEffect)
   const scanAvailableTools = useCallback(async () => {
     try {
       console.log('Scanning TCP tools via server API...');
@@ -91,23 +101,160 @@ export const TCPProvider = ({ children }) => {
       throw error;
     }
   }, []);
+
+  // Enhanced initialization with better timing
+  useEffect(() => {
+    let initTimeout;
+    let attemptCount = 0;
+    const maxAttempts = 30;
+    
+    const waitForSystemsReady = async () => {
+      attemptCount++;
+      console.log(`[TCP] Initialization attempt ${attemptCount}/${maxAttempts}`);
+      
+      // More thorough readiness check
+      if (!isViewerReady) {
+        console.log('[TCP] Viewer not ready yet');
+        scheduleRetry();
+        return;
+      }
+      
+      if (loadedRobots.size === 0) {
+        console.log('[TCP] No robots loaded yet');
+        scheduleRetry();
+        return;
+      }
+      
+      const sceneSetup = getSceneSetup();
+      const robotManager = getRobotManager();
+      
+      if (!sceneSetup) {
+        console.log('[TCP] SceneSetup not available');
+        scheduleRetry();
+        return;
+      }
+      
+      if (!robotManager) {
+        console.log('[TCP] RobotManager not available');
+        scheduleRetry();
+        return;
+      }
+      
+      // Additional check: verify robot manager actually has robots
+      const allRobots = robotManager.getAllRobots();
+      if (!allRobots || allRobots.size === 0) {
+        console.log('[TCP] RobotManager has no robots yet');
+        scheduleRetry();
+        return;
+      }
+      
+      // Additional check: verify scene has the robot root
+      if (!sceneSetup.robotRoot || sceneSetup.robotRoot.children.length === 0) {
+        console.log('[TCP] Scene robotRoot not ready');
+        scheduleRetry();
+        return;
+      }
+      
+      console.log('[TCP] All systems ready, initializing TCP Manager...');
+      
+      try {
+        // Store references
+        sceneSetupRef.current = sceneSetup;
+        robotManagerRef.current = robotManager;
+        
+        // Create URDF loader
+        urdfLoaderRef.current = new URDFLoader(new THREE.LoadingManager());
+        urdfLoaderRef.current.parseVisual = true;
+        urdfLoaderRef.current.parseCollision = false;
+        
+        // Mark as initialized
+        setIsInitialized(true);
+        setError(null);
+        
+        console.log('[TCP] Manager initialized successfully, loading tools...');
+        
+        // Load tools (don't wait for this to complete)
+        scanAvailableTools()
+          .then(tools => {
+            setAvailableTools(tools);
+            console.log(`[TCP] Tools loaded: ${tools.length} available`);
+          })
+          .catch(toolError => {
+            console.warn('[TCP] Failed to load tools:', toolError);
+            setAvailableTools([]);
+          });
+        
+      } catch (err) {
+        console.error('[TCP] Initialization failed:', err);
+        setError(`Initialization failed: ${err.message}`);
+        setIsInitialized(false);
+        scheduleRetry();
+      }
+    };
+    
+    const scheduleRetry = () => {
+      if (attemptCount < maxAttempts) {
+        const delay = Math.min(500 + (attemptCount * 100), 2000); // Progressive delay
+        console.log(`[TCP] Retrying in ${delay}ms...`);
+        initTimeout = setTimeout(waitForSystemsReady, delay);
+      } else {
+        console.error('[TCP] Max initialization attempts reached');
+        setError('TCP Manager failed to initialize - systems not ready');
+      }
+    };
+    
+    // Start initialization
+    waitForSystemsReady();
+    
+    return () => {
+      if (initTimeout) {
+        clearTimeout(initTimeout);
+      }
+    };
+  }, [isViewerReady, loadedRobots, getSceneSetup, getRobotManager, scanAvailableTools]);
   
-  // Load available tools
+  // Load available tools with better error handling
   const loadAvailableTools = useCallback(async () => {
-    if (!isInitialized) return;
+    if (!isInitialized) {
+      console.log('[TCP] Cannot load tools - not initialized yet');
+      return;
+    }
     
     try {
       setIsLoading(true);
       setError(null);
+      console.log('[TCP] Loading available tools...');
+      
       const tools = await scanAvailableTools();
       setAvailableTools(tools);
+      console.log(`[TCP] Successfully loaded ${tools.length} tools`);
     } catch (err) {
-      setError(`Failed to load tools: ${err.message}`);
-      console.error('Error loading TCP tools:', err);
+      const errorMsg = `Failed to load tools: ${err.message}`;
+      setError(errorMsg);
+      console.error('[TCP] Error loading TCP tools:', err);
+      
+      // Don't fail completely - just log and continue with empty tools
+      setAvailableTools([]);
     } finally {
       setIsLoading(false);
     }
   }, [isInitialized, scanAvailableTools]);
+
+  // Debug helper to check TCP manager status
+  const getTCPStatus = useCallback(() => {
+    return {
+      isInitialized,
+      isLoading,
+      error,
+      hasRobotManager: !!robotManagerRef.current,
+      hasSceneSetup: !!sceneSetupRef.current,
+      hasUrdfLoader: !!urdfLoaderRef.current,
+      availableToolsCount: availableTools.length,
+      attachedToolsCount: attachedTools.size,
+      isViewerReady,
+      loadedRobotsCount: loadedRobots.size
+    };
+  }, [isInitialized, isLoading, error, availableTools.length, attachedTools.size, isViewerReady, loadedRobots.size]);
   
   // Find robot end effector
   const findEndEffector = useCallback((robot) => {
@@ -403,8 +550,12 @@ export const TCPProvider = ({ children }) => {
   const attachToolWithTransforms = useCallback(async (robotId, toolId, transforms) => {
     console.log(`[TCP] Attaching tool ${toolId} with transforms to robot ${robotId}`);
     
-    if (!robotManagerRef.current || !sceneSetupRef.current || !isInitialized) {
-      throw new Error('TCP Manager not ready');
+    // Enhanced readiness check with auto-wait
+    try {
+      await waitForReadiness(3000);
+    } catch (error) {
+      console.error(`[TCP] Manager not ready for tool attachment:`, error);
+      throw new Error(`TCP Manager not ready: ${error.message}`);
     }
     
     try {
@@ -547,7 +698,7 @@ export const TCPProvider = ({ children }) => {
       console.error('[TCP] Error in attachToolWithTransforms:', err);
       throw err;
     }
-  }, [availableTools, findEndEffector, findToolTip, loadUrdfTool, loadMultiMeshTool, loadSingleMeshTool, emitTCPEvent, isInitialized]);
+  }, [availableTools, findEndEffector, findToolTip, loadUrdfTool, loadMultiMeshTool, loadSingleMeshTool, emitTCPEvent, waitForReadiness]);
 
   // 2. SECOND: removeTool (independent function)
   const removeTool = useCallback(async (robotId) => {
@@ -624,7 +775,7 @@ export const TCPProvider = ({ children }) => {
     }
   }, [emitTCPEvent, findEndEffector]);
 
-  // 3. THIRD: setToolTransform (uses removeTool and attachToolWithTransforms)
+  // 3. THIRD: setToolTransform with robust respawn logic
   const setToolTransform = useCallback(async (robotId, transforms) => {
     console.log(`[TCP] setToolTransform - respawning tool for robot: ${robotId}`);
     console.log(`[TCP] New transforms:`, transforms);
@@ -633,6 +784,8 @@ export const TCPProvider = ({ children }) => {
       console.warn(`[TCP] No tool attached to robot ${robotId}`);
       return;
     }
+    
+    const operationId = `transform-${robotId}-${Date.now()}`;
     
     try {
       setIsLoading(true);
@@ -647,26 +800,86 @@ export const TCPProvider = ({ children }) => {
       const currentToolId = currentToolInfo.toolId;
       console.log(`[TCP] Current tool ID: ${currentToolId}`);
       
-      // Step 1: Remove current tool completely
-      console.log(`[TCP] Step 1: Removing current tool`);
-      await removeTool(robotId);
+      // Step 1: Wait for system readiness
+      console.log(`[TCP] Step 1: Checking system readiness for respawn...`);
+      await waitForReadiness(5000, `respawn-${operationId}`);
       
-      // Step 2: Wait a moment for cleanup
-      await new Promise(resolve => setTimeout(resolve, 50));
+      // Step 2: Remove current tool
+      console.log(`[TCP] Step 2: Removing current tool`);
       
-      // Step 3: Respawn tool with new transforms
-      console.log(`[TCP] Step 2: Respawning tool with new transforms`);
+      // Remove from state first to prevent conflicts
+      setAttachedTools(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(robotId);
+        return newMap;
+      });
+      
+      // Remove from scene
+      const toolObjects = toolObjectsRef.current.get(robotId);
+      if (toolObjects) {
+        const { endEffector, toolContainer } = toolObjects;
+        
+        if (endEffector && toolContainer && endEffector.children.includes(toolContainer)) {
+          endEffector.remove(toolContainer);
+          endEffector.updateMatrixWorld(true);
+          
+          // Dispose resources
+          toolContainer.traverse(child => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach(m => m.dispose());
+              } else {
+                child.material.dispose();
+              }
+            }
+          });
+          
+          console.log('[TCP] Tool physically removed from scene');
+        }
+        
+        // Clean up tracking
+        toolObjectsRef.current.delete(robotId);
+      }
+      
+      // Step 3: Wait for cleanup to complete
+      console.log(`[TCP] Step 3: Waiting for cleanup...`);
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Step 4: Verify system is still ready
+      console.log(`[TCP] Step 4: Re-verifying system readiness...`);
+      await waitForReadiness(3000, `re-attach-${operationId}`);
+      
+      // Step 5: Respawn with new transforms
+      console.log(`[TCP] Step 5: Respawning tool with new transforms`);
       await attachToolWithTransforms(robotId, currentToolId, transforms);
       
       console.log(`[TCP] Tool respawned successfully with new transforms`);
       
+      // Emit successful transform event
+      emitTCPEvent('tcp:transform-changed', {
+        robotId,
+        toolId: currentToolId,
+        transforms,
+        operationId
+      });
+      
     } catch (err) {
-      console.error(`[TCP] Error respawning tool for robot ${robotId}:`, err);
+      console.error(`[TCP] Error in setToolTransform for robot ${robotId}:`, err);
       setError(`Error updating tool transform: ${err.message}`);
+      
+      // Emit failed transform event
+      emitTCPEvent('tcp:transform-failed', {
+        robotId,
+        error: err.message,
+        operationId
+      });
+      
+      throw err;
     } finally {
       setIsLoading(false);
     }
-  }, [attachedTools, removeTool, attachToolWithTransforms]);
+  }, [attachedTools, waitForReadiness, attachToolWithTransforms, emitTCPEvent]);
 
   // 4. FOURTH: attachTool (uses attachToolWithTransforms)
   const attachTool = useCallback(async (robotId, toolId) => {
@@ -807,7 +1020,29 @@ export const TCPProvider = ({ children }) => {
     getToolInfo,
     
     // Utils
-    clearError: () => setError(null)
+    clearError: () => setError(null),
+    
+    // Debug helpers
+    getTCPStatus,
+    checkReadiness: checkTCPReadiness,
+    
+    // Manual retry for failed initializations
+    forceInitialize: () => {
+      console.log('[TCP] Force re-initializing...');
+      setIsInitialized(false);
+      setError(null);
+      // Trigger re-initialization
+      setTimeout(() => {
+        const sceneSetup = getSceneSetup();
+        const robotManager = getRobotManager();
+        if (sceneSetup && robotManager) {
+          sceneSetupRef.current = sceneSetup;
+          robotManagerRef.current = robotManager;
+          setIsInitialized(true);
+          loadAvailableTools();
+        }
+      }, 100);
+    }
   };
   
   return (
@@ -825,4 +1060,4 @@ export const useTCPContext = () => {
   return context;
 };
 
-export default TCPContext; 
+export default TCPContext;
