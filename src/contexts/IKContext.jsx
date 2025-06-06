@@ -12,7 +12,7 @@ export const IKProvider = ({ children }) => {
   const { activeRobotId, robot, isReady } = useRobotControl();
   const { 
     position: currentPosition, 
-    getEndEffectorObject,
+    effectiveEndEffector,
     isReady: endEffectorReady 
   } = useEndEffector();
   
@@ -107,7 +107,7 @@ export const IKProvider = ({ children }) => {
   const solve = useCallback(async (targetPos) => {
     if (!robot || !isReady || !endEffectorReady) return null;
     
-    const endEffectorObject = getEndEffectorObject();
+    const endEffectorObject = effectiveEndEffector;
     if (!endEffectorObject) return null;
     
     const solver = solversRef.current[currentSolver];
@@ -116,8 +116,8 @@ export const IKProvider = ({ children }) => {
       return null;
     }
     
-    return await solver.solve(robot, targetPos, () => endEffectorObject);
-  }, [robot, isReady, endEffectorReady, currentSolver, getEndEffectorObject]);
+    return await solver.solve(robot, targetPos, (robot) => effectiveEndEffector);
+  }, [robot, isReady, endEffectorReady, currentSolver, effectiveEndEffector]);
 
   const executeIK = useCallback(async (target, options = {}) => {
     if (!robot || !isReady || isAnimating) return false;
