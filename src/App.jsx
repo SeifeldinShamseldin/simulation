@@ -9,6 +9,7 @@ import { RobotProvider } from './contexts/RobotContext';
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
+import { TCPProvider } from './contexts/TCPContext';
 import WorldManager from './components/World/WorldManager';
 import './App.css'; // Only App.css, NO ControlsTheme.css
 
@@ -88,9 +89,11 @@ const App = () => {
       <ViewerProvider>
         <RobotProvider>
           <IKProvider>
-            <WorldProvider>
-              <AppContent />
-            </WorldProvider>
+            <TCPProvider>
+              <WorldProvider>
+                <AppContent />
+              </WorldProvider>
+            </TCPProvider>
           </IKProvider>
         </RobotProvider>
       </ViewerProvider>

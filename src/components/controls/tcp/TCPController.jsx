@@ -1,227 +1,99 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
-import TCPManager from './TCPManager';
+import { useTCP } from '../../../contexts/hooks/useTCP';
 
 const TCPController = ({ viewerRef }) => {
-  const { activeRobotId, robot, isReady } = useRobotControl();
-  const tcpManagerRef = useRef(null);
-  const [availableTools, setAvailableTools] = useState([]);
-  const [currentTool, setCurrentTool] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [toolVisible, setToolVisible] = useState(true);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const { activeRobotId, isReady } = useRobotControl();
+  const {
+    robotId,
+    currentTool,
+    hasTool,
+    isToolVisible,
+    toolTransforms,
+    availableTools,
+    isLoading,
+    error,
+    isInitialized,
+    attachTool,
+    removeTool,
+    setToolTransform,
+    setToolVisibility,
+    resetTransforms,
+    scaleUniform,
+    refreshTools,
+    clearError,
+    getToolById
+  } = useTCP();
 
-  // Tool transformation states
-  const [toolTransform, setToolTransform] = useState({
+  // Local state for transform inputs
+  const [localTransforms, setLocalTransforms] = useState({
     position: { x: 0, y: 0, z: 0 },
     rotation: { x: 0, y: 0, z: 0 },
     scale: { x: 1, y: 1, z: 1 }
   });
 
-  // Initialize TCP manager when viewer is ready
+  // Sync local transforms with actual tool transforms
   useEffect(() => {
-    let retryCount = 0;
-    const maxRetries = 10;
-    
-    const tryInitialize = () => {
-      console.log(`TCPController: Initialization attempt ${retryCount + 1}/${maxRetries}`, { 
-        hasViewerRef: !!viewerRef?.current, 
-        hasRobot: !!robot, 
-        isReady, 
-        activeRobotId 
-      });
-
-      if (viewerRef?.current && robot && isReady && activeRobotId) {
-        try {
-          // Create new manager if needed
-          if (!tcpManagerRef.current) {
-            tcpManagerRef.current = new TCPManager();
-          }
-
-          const sceneSetup = viewerRef.current.getSceneSetup?.();
-          const robotManager = viewerRef.current.robotLoaderRef?.current;
-          
-          console.log('TCPController: Checking components...', {
-            hasSceneSetup: !!sceneSetup,
-            hasRobotManager: !!robotManager,
-            retryCount
-          });
-
-          if (sceneSetup && robotManager) {
-            console.log('TCPController: Initializing TCP Manager...');
-            tcpManagerRef.current.initialize(sceneSetup, robotManager);
-            setIsInitialized(true);
-            setError(null);
-            loadAvailableTools();
-            return; // Success, stop retrying
-          } else {
-            console.warn(`TCPController: Missing components (attempt ${retryCount + 1})`);
-            
-            // Retry after a short delay
-            if (retryCount < maxRetries - 1) {
-              retryCount++;
-              setTimeout(tryInitialize, 500); // Wait 500ms before retry
-            } else {
-              setError('Scene setup or robot manager not available after retries');
-              setIsInitialized(false);
-            }
-          }
-        } catch (err) {
-          console.error('TCPController: Initialization error:', err);
-          setError(`Initialization failed: ${err.message}`);
-          setIsInitialized(false);
-        }
-      } else {
-        console.log('TCPController: Not ready for initialization');
-        setIsInitialized(false);
-      }
-    };
-
-    // Start the initialization process
-    tryInitialize();
-  }, [viewerRef, robot, isReady, activeRobotId]);
-
-  // Clean up when robot changes
-  useEffect(() => {
-    return () => {
-      if (tcpManagerRef.current && currentTool && activeRobotId) {
-        tcpManagerRef.current.removeTool(activeRobotId).catch(console.error);
-      }
-    };
-  }, [activeRobotId]);
-
-  // Apply tool transforms when they change
-  useEffect(() => {
-    if (currentTool && activeRobotId && tcpManagerRef.current) {
-      tcpManagerRef.current.setToolTransform(activeRobotId, toolTransform);
-    }
-  }, [toolTransform, currentTool, activeRobotId]);
-
-  // Load available TCP tools
-  const loadAvailableTools = async () => {
-    if (!tcpManagerRef.current) {
-      console.warn('TCPController: Cannot load tools - manager not initialized');
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      setError(null);
-      console.log('TCPController: Loading available tools...');
-      const tools = await tcpManagerRef.current.scanAvailableTools();
-      console.log('TCPController: Loaded tools:', tools);
-      setAvailableTools(tools);
-    } catch (err) {
-      const errorMsg = `Failed to load tools: ${err.message}`;
-      setError(errorMsg);
-      console.error('TCPController: Error loading TCP tools:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Handle tool selection
-  const handleToolSelect = async (toolId) => {
-    if (!activeRobotId || !robot || !isInitialized || !tcpManagerRef.current) {
-      setError('TCP Manager not ready. Please wait for initialization.');
-      return;
-    }
-    
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      console.log('TCPController: Attaching tool:', toolId, 'to robot:', activeRobotId);
-      
-      // Remove current tool if exists
-      if (currentTool) {
-        await tcpManagerRef.current.removeTool(activeRobotId);
-      }
-      
-      // Load and attach new tool
-      const success = await tcpManagerRef.current.attachTool(activeRobotId, toolId);
-      
-      if (success) {
-        setCurrentTool(toolId);
-        // Reset transforms when new tool is attached
-        setToolTransform({
-          position: { x: 0, y: 0, z: 0 },
-          rotation: { x: 0, y: 0, z: 0 },
-          scale: { x: 1, y: 1, z: 1 }
-        });
-        console.log('TCPController: Tool attached successfully');
-      } else {
-        setError('Failed to attach tool');
-      }
-    } catch (err) {
-      const errorMsg = `Error attaching tool: ${err.message}`;
-      setError(errorMsg);
-      console.error('TCPController: Error attaching tool:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Remove current tool
-  const handleRemoveTool = async () => {
-    if (!activeRobotId || !currentTool || !tcpManagerRef.current) return;
-    
-    try {
-      setIsLoading(true);
-      await tcpManagerRef.current.removeTool(activeRobotId);
-      setCurrentTool(null);
-      // Reset transforms when tool is removed
-      setToolTransform({
+    if (toolTransforms) {
+      setLocalTransforms(toolTransforms);
+    } else {
+      setLocalTransforms({
         position: { x: 0, y: 0, z: 0 },
         rotation: { x: 0, y: 0, z: 0 },
         scale: { x: 1, y: 1, z: 1 }
       });
-      console.log('TCPController: Tool removed successfully');
+    }
+  }, [toolTransforms]);
+
+  // Handle tool selection
+  const handleToolSelect = async (toolId) => {
+    try {
+      await attachTool(toolId);
     } catch (err) {
-      setError(`Error removing tool: ${err.message}`);
-      console.error('TCPController: Error removing tool:', err);
-    } finally {
-      setIsLoading(false);
+      console.error('Error attaching tool:', err);
     }
   };
 
-  // Toggle tool visibility
-  const handleToggleVisibility = () => {
-    if (currentTool && activeRobotId && tcpManagerRef.current) {
-      const newVisibility = !toolVisible;
-      tcpManagerRef.current.setToolVisibility(activeRobotId, newVisibility);
-      setToolVisible(newVisibility);
+  // Handle tool removal
+  const handleRemoveTool = async () => {
+    try {
+      await removeTool();
+    } catch (err) {
+      console.error('Error removing tool:', err);
     }
+  };
+
+  // Handle toggle visibility
+  const handleToggleVisibility = () => {
+    setToolVisibility(!isToolVisible);
   };
 
   // Handle transform changes
   const handleTransformChange = (type, axis, value) => {
-    setToolTransform(prev => ({
-      ...prev,
+    const newTransforms = {
+      ...localTransforms,
       [type]: {
-        ...prev[type],
+        ...localTransforms[type],
         [axis]: parseFloat(value) || 0
       }
-    }));
+    };
+    
+    setLocalTransforms(newTransforms);
+    setToolTransform(newTransforms);
   };
 
-  // Reset transforms
-  const resetTransforms = () => {
-    setToolTransform({
-      position: { x: 0, y: 0, z: 0 },
-      rotation: { x: 0, y: 0, z: 0 },
-      scale: { x: 1, y: 1, z: 1 }
-    });
+  // Handle reset transforms
+  const handleResetTransforms = () => {
+    resetTransforms();
   };
 
-  // Get tool info
-  const getCurrentToolInfo = () => {
-    if (!currentTool) return null;
-    return availableTools.find(tool => tool.id === currentTool);
+  // Handle quick scale
+  const handleQuickScale = (scale) => {
+    scaleUniform(scale);
   };
 
-  const currentToolInfo = getCurrentToolInfo();
+  // Get current tool info
+  const currentToolInfo = currentTool ? getToolById(currentTool.toolId) : null;
 
   if (!isReady) {
     return (
@@ -248,7 +120,7 @@ const TCPController = ({ viewerRef }) => {
           {error}
           <button 
             className="controls-btn controls-btn-sm controls-btn-outline-danger controls-mt-2"
-            onClick={() => setError(null)}
+            onClick={clearError}
           >
             Dismiss
           </button>
@@ -256,13 +128,13 @@ const TCPController = ({ viewerRef }) => {
       )}
 
       {/* Current Tool Status */}
-      {currentTool && (
+      {hasTool && (
         <div className="controls-card controls-mb-3">
           <div className="controls-card-body">
             <h5 className="controls-h5">Current Tool</h5>
             <div className="controls-d-flex controls-justify-content-between controls-align-items-center">
               <div>
-                <strong>{currentToolInfo?.name || currentTool}</strong>
+                <strong>{currentToolInfo?.name || currentTool.toolId}</strong>
                 <br />
                 <small className="controls-text-muted">
                   Type: {currentToolInfo?.type || 'Unknown'}
@@ -270,11 +142,11 @@ const TCPController = ({ viewerRef }) => {
               </div>
               <div className="controls-btn-group">
                 <button
-                  className={`controls-btn controls-btn-sm ${toolVisible ? 'controls-btn-success' : 'controls-btn-secondary'}`}
+                  className={`controls-btn controls-btn-sm ${isToolVisible ? 'controls-btn-success' : 'controls-btn-secondary'}`}
                   onClick={handleToggleVisibility}
                   disabled={isLoading || !isInitialized}
                 >
-                  {toolVisible ? 'Hide' : 'Show'}
+                  {isToolVisible ? 'Hide' : 'Show'}
                 </button>
                 <button
                   className="controls-btn controls-btn-sm controls-btn-danger"
@@ -290,14 +162,14 @@ const TCPController = ({ viewerRef }) => {
       )}
 
       {/* Tool Transform Controls */}
-      {currentTool && (
+      {hasTool && (
         <div className="controls-card controls-mb-3">
           <div className="controls-card-body">
             <div className="controls-d-flex controls-justify-content-between controls-align-items-center controls-mb-3">
               <h5 className="controls-h5 controls-mb-0">Tool Transform</h5>
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
-                onClick={resetTransforms}
+                onClick={handleResetTransforms}
                 disabled={isLoading || !isInitialized}
               >
                 Reset
@@ -313,7 +185,7 @@ const TCPController = ({ viewerRef }) => {
                   <input
                     type="number"
                     className="controls-form-control"
-                    value={toolTransform.position.x}
+                    value={localTransforms.position.x}
                     onChange={(e) => handleTransformChange('position', 'x', e.target.value)}
                     step="0.001"
                     disabled={isLoading || !isInitialized}
@@ -324,7 +196,7 @@ const TCPController = ({ viewerRef }) => {
                   <input
                     type="number"
                     className="controls-form-control"
-                    value={toolTransform.position.y}
+                    value={localTransforms.position.y}
                     onChange={(e) => handleTransformChange('position', 'y', e.target.value)}
                     step="0.001"
                     disabled={isLoading || !isInitialized}
@@ -335,7 +207,7 @@ const TCPController = ({ viewerRef }) => {
                   <input
                     type="number"
                     className="controls-form-control"
-                    value={toolTransform.position.z}
+                    value={localTransforms.position.z}
                     onChange={(e) => handleTransformChange('position', 'z', e.target.value)}
                     step="0.001"
                     disabled={isLoading || !isInitialized}
@@ -353,7 +225,7 @@ const TCPController = ({ viewerRef }) => {
                   <input
                     type="number"
                     className="controls-form-control"
-                    value={(toolTransform.rotation.x * 180 / Math.PI).toFixed(1)}
+                    value={(localTransforms.rotation.x * 180 / Math.PI).toFixed(1)}
                     onChange={(e) => handleTransformChange('rotation', 'x', parseFloat(e.target.value) * Math.PI / 180)}
                     step="1"
                     disabled={isLoading || !isInitialized}
@@ -364,7 +236,7 @@ const TCPController = ({ viewerRef }) => {
                   <input
                     type="number"
                     className="controls-form-control"
-                    value={(toolTransform.rotation.y * 180 / Math.PI).toFixed(1)}
+                    value={(localTransforms.rotation.y * 180 / Math.PI).toFixed(1)}
                     onChange={(e) => handleTransformChange('rotation', 'y', parseFloat(e.target.value) * Math.PI / 180)}
                     step="1"
                     disabled={isLoading || !isInitialized}
@@ -375,7 +247,7 @@ const TCPController = ({ viewerRef }) => {
                   <input
                     type="number"
                     className="controls-form-control"
-                    value={(toolTransform.rotation.z * 180 / Math.PI).toFixed(1)}
+                    value={(localTransforms.rotation.z * 180 / Math.PI).toFixed(1)}
                     onChange={(e) => handleTransformChange('rotation', 'z', parseFloat(e.target.value) * Math.PI / 180)}
                     step="1"
                     disabled={isLoading || !isInitialized}
@@ -393,7 +265,7 @@ const TCPController = ({ viewerRef }) => {
                   <input
                     type="number"
                     className="controls-form-control"
-                    value={toolTransform.scale.x}
+                    value={localTransforms.scale.x}
                     onChange={(e) => handleTransformChange('scale', 'x', e.target.value)}
                     step="0.1"
                     min="0.1"
@@ -405,7 +277,7 @@ const TCPController = ({ viewerRef }) => {
                   <input
                     type="number"
                     className="controls-form-control"
-                    value={toolTransform.scale.y}
+                    value={localTransforms.scale.y}
                     onChange={(e) => handleTransformChange('scale', 'y', e.target.value)}
                     step="0.1"
                     min="0.1"
@@ -417,7 +289,7 @@ const TCPController = ({ viewerRef }) => {
                   <input
                     type="number"
                     className="controls-form-control"
-                    value={toolTransform.scale.z}
+                    value={localTransforms.scale.z}
                     onChange={(e) => handleTransformChange('scale', 'z', e.target.value)}
                     step="0.1"
                     min="0.1"
@@ -432,30 +304,21 @@ const TCPController = ({ viewerRef }) => {
               <div className="controls-btn-group controls-btn-group-sm">
                 <button
                   className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-                  onClick={() => setToolTransform(prev => ({
-                    ...prev,
-                    scale: { x: prev.scale.x * 0.5, y: prev.scale.y * 0.5, z: prev.scale.z * 0.5 }
-                  }))}
+                  onClick={() => handleQuickScale(0.5)}
                   disabled={isLoading || !isInitialized}
                 >
                   0.5x
                 </button>
                 <button
                   className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-                  onClick={() => setToolTransform(prev => ({
-                    ...prev,
-                    scale: { x: 1, y: 1, z: 1 }
-                  }))}
+                  onClick={() => handleQuickScale(1)}
                   disabled={isLoading || !isInitialized}
                 >
                   1x
                 </button>
                 <button
                   className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-                  onClick={() => setToolTransform(prev => ({
-                    ...prev,
-                    scale: { x: prev.scale.x * 2, y: prev.scale.y * 2, z: prev.scale.z * 2 }
-                  }))}
+                  onClick={() => handleQuickScale(2)}
                   disabled={isLoading || !isInitialized}
                 >
                   2x
@@ -488,7 +351,7 @@ const TCPController = ({ viewerRef }) => {
             {availableTools.map(tool => (
               <div 
                 key={tool.id}
-                className={`controls-list-item ${currentTool === tool.id ? 'controls-active' : ''}`}
+                className={`controls-list-item ${currentTool?.toolId === tool.id ? 'controls-active' : ''}`}
               >
                 <div className="controls-list-item-content">
                   <h6 className="controls-list-item-title">{tool.name}</h6>
@@ -503,11 +366,11 @@ const TCPController = ({ viewerRef }) => {
                 </div>
                 <div className="controls-list-item-actions">
                   <button
-                    className={`controls-btn controls-btn-sm ${currentTool === tool.id ? 'controls-btn-success' : 'controls-btn-primary'}`}
-                    onClick={() => currentTool === tool.id ? null : handleToolSelect(tool.id)}
-                    disabled={isLoading || currentTool === tool.id || !isInitialized}
+                    className={`controls-btn controls-btn-sm ${currentTool?.toolId === tool.id ? 'controls-btn-success' : 'controls-btn-primary'}`}
+                    onClick={() => currentTool?.toolId === tool.id ? null : handleToolSelect(tool.id)}
+                    disabled={isLoading || currentTool?.toolId === tool.id || !isInitialized}
                   >
-                    {currentTool === tool.id ? 'Active' : 'Attach'}
+                    {currentTool?.toolId === tool.id ? 'Active' : 'Attach'}
                   </button>
                 </div>
               </div>
@@ -519,7 +382,7 @@ const TCPController = ({ viewerRef }) => {
       {/* Refresh Button */}
       <button
         className="controls-btn controls-btn-secondary controls-btn-block"
-        onClick={loadAvailableTools}
+        onClick={refreshTools}
         disabled={isLoading || !isInitialized}
       >
         Refresh Tools
