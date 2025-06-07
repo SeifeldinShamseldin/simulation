@@ -29,28 +29,52 @@ class CCDSolver {
   async solve(robot, targetPos, findEndEffector) {
     if (!robot) return null;
     
-    // Store initial joint angles
+    console.log('[CCD] Starting IK solve for target:', targetPos);
+    console.log('[CCD] Available joints:', robot.joints ? Object.keys(robot.joints) : 'No joints');
+    
+    // Store initial joint angles - only for movable joints
     const startAngles = {};
-    Object.values(robot.joints).forEach(joint => {
-      startAngles[joint.name] = joint.angle || 0;
-    });
+    const movableJoints = [];
+    
+    if (robot.joints) {
+      Object.entries(robot.joints).forEach(([name, joint]) => {
+        if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
+          startAngles[name] = joint.angle;
+          movableJoints.push(name);
+        }
+      });
+    }
+    
+    console.log('[CCD] Movable joints:', movableJoints);
+    console.log('[CCD] Initial angles:', startAngles);
+    
+    if (movableJoints.length === 0) {
+      console.warn('[CCD] No movable joints found');
+      return null;
+    }
     
     // CCD iterations
     for (let iter = 0; iter < this.maxIterations; iter++) {
       const endEffector = findEndEffector(robot);
-      if (!endEffector) return null;
+      if (!endEffector) {
+        console.warn('[CCD] End effector not found');
+        return null;
+      }
       
       // Get current end effector position
       endEffector.getWorldPosition(this.vectors.worldEndPos);
       
       // Check convergence
       const distanceToTarget = this.vectors.worldEndPos.distanceTo(targetPos);
+      console.log(`[CCD] Iteration ${iter}: distance to target = ${distanceToTarget.toFixed(4)}`);
+      
       if (distanceToTarget < this.tolerance) {
+        console.log('[CCD] Converged!');
         break; // Converged!
       }
       
       // Process each joint from end to base
-      const jointNames = Object.keys(robot.joints).reverse();
+      const jointNames = movableJoints.slice().reverse(); // Work backwards
       
       for (const jointName of jointNames) {
         const joint = robot.joints[jointName];
@@ -115,22 +139,48 @@ class CCDSolver {
       }
     }
     
-    // Get final joint angles
-    const solution = {};
-    Object.values(robot.joints).forEach(joint => {
-      solution[joint.name] = joint.angle || 0;
+    // Get final joint angles - only for joints that were moved
+    const goalAngles = {};
+    movableJoints.forEach(jointName => {
+      const joint = robot.joints[jointName];
+      if (joint) {
+        goalAngles[jointName] = joint.angle || 0;
+      }
     });
     
     // Reset to initial angles (for animation)
     Object.entries(startAngles).forEach(([name, angle]) => {
-      robot.setJointValue(name, angle);
+      if (robot.joints[name]) {
+        robot.setJointValue(name, angle);
+      }
     });
     
-    return {
-      startAngles,
-      goalAngles: solution,
-      converged: this.vectors.worldEndPos.distanceTo(targetPos) < this.tolerance
-    };
+    // Check final convergence
+    const endEffector = findEndEffector(robot);
+    let converged = false;
+    if (endEffector) {
+      // Temporarily apply goal angles to check convergence
+      Object.entries(goalAngles).forEach(([name, angle]) => {
+        if (robot.joints[name]) {
+          robot.setJointValue(name, angle);
+        }
+      });
+      
+      endEffector.getWorldPosition(this.vectors.worldEndPos);
+      converged = this.vectors.worldEndPos.distanceTo(targetPos) < this.tolerance;
+      
+      // Reset to initial angles again
+      Object.entries(startAngles).forEach(([name, angle]) => {
+        if (robot.joints[name]) {
+          robot.setJointValue(name, angle);
+        }
+      });
+    }
+    
+    console.log('[CCD] Final solution:', goalAngles);
+    console.log('[CCD] Converged:', converged);
+    
+    return goalAngles; // Return just the goal angles - executeIK expects this format
   }
 
   /**

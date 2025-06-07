@@ -19,80 +19,96 @@ class TCPManager {
   }
 
   /**
-   * Calculate robot's default end effector position (when no TCP tool attached)
+   * Calculate robot's default end effector position (when no TCP tool attached) - ROBUST VERSION
    */
   calculateRobotEndEffectorPosition(robotId) {
+    console.log(`[TCP] Calculating robot end effector for ${robotId}`);
+    
     const robot = this.robotManager.getRobot(robotId);
-    if (!robot) return { x: 0, y: 0, z: 0 };
+    if (!robot) {
+      console.warn(`[TCP] Robot ${robotId} not found`);
+      return { x: 0, y: 0, z: 0 };
+    }
     
-    // Find robot base
-    const robotBase = this.findRobotBase(robot);
-    if (!robotBase) return { x: 0, y: 0, z: 0 };
+    console.log(`[TCP] Found robot:`, robot);
+    console.log(`[TCP] Robot links:`, robot.links ? Object.keys(robot.links) : 'No links');
     
-    // Find robot end effector
-    const robotEndEffector = this.findEndEffector(robot);
-    if (!robotEndEffector) return { x: 0, y: 0, z: 0 };
+    // Method 1: Find end effector by common names
+    const endEffectorNames = [
+      'end_effector', 'tool0', 'ee_link', 'gripper_link', 
+      'link_6', 'link_7', 'wrist_3_link', 'tool_link',
+      'flange', 'tool_flange'
+    ];
     
-    // Get positions
-    const baseWorldPos = new THREE.Vector3();
+    let endEffector = null;
+    for (const name of endEffectorNames) {
+      if (robot.links && robot.links[name]) {
+        endEffector = robot.links[name];
+        console.log(`[TCP] Found end effector by name: ${name}`);
+        break;
+      }
+    }
+    
+    // Method 2: Find the deepest link in the kinematic chain
+    if (!endEffector) {
+      let deepestLink = null;
+      let maxDepth = 0;
+      
+      const findDeepestLink = (obj, depth = 0) => {
+        if (obj.isURDFLink && depth > maxDepth) {
+          maxDepth = depth;
+          deepestLink = obj;
+        }
+        if (obj.children) {
+          obj.children.forEach(child => {
+            findDeepestLink(child, depth + 1);
+          });
+        }
+      };
+      
+      findDeepestLink(robot);
+      endEffector = deepestLink;
+      
+      if (endEffector) {
+        console.log(`[TCP] Found end effector as deepest link: ${endEffector.name} at depth ${maxDepth}`);
+      }
+    }
+    
+    if (!endEffector) {
+      console.warn(`[TCP] No end effector found for robot ${robotId}`);
+      return { x: 0, y: 0, z: 0 };
+    }
+    
+    // Get world position of end effector
     const endEffectorWorldPos = new THREE.Vector3();
+    endEffector.getWorldPosition(endEffectorWorldPos);
     
-    robotBase.getWorldPosition(baseWorldPos);
-    robotEndEffector.getWorldPosition(endEffectorWorldPos);
+    console.log(`[TCP] Raw end effector world position:`, endEffectorWorldPos);
     
-    // Calculate relative position from base
-    const relativePos = new THREE.Vector3().subVectors(endEffectorWorldPos, baseWorldPos);
+    // Find robot container (the parent container that holds the robot)
+    let robotContainer = robot;
+    while (robotContainer.parent && !robotContainer.parent.isScene) {
+      robotContainer = robotContainer.parent;
+    }
     
-    console.log(`Robot end effector position from base: (${relativePos.x.toFixed(3)}, ${relativePos.y.toFixed(3)}, ${relativePos.z.toFixed(3)})`);
+    // Get robot container position
+    const containerWorldPos = new THREE.Vector3();
+    robotContainer.getWorldPosition(containerWorldPos);
     
-    return {
+    console.log(`[TCP] Robot container world position:`, containerWorldPos);
+    
+    // Calculate relative position from robot base
+    const relativePos = new THREE.Vector3().subVectors(endEffectorWorldPos, containerWorldPos);
+    
+    const result = {
       x: relativePos.x,
       y: relativePos.y,
       z: relativePos.z
     };
-  }
-
-  /**
-   * Find robot's base link
-   */
-  findRobotBase(robot) {
-    // Method 1: Look for common base names
-    const baseNames = ['base_link', 'base', 'root', 'world'];
-    for (const name of baseNames) {
-      if (robot.links && robot.links[name]) {
-        console.log(`Found robot base by name: ${name}`);
-        return robot.links[name];
-      }
-    }
     
-    // Method 2: Find the root link (has no parent joints)
-    if (robot.links && robot.joints) {
-      const linksWithParentJoints = new Set();
-      Object.values(robot.joints).forEach(joint => {
-        joint.children.forEach(child => {
-          if (child.isURDFLink) {
-            linksWithParentJoints.add(child.name);
-          }
-        });
-      });
-      
-      const rootLinks = [];
-      Object.values(robot.links).forEach(link => {
-        if (!linksWithParentJoints.has(link.name)) {
-          rootLinks.push(link);
-        }
-      });
-      
-      if (rootLinks.length > 0) {
-        const base = rootLinks[0];
-        console.log(`Found robot base as root link: ${base.name}`);
-        return base;
-      }
-    }
+    console.log(`[TCP] Calculated robot end effector position from base: (${result.x.toFixed(3)}, ${result.y.toFixed(3)}, ${result.z.toFixed(3)})`);
     
-    // Method 3: Use the robot itself as base
-    console.log('Using robot object as base');
-    return robot;
+    return result;
   }
 
   /**
@@ -322,8 +338,6 @@ class TCPManager {
       }
     }.init();
   }
-
-  /**
 
   /**
    * Initialize the TCP manager
@@ -868,45 +882,84 @@ class TCPManager {
 
 export const TCPProvider = ({ children }) => {
   const { isViewerReady, getSceneSetup, getRobotManager } = useViewer();
-  const { loadedRobots } = useRobot();
-  
-  // State
-  const [availableTools, setAvailableTools] = useState([]);
-  const [attachedTools, setAttachedTools] = useState(new Map());
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [isInitialized, setIsInitialized] = useState(false);
-  
-  // TCP Manager instance
   const tcpManagerRef = useRef(null);
-  
-  // Initialize TCP Manager
+
+  // Initialize TCP Manager - Fixed condition
   useEffect(() => {
-    if (isViewerReady && loadedRobots.size > 0) {
+    if (isViewerReady) {
       const sceneSetup = getSceneSetup();
       const robotManager = getRobotManager();
+      
+      console.log('TCP Init check:', { isViewerReady, sceneSetup: !!sceneSetup, robotManager: !!robotManager });
       
       if (sceneSetup && robotManager) {
         try {
           if (!tcpManagerRef.current) {
             tcpManagerRef.current = new TCPManager();
+            console.log('Created new TCP Manager instance');
           }
           
           tcpManagerRef.current.initialize(sceneSetup, robotManager);
           setIsInitialized(true);
           setError(null);
           
+          console.log('TCP Manager initialized successfully');
+          
           // Load available tools
           loadAvailableTools();
           
-          console.log('TCP Manager initialized successfully');
         } catch (err) {
           console.error('TCP Manager initialization error:', err);
           setError(`Initialization failed: ${err.message}`);
         }
+      } else {
+        console.log('TCP Manager waiting for viewer components...');
       }
     }
-  }, [isViewerReady, loadedRobots, getSceneSetup, getRobotManager]);
+  }, [isViewerReady, getSceneSetup, getRobotManager]); // Removed loadedRobots dependency
+
+  // Listen for joint changes and TCP recalculation requests
+  useEffect(() => {
+    if (!isInitialized || !tcpManagerRef.current) return;
+
+    const handleForceRecalculate = (data) => {
+      if (data.robotId && tcpManagerRef.current) {
+        console.log(`[TCP] Force recalculating end effector for robot ${data.robotId}`);
+        tcpManagerRef.current.recalculateEndEffector(data.robotId);
+      }
+    };
+
+    const handleJointChanged = (data) => {
+      if (data.robotName && tcpManagerRef.current) {
+        console.log(`[TCP] Joint changed for robot ${data.robotName}, recalculating end effector`);
+        tcpManagerRef.current.recalculateEndEffector(data.robotName);
+      }
+    };
+
+    const handleJointsChanged = (data) => {
+      if (data.robotName && tcpManagerRef.current) {
+        console.log(`[TCP] Joints changed for robot ${data.robotName}, recalculating end effector`);
+        tcpManagerRef.current.recalculateEndEffector(data.robotName);
+      }
+    };
+
+    const unsubscribeForce = EventBus.on('tcp:force-recalculate', handleForceRecalculate);
+    const unsubscribeJoint = EventBus.on('robot:joint-changed', handleJointChanged);
+    const unsubscribeJoints = EventBus.on('robot:joints-changed', handleJointsChanged);
+
+    return () => {
+      unsubscribeForce();
+      unsubscribeJoint();
+      unsubscribeJoints();
+    };
+  }, [isInitialized]);
+
+  // State
+  const [availableTools, setAvailableTools] = useState([]);
+  const [attachedTools, setAttachedTools] = useState(new Map());
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
   
   // Load available tools
   const loadAvailableTools = useCallback(async () => {

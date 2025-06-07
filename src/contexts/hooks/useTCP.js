@@ -88,18 +88,29 @@ export const useTCP = (robotId = null) => {
     };
   }, [targetRobotId]);
   
-  // Initialize end effector point when robot changes or TCP state changes
+  // Initialize end effector point when robot changes, TCP state changes, OR TCP becomes initialized
   useEffect(() => {
-    if (targetRobotId) {
+    console.log(`[TCP Hook] Effect triggered for robot ${targetRobotId}, initialized: ${isInitialized}`);
+    
+    if (targetRobotId && isInitialized) {
+      console.log(`[TCP Hook] Getting end effector point for ${targetRobotId}`);
+      
       const point = getCurrentEndEffectorPoint(targetRobotId);
-      if (point) {
+      console.log(`[TCP Hook] getCurrentEndEffectorPoint returned:`, point);
+      
+      if (point && (point.x !== 0 || point.y !== 0 || point.z !== 0)) {
         setCurrentEndEffectorPoint({ x: point.x, y: point.y, z: point.z });
         
         const distance = Math.sqrt(point.x ** 2 + point.y ** 2 + point.z ** 2);
         setEndEffectorDistance(distance);
+        
+        console.log(`[TCP Hook] Set end effector point:`, { x: point.x, y: point.y, z: point.z });
       } else {
         // Fallback to robot end effector if available
+        console.log(`[TCP Hook] Getting robot end effector position for ${targetRobotId}`);
         const robotEndEffectorPos = getRobotEndEffectorPosition(targetRobotId);
+        console.log(`[TCP Hook] getRobotEndEffectorPosition returned:`, robotEndEffectorPos);
+        
         if (robotEndEffectorPos) {
           setCurrentEndEffectorPoint(robotEndEffectorPos);
           
@@ -109,13 +120,18 @@ export const useTCP = (robotId = null) => {
             robotEndEffectorPos.z ** 2
           );
           setEndEffectorDistance(distance);
+          
+          console.log(`[TCP Hook] Set robot end effector position:`, robotEndEffectorPos);
+        } else {
+          console.warn(`[TCP Hook] No end effector position available for ${targetRobotId}`);
         }
       }
     } else {
       setCurrentEndEffectorPoint({ x: 0, y: 0, z: 0 });
       setEndEffectorDistance(0);
+      console.log(`[TCP Hook] Reset end effector position (no robot or not initialized)`);
     }
-  }, [targetRobotId, currentTool, getCurrentEndEffectorPoint, getRobotEndEffectorPosition]);
+  }, [targetRobotId, currentTool, isInitialized, getCurrentEndEffectorPoint, getRobotEndEffectorPosition]);
   
   // Robot-specific methods
   const attachToolToRobot = useCallback(async (toolId) => {

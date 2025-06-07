@@ -293,13 +293,34 @@ class RobotLoader {
      */
     setJointValue(robotName, jointName, value) {
         const robotData = this.robots.get(robotName);
-        if (!robotData) return;
-        
-        const joint = robotData.model.joints[jointName];
-        if (joint) {
-            joint.setJointValue(value);
-            EventBus.emit('robot:joint-changed', { robotName, jointName, value });
+        if (!robotData) {
+            console.warn(`Robot ${robotName} not found for joint update`);
+            return false;
         }
+        
+        if (robotData.model.joints && robotData.model.joints[jointName]) {
+            try {
+                // Use robot's setJointValue method, not joint's
+                const success = robotData.model.setJointValue(jointName, value);
+                if (success) {
+                    // Emit joint change event
+                    EventBus.emit('robot:joint-changed', { 
+                        robotName, 
+                        jointName, 
+                        value,
+                        robotId: robotName // Also emit with robotId for consistency
+                    });
+                    
+                    console.log(`[RobotLoader] Set joint ${jointName} = ${value} for robot ${robotName}`);
+                    return true;
+                }
+            } catch (error) {
+                console.error(`Error setting joint ${jointName} on robot ${robotName}:`, error);
+            }
+        } else {
+            console.warn(`Joint ${jointName} not found on robot ${robotName}`);
+        }
+        return false;
     }
     
     /**
@@ -309,16 +330,49 @@ class RobotLoader {
      */
     setJointValues(robotName, values) {
         const robotData = this.robots.get(robotName);
-        if (!robotData) return;
+        if (!robotData) {
+            console.warn(`Robot ${robotName} not found for joint updates`);
+            return false;
+        }
         
-        Object.entries(values).forEach(([jointName, value]) => {
-            const joint = robotData.model.joints[jointName];
-            if (joint) {
-                joint.setJointValue(value);
+        let anySuccess = false;
+        
+        try {
+            // Use robot's setJointValues method
+            const success = robotData.model.setJointValues(values);
+            if (success) {
+                anySuccess = true;
             }
-        });
+        } catch (error) {
+            console.error(`Error setting multiple joints on robot ${robotName}:`, error);
+            
+            // Fallback: try setting joints individually
+            Object.entries(values).forEach(([jointName, value]) => {
+                try {
+                    if (robotData.model.joints && robotData.model.joints[jointName]) {
+                        const success = robotData.model.setJointValue(jointName, value);
+                        if (success) {
+                            anySuccess = true;
+                        }
+                    }
+                } catch (err) {
+                    console.warn(`Failed to set joint ${jointName}:`, err);
+                }
+            });
+        }
         
-        EventBus.emit('robot:joints-changed', { robotName, values });
+        if (anySuccess) {
+            // Emit joints change event
+            EventBus.emit('robot:joints-changed', { 
+                robotName, 
+                values,
+                robotId: robotName // Also emit with robotId for consistency
+            });
+            
+            console.log(`[RobotLoader] Set multiple joints for robot ${robotName}:`, values);
+        }
+        
+        return anySuccess;
     }
     
     /**
