@@ -1,4 +1,4 @@
-// src/App.jsx - Updated to use TCP-based end effector system
+// src/App.jsx - Updated with JointProvider in the architecture
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
@@ -10,30 +10,26 @@ import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
+import { JointProvider } from './contexts/JointContext'; // New JointProvider
 import WorldManager from './components/World/WorldManager';
-import './App.css'; // Only App.css, NO ControlsTheme.css
+import './App.css';
 
 const AppContent = () => {
-  // Explicitly set to null to ensure no panel is open by default
   const [activePanel, setActivePanel] = useState(null);
   const { setViewerInstance } = useViewer();
   const viewerRef = useRef(null);
 
-  // Debug log to check panel state
   useEffect(() => {
     console.log('Active panel:', activePanel);
   }, [activePanel]);
 
-  // Register viewer instance when ready
   useEffect(() => {
     if (viewerRef.current) {
       setViewerInstance(viewerRef.current);
-      // Temporary global reference for context
       window.viewerInstance = viewerRef.current;
     }
   }, [setViewerInstance]);
 
-  // Handle panel toggle with explicit null check
   const handlePanelToggle = (panel) => {
     setActivePanel(prevPanel => prevPanel === panel ? null : panel);
   };
@@ -82,18 +78,27 @@ const AppContent = () => {
   );
 };
 
-// Updated provider order - TCPProvider provides end effector functionality
+// Updated provider architecture with proper flow:
+// SceneProvider (3D scene)
+// ViewerProvider (viewer instance)
+// RobotProvider (robot loading/management)
+// TCPProvider (end effector calculation logic)
+// JointProvider (joint management logic)
+// IKProvider (IK calculation logic)
+// WorldProvider (world saving/loading)
 const App = () => {
   return (
     <SceneProvider>
       <ViewerProvider>
         <RobotProvider>
           <TCPProvider>
-            <IKProvider>
-              <WorldProvider>
-                <AppContent />
-              </WorldProvider>
-            </IKProvider>
+            <JointProvider>
+              <IKProvider>
+                <WorldProvider>
+                  <AppContent />
+                </WorldProvider>
+              </IKProvider>
+            </JointProvider>
           </TCPProvider>
         </RobotProvider>
       </ViewerProvider>

@@ -1,4 +1,4 @@
-// components/controls/IKController/IKController.jsx
+// components/controls/IKController/IKController.jsx - Fixed button states
 import React, { useState, useEffect } from 'react';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import { useIK } from '../../../contexts/hooks/useIK';
@@ -53,9 +53,10 @@ const IKController = () => {
     if (!robot || !isReady || isAnimating) return;
     
     try {
+      console.log(`[IKController] Moving to target:`, targetPosition);
       await executeIK(targetPosition, { animate });
     } catch (error) {
-      console.error('IK execution failed:', error);
+      console.error('[IKController] IK execution failed:', error);
     }
   };
 
@@ -85,6 +86,11 @@ const IKController = () => {
     const newSettings = { ...solverSettings, [setting]: parseFloat(value) };
     setSolverSettings(newSettings);
     configureSolver(currentSolver, newSettings);
+  };
+
+  const handleStopMovement = () => {
+    console.log(`[IKController] Stop button clicked`);
+    stopAnimation();
   };
 
   if (!isReady) {
@@ -117,6 +123,7 @@ const IKController = () => {
         <button
           className="controls-btn controls-btn-sm controls-btn-secondary controls-mt-2"
           onClick={() => setShowSettings(!showSettings)}
+          disabled={isAnimating}
         >
           {showSettings ? 'Hide' : 'Show'} Settings
         </button>
@@ -275,21 +282,45 @@ const IKController = () => {
           Use Current Position
         </button>
 
-        <button
-          className="controls-btn controls-btn-primary controls-w-100 controls-mt-2"
-          onClick={() => moveToTarget(true)}
-          disabled={isAnimating}
-        >
-          {isAnimating ? 'Moving...' : 'Move Robot to Target'}
-        </button>
+        {/* Move/Stop buttons */}
+        <div className="controls-btn-group controls-w-100 controls-mt-2">
+          {!isAnimating ? (
+            <button
+              className="controls-btn controls-btn-primary controls-w-100"
+              onClick={() => moveToTarget(true)}
+              disabled={isAnimating}
+            >
+              Move Robot to Target
+            </button>
+          ) : (
+            <button
+              className="controls-btn controls-btn-danger controls-w-100"
+              onClick={handleStopMovement}
+            >
+              Stop Movement
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Status */}
       <div className="controls-mt-3">
         <strong>Status:</strong> 
-        <span className={`controls-text-${solverStatus.includes('Error') ? 'danger' : 'muted'}`}>
+        <span className={`controls-text-${
+          solverStatus.includes('Error') || solverStatus.includes('Failed') ? 'danger' : 
+          solverStatus.includes('Moving') || solverStatus.includes('Solving') ? 'warning' :
+          solverStatus.includes('Complete') ? 'success' : 'muted'
+        }`}>
           {' ' + solverStatus}
         </span>
+        
+        {isAnimating && (
+          <div className="controls-mt-2">
+            <small className="controls-text-muted">
+              Animation in progress... Click "Stop Movement" to cancel.
+            </small>
+          </div>
+        )}
       </div>
     </div>
   );

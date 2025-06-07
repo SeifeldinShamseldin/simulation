@@ -1,4 +1,4 @@
-// src/contexts/IKContext.jsx - Updated to work with simplified TCP system
+// src/contexts/IKContext.jsx - Fixed animation completion handling
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { useRobot } from './RobotContext';
@@ -59,7 +59,7 @@ export const IKProvider = ({ children }) => {
   // Listen for TCP end effector updates
   useEffect(() => {
     const handleTCPEndEffectorUpdate = (data) => {
-      if (data.robotId === activeRobotId) {
+      if (data.robotId === activeRobotId && !isAnimating) {
         const endEffectorType = data.hasTCP ? 'TCP' : 'Robot';
         setSolverStatus(`Ready (${endEffectorType} End Effector - Position Updated)`);
         
@@ -72,20 +72,37 @@ export const IKProvider = ({ children }) => {
     
     const unsubscribe = EventBus.on('tcp:endeffector-updated', handleTCPEndEffectorUpdate);
     return () => unsubscribe();
-  }, [activeRobotId, isUsingTCP, getEndEffectorInfo]);
+  }, [activeRobotId, isUsingTCP, getEndEffectorInfo, isAnimating]);
 
-  // Listen for animation state updates from Joint Control
+  // Listen for animation completion from JointContext
   useEffect(() => {
-    const handleAnimationState = (data) => {
+    const handleAnimationComplete = (data) => {
       if (data.robotId === activeRobotId) {
-        setIsAnimating(data.isAnimating);
-        setSolverStatus(data.status);
+        console.log(`[IK Context] Animation completion received for ${activeRobotId}:`, data);
+        
+        setIsAnimating(false);
+        
+        if (data.success) {
+          setSolverStatus('Move Complete');
+          
+          // Reset status after a delay
+          setTimeout(() => {
+            setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
+          }, 2000);
+        } else {
+          setSolverStatus('Move Cancelled');
+          
+          // Reset status after a delay
+          setTimeout(() => {
+            setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
+          }, 1000);
+        }
       }
     };
 
-    const unsubscribe = EventBus.on('ik:set-animation-state', handleAnimationState);
+    const unsubscribe = EventBus.on('ik:animation-complete', handleAnimationComplete);
     return () => unsubscribe();
-  }, [activeRobotId]);
+  }, [activeRobotId, isUsingTCP, getEndEffectorInfo]);
 
   // Simplified end effector getter - creates virtual end effector at final position
   const getEffectiveEndEffector = useCallback((robot) => {
@@ -130,11 +147,15 @@ export const IKProvider = ({ children }) => {
 
   const executeIK = useCallback(async (target, options = {}) => {
     const robot = getRobot(activeRobotId);
-    if (!robot || !isReady.current || isAnimating) return false;
+    if (!robot || !isReady.current || isAnimating) {
+      console.log(`[IK Context] Cannot execute: robot=${!!robot}, ready=${isReady.current}, animating=${isAnimating}`);
+      return false;
+    }
     
     // Get current position from options (passed from useIK)
     const currentPos = options.currentPosition || { x: 0, y: 0, z: 0 };
     
+    console.log(`[IK Context] Starting IK execution for ${activeRobotId}`);
     setIsAnimating(true);
     setSolverStatus('Solving...');
     
@@ -142,24 +163,28 @@ export const IKProvider = ({ children }) => {
       const result = await solve(target, currentPos);
       
       if (result) {
-        setSolverStatus('Success');
+        setSolverStatus(options.animate ? 'Moving...' : 'Applying...');
+        
+        console.log(`[IK Context] Emitting joint values to JointContext:`, result);
         
         // Emit event to Joint Control with the goal angles
         EventBus.emit('ik:joint-values-calculated', {
           robotId: activeRobotId,
-          jointValues: result, // CCD now returns just goal angles, no reset needed
+          jointValues: result, // CCD now returns goal angles starting from current position
           animate: options.animate,
           duration: options.duration || 1000
         });
         
+        // Don't set isAnimating to false here - wait for JointContext completion
         return true;
       } else {
+        console.log(`[IK Context] Solver returned no solution`);
         setSolverStatus('Failed to solve');
         setIsAnimating(false);
         return false;
       }
     } catch (error) {
-      console.error('Error executing IK:', error);
+      console.error('[IK Context] Error executing IK:', error);
       setSolverStatus('Error');
       setIsAnimating(false);
       return false;
@@ -167,9 +192,19 @@ export const IKProvider = ({ children }) => {
   }, [activeRobotId, getRobot, solve, isAnimating]);
 
   const stopAnimation = useCallback(() => {
+    console.log(`[IK Context] Stopping animation for ${activeRobotId}`);
+    
+    // Notify JointContext to stop animation
+    EventBus.emit('joint:stop-animation', { robotId: activeRobotId });
+    
     setIsAnimating(false);
-    setSolverStatus('Ready');
-  }, []);
+    setSolverStatus('Stopped');
+    
+    // Reset status after a delay
+    setTimeout(() => {
+      setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
+    }, 1000);
+  }, [activeRobotId, isUsingTCP, getEndEffectorInfo]);
 
   const configureSolver = useCallback((solverName, config) => {
     const solver = solversRef.current[solverName];

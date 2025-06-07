@@ -20,7 +20,7 @@ class CCDSolver {
   }
 
   /**
-   * Solve IK using CCD algorithm - VIRTUAL SOLVING (don't move actual robot)
+   * Solve IK using CCD algorithm - VIRTUAL SOLVING (don't reset robot position)
    * @param {Object} robot - The robot model
    * @param {THREE.Vector3} targetPos - Target position
    * @param {Function} findEndEffector - Function to find end effector
@@ -32,6 +32,7 @@ class CCDSolver {
     
     console.log('[CCD] Starting IK solve');
     console.log('[CCD] Target position:', targetPos);
+    console.log('[CCD] Current end effector position:', currentPos);
     
     // Get the actual robot end effector (not virtual)
     const realEndEffector = robot.userData?.endEffectorLink;
@@ -42,14 +43,14 @@ class CCDSolver {
     
     console.log(`[CCD] Using end effector: ${realEndEffector.name}`);
     
-    // Store current joint angles
-    const currentAngles = {};
+    // Store CURRENT joint angles (don't reset!)
+    const startingAngles = {};
     const movableJoints = [];
     
     if (robot.joints) {
       Object.entries(robot.joints).forEach(([name, joint]) => {
         if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
-          currentAngles[name] = joint.angle;
+          startingAngles[name] = joint.angle; // Use CURRENT angles, not reset
           movableJoints.push(name);
         }
       });
@@ -60,10 +61,11 @@ class CCDSolver {
       return null;
     }
     
+    console.log(`[CCD] Starting from current joint angles:`, startingAngles);
     console.log(`[CCD] Movable joints: ${movableJoints.join(', ')}`);
     
     // Create working copy of joint values for virtual solving
-    const virtualAngles = { ...currentAngles };
+    const virtualAngles = { ...startingAngles }; // Start from CURRENT position
     
     // CCD iterations
     for (let iter = 0; iter < this.maxIterations; iter++) {
@@ -158,18 +160,10 @@ class CCDSolver {
       }
     }
     
-    // Restore robot to original position
-    Object.entries(currentAngles).forEach(([name, angle]) => {
-      if (robot.joints[name]) {
-        robot.setJointValue(name, angle);
-      }
-    });
-    
-    // Update matrices to restore original state
-    robot.updateMatrixWorld(true);
-    
+    // DON'T restore robot position - leave it at the solution position!
+    // The JointContext will handle the animation from current to target
     console.log('[CCD] Solution calculated:', virtualAngles);
-    console.log('[CCD] Robot restored to original position');
+    console.log('[CCD] Robot left at solution position for smooth animation');
     
     return virtualAngles;
   }
@@ -182,4 +176,4 @@ class CCDSolver {
   }
 }
 
-export default CCDSolver; 
+export default CCDSolver;
