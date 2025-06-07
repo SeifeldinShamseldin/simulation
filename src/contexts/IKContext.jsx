@@ -1,4 +1,4 @@
-// src/contexts/IKContext.jsx - Updated to work with TCP system
+// src/contexts/IKContext.jsx - Updated to work with simplified TCP system
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { useRobot } from './RobotContext';
@@ -50,7 +50,7 @@ export const IKProvider = ({ children }) => {
   // Listen for TCP changes and update status
   useEffect(() => {
     if (isUsingTCP) {
-      setSolverStatus(`Ready (TCP: ${getEndEffectorInfo()?.name || 'Tool'})`);
+      setSolverStatus(`Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})`);
     } else {
       setSolverStatus('Ready (Robot End Effector)');
     }
@@ -59,15 +59,13 @@ export const IKProvider = ({ children }) => {
   // Listen for TCP end effector updates
   useEffect(() => {
     const handleTCPEndEffectorUpdate = (data) => {
-      if (data.robotId === activeRobotId && isUsingTCP) {
-        console.log(`[IK:${activeRobotId}] TCP end effector updated, IK system aware`);
-        
-        // Update status to reflect TCP change
-        setSolverStatus(`Ready (TCP: ${getEndEffectorInfo()?.name || 'Tool'} - Position Updated)`);
+      if (data.robotId === activeRobotId) {
+        const endEffectorType = data.hasTCP ? 'TCP' : 'Robot';
+        setSolverStatus(`Ready (${endEffectorType} End Effector - Position Updated)`);
         
         // Reset status after a delay
         setTimeout(() => {
-          setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.name || 'Tool'})` : 'Ready (Robot End Effector)');
+          setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
         }, 2000);
       }
     };
@@ -76,64 +74,30 @@ export const IKProvider = ({ children }) => {
     return () => unsubscribe();
   }, [activeRobotId, isUsingTCP, getEndEffectorInfo]);
 
-  // Custom end effector getter for IK solver - uses TCP end effector when available
+  // Simplified end effector getter - creates virtual end effector at final position
   const getEffectiveEndEffector = useCallback((robot) => {
-    if (isUsingTCP && hasValidEndEffector) {
-      // Create a virtual end effector object at the TCP position
-      const virtualEndEffector = new THREE.Object3D();
-      virtualEndEffector.name = 'tcp_virtual_end_effector';
-      
-      // Position it at the current TCP end effector point
-      virtualEndEffector.position.set(
-        currentEndEffectorPoint.x,
-        currentEndEffectorPoint.y,
-        currentEndEffectorPoint.z
-      );
-      
-      // Make sure it has the necessary matrices
-      virtualEndEffector.updateMatrix();
-      virtualEndEffector.updateMatrixWorld(true);
-      
-      console.log(`[IK] Using TCP end effector at: (${currentEndEffectorPoint.x.toFixed(3)}, ${currentEndEffectorPoint.y.toFixed(3)}, ${currentEndEffectorPoint.z.toFixed(3)})`);
-      return virtualEndEffector;
-    } else {
-      // Fall back to robot's default end effector
-      const endEffectorNames = [
-        'end_effector', 'tool0', 'ee_link', 'gripper_link', 
-        'link_6', 'link_7', 'wrist_3_link', 'tool_link',
-        'flange', 'tool_flange'
-      ];
-      
-      for (const name of endEffectorNames) {
-        if (robot.links && robot.links[name]) {
-          console.log(`[IK] Using robot end effector: ${name}`);
-          return robot.links[name];
-        }
-      }
-      
-      // Last resort: find deepest link
-      let deepestLink = null;
-      let maxDepth = 0;
-      const findDeepestLink = (obj, depth = 0) => {
-        if (obj.isURDFLink && depth > maxDepth) {
-          maxDepth = depth;
-          deepestLink = obj;
-        }
-        if (obj.children) {
-          obj.children.forEach(child => {
-            findDeepestLink(child, depth + 1);
-          });
-        }
-      };
-      findDeepestLink(robot);
-      
-      if (deepestLink) {
-        console.log(`[IK] Using deepest robot link: ${deepestLink.name}`);
-      }
-      
-      return deepestLink;
-    }
-  }, [isUsingTCP, hasValidEndEffector, currentEndEffectorPoint]);
+    // Create a virtual end effector object at the final calculated position
+    // This works for both TCP and robot end effector since currentEndEffectorPoint
+    // already contains the final calculated position (robot + tcp)
+    const virtualEndEffector = new THREE.Object3D();
+    virtualEndEffector.name = 'virtual_end_effector';
+    
+    // Position it at the current calculated end effector point
+    virtualEndEffector.position.set(
+      currentEndEffectorPoint.x,
+      currentEndEffectorPoint.y,
+      currentEndEffectorPoint.z
+    );
+    
+    // Make sure it has the necessary matrices
+    virtualEndEffector.updateMatrix();
+    virtualEndEffector.updateMatrixWorld(true);
+    
+    const endEffectorType = isUsingTCP ? 'TCP' : 'Robot';
+    console.log(`[IK] Using ${endEffectorType} end effector at: (${currentEndEffectorPoint.x.toFixed(3)}, ${currentEndEffectorPoint.y.toFixed(3)}, ${currentEndEffectorPoint.z.toFixed(3)})`);
+    
+    return virtualEndEffector;
+  }, [currentEndEffectorPoint, isUsingTCP]);
 
   const solve = useCallback(async (targetPos) => {
     const robot = getRobot(activeRobotId);
@@ -175,7 +139,7 @@ export const IKProvider = ({ children }) => {
           
           // Store initial angles
           Object.keys(targetAngles).forEach(jointName => {
-            startAngles[jointName] = robot.joints[jointName].angle;
+            startAngles[jointName] = robot.joints[jointName].angle || 0; // Get current angle value
           });
           
           // Animation loop
@@ -187,7 +151,8 @@ export const IKProvider = ({ children }) => {
             Object.keys(targetAngles).forEach(jointName => {
               const start = startAngles[jointName];
               const end = targetAngles[jointName];
-              robot.joints[jointName].angle = start + (end - start) * progress;
+              const interpolatedAngle = start + (end - start) * progress;
+              robot.setJointValue(jointName, interpolatedAngle); // Use setJointValue method
             });
             
             if (progress < 1) {
@@ -202,7 +167,7 @@ export const IKProvider = ({ children }) => {
         } else {
           // Apply angles immediately
           Object.entries(result).forEach(([jointName, angle]) => {
-            robot.joints[jointName].angle = angle;
+            robot.setJointValue(jointName, angle); // Use setJointValue method, not direct angle property
           });
           setIsAnimating(false);
           setSolverStatus('Ready');

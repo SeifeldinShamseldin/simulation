@@ -28,110 +28,64 @@ export const useTCP = (robotId = null) => {
   // Use provided robotId or fall back to active robot
   const targetRobotId = robotId || activeRobotId;
   
-  // State for real-time end effector tracking
+  // State for current end effector position
   const [currentEndEffectorPoint, setCurrentEndEffectorPoint] = useState({ x: 0, y: 0, z: 0 });
-  const [endEffectorDistance, setEndEffectorDistance] = useState(0);
   
-  // Get current tool info for the target robot
+  // Get current tool info for target robot
   const currentTool = targetRobotId ? attachedTools.get(targetRobotId) : null;
   
   // Listen for end effector updates
   useEffect(() => {
     const handleEndEffectorUpdate = (data) => {
       if (data.robotId === targetRobotId && data.endEffectorPoint) {
-        setCurrentEndEffectorPoint(data.endEffectorPoint);
+        console.log(`[TCP Hook] End effector updated for ${targetRobotId}:`, {
+          x: data.endEffectorPoint.x,
+          y: data.endEffectorPoint.y, 
+          z: data.endEffectorPoint.z
+        });
         
-        // Calculate distance from origin for reference
-        const distance = Math.sqrt(
-          data.endEffectorPoint.x ** 2 + 
-          data.endEffectorPoint.y ** 2 + 
-          data.endEffectorPoint.z ** 2
-        );
-        setEndEffectorDistance(distance);
-        
-        const source = data.hasTCP ? 'TCP' : 'Robot';
-        console.log(`[TCP Hook] End effector updated for ${targetRobotId} (${source}):`, data.endEffectorPoint);
+        setCurrentEndEffectorPoint({
+          x: data.endEffectorPoint.x,
+          y: data.endEffectorPoint.y,
+          z: data.endEffectorPoint.z
+        });
       }
     };
     
-    const handleToolAttached = (data) => {
-      if (data.robotId === targetRobotId && data.endEffectorPoint) {
-        setCurrentEndEffectorPoint(data.endEffectorPoint);
-        
-        const distance = Math.sqrt(
-          data.endEffectorPoint.x ** 2 + 
-          data.endEffectorPoint.y ** 2 + 
-          data.endEffectorPoint.z ** 2
-        );
-        setEndEffectorDistance(distance);
-        
-        console.log(`[TCP Hook] Tool attached for ${targetRobotId}, end effector:`, data.endEffectorPoint);
-      }
-    };
-    
-    const handleToolRemoved = (data) => {
-      if (data.robotId === targetRobotId) {
-        setCurrentEndEffectorPoint({ x: 0, y: 0, z: 0 });
-        setEndEffectorDistance(0);
-        console.log(`[TCP Hook] Tool removed for ${targetRobotId}`);
-      }
-    };
-    
-    const unsubscribeUpdate = EventBus.on('tcp:endeffector-updated', handleEndEffectorUpdate);
-    const unsubscribeAttached = EventBus.on('tcp:tool-attached', handleToolAttached);
-    const unsubscribeRemoved = EventBus.on('tcp:tool-removed', handleToolRemoved);
-    
-    return () => {
-      unsubscribeUpdate();
-      unsubscribeAttached();
-      unsubscribeRemoved();
-    };
+    const unsubscribe = EventBus.on('tcp:endeffector-updated', handleEndEffectorUpdate);
+    return () => unsubscribe();
   }, [targetRobotId]);
   
-  // Initialize end effector point when robot changes, TCP state changes, OR TCP becomes initialized
+  // Initialize end effector position when robot or TCP state changes
   useEffect(() => {
-    console.log(`[TCP Hook] Effect triggered for robot ${targetRobotId}, initialized: ${isInitialized}`);
+    console.log(`[TCP Hook] Effect triggered - targetRobotId: ${targetRobotId}, isInitialized: ${isInitialized}, currentTool: ${!!currentTool}`);
     
     if (targetRobotId && isInitialized) {
-      console.log(`[TCP Hook] Getting end effector point for ${targetRobotId}`);
+      console.log(`[TCP Hook] Getting current end effector for ${targetRobotId}`);
+      console.log(`[TCP Hook] getCurrentEndEffectorPoint function:`, getCurrentEndEffectorPoint);
       
-      const point = getCurrentEndEffectorPoint(targetRobotId);
-      console.log(`[TCP Hook] getCurrentEndEffectorPoint returned:`, point);
+      const currentPoint = getCurrentEndEffectorPoint(targetRobotId);
+      console.log(`[TCP Hook] getCurrentEndEffectorPoint returned:`, currentPoint);
       
-      if (point && (point.x !== 0 || point.y !== 0 || point.z !== 0)) {
-        setCurrentEndEffectorPoint({ x: point.x, y: point.y, z: point.z });
+      if (currentPoint) {
+        // Ensure we extract the actual coordinates
+        const extractedPoint = {
+          x: currentPoint.x || 0,
+          y: currentPoint.y || 0,
+          z: currentPoint.z || 0
+        };
         
-        const distance = Math.sqrt(point.x ** 2 + point.y ** 2 + point.z ** 2);
-        setEndEffectorDistance(distance);
-        
-        console.log(`[TCP Hook] Set end effector point:`, { x: point.x, y: point.y, z: point.z });
+        setCurrentEndEffectorPoint(extractedPoint);
+        console.log(`[TCP Hook] Set current end effector:`, extractedPoint);
       } else {
-        // Fallback to robot end effector if available
-        console.log(`[TCP Hook] Getting robot end effector position for ${targetRobotId}`);
-        const robotEndEffectorPos = getRobotEndEffectorPosition(targetRobotId);
-        console.log(`[TCP Hook] getRobotEndEffectorPosition returned:`, robotEndEffectorPos);
-        
-        if (robotEndEffectorPos) {
-          setCurrentEndEffectorPoint(robotEndEffectorPos);
-          
-          const distance = Math.sqrt(
-            robotEndEffectorPos.x ** 2 + 
-            robotEndEffectorPos.y ** 2 + 
-            robotEndEffectorPos.z ** 2
-          );
-          setEndEffectorDistance(distance);
-          
-          console.log(`[TCP Hook] Set robot end effector position:`, robotEndEffectorPos);
-        } else {
-          console.warn(`[TCP Hook] No end effector position available for ${targetRobotId}`);
-        }
+        console.warn(`[TCP Hook] getCurrentEndEffectorPoint returned null/undefined`);
+        setCurrentEndEffectorPoint({ x: 0, y: 0, z: 0 });
       }
     } else {
+      console.log(`[TCP Hook] Reset end effector position - robotId: ${targetRobotId}, initialized: ${isInitialized}`);
       setCurrentEndEffectorPoint({ x: 0, y: 0, z: 0 });
-      setEndEffectorDistance(0);
-      console.log(`[TCP Hook] Reset end effector position (no robot or not initialized)`);
     }
-  }, [targetRobotId, currentTool, isInitialized, getCurrentEndEffectorPoint, getRobotEndEffectorPosition]);
+  }, [targetRobotId, currentTool, isInitialized, getCurrentEndEffectorPoint]);
   
   // Robot-specific methods
   const attachToolToRobot = useCallback(async (toolId) => {
@@ -156,18 +110,7 @@ export const useTCP = (robotId = null) => {
     setToolVisibility(targetRobotId, visible);
   }, [targetRobotId, setToolVisibility]);
   
-  // Smart End Effector Methods
-  const getEndEffectorPoint = useCallback(() => {
-    if (!targetRobotId) return null;
-    return getCurrentEndEffectorPoint(targetRobotId);
-  }, [targetRobotId, getCurrentEndEffectorPoint]);
-  
-  const forceRecalculateEndEffector = useCallback(() => {
-    if (!targetRobotId) return null;
-    return recalculateEndEffector(targetRobotId);
-  }, [targetRobotId, recalculateEndEffector]);
-  
-  // Convenience methods for common transform operations
+  // Convenience methods
   const resetToolTransforms = useCallback(() => {
     if (!targetRobotId) return;
     setToolTransform(targetRobotId, {
@@ -186,57 +129,12 @@ export const useTCP = (robotId = null) => {
     });
   }, [targetRobotId, currentTool, setToolTransform]);
   
-  const moveToolRelative = useCallback((axis, amount) => {
-    if (!targetRobotId || !currentTool) return;
-    const currentTransforms = currentTool.transforms;
-    setToolTransform(targetRobotId, {
-      ...currentTransforms,
-      position: {
-        ...currentTransforms.position,
-        [axis]: currentTransforms.position[axis] + amount
-      }
-    });
-  }, [targetRobotId, currentTool, setToolTransform]);
-  
-  const rotateToolRelative = useCallback((axis, degrees) => {
-    if (!targetRobotId || !currentTool) return;
-    const currentTransforms = currentTool.transforms;
-    const radians = degrees * Math.PI / 180;
-    setToolTransform(targetRobotId, {
-      ...currentTransforms,
-      rotation: {
-        ...currentTransforms.rotation,
-        [axis]: currentTransforms.rotation[axis] + radians
-      }
-    });
-  }, [targetRobotId, currentTool, setToolTransform]);
-  
-  // Advanced end effector methods
-  const getEndEffectorDistance = useCallback(() => {
-    return endEffectorDistance;
-  }, [endEffectorDistance]);
-  
-  const getEndEffectorArray = useCallback(() => {
-    return [currentEndEffectorPoint.x, currentEndEffectorPoint.y, currentEndEffectorPoint.z];
-  }, [currentEndEffectorPoint]);
-  
-  const isEndEffectorAt = useCallback((targetPoint, tolerance = 0.001) => {
-    if (!currentTool) return false;
-    
-    const distance = Math.sqrt(
-      Math.pow(currentEndEffectorPoint.x - targetPoint.x, 2) +
-      Math.pow(currentEndEffectorPoint.y - targetPoint.y, 2) +
-      Math.pow(currentEndEffectorPoint.z - targetPoint.z, 2)
-    );
-    
-    return distance <= tolerance;
-  }, [currentEndEffectorPoint, currentTool]);
-
+  // Get end effector info
   const getEndEffectorType = useCallback(() => {
     if (!targetRobotId) return 'none';
     return currentTool ? 'tcp' : 'robot';
   }, [targetRobotId, currentTool]);
-
+  
   const getEndEffectorInfo = useCallback(() => {
     if (!targetRobotId) return null;
     return {
@@ -255,9 +153,8 @@ export const useTCP = (robotId = null) => {
     isToolVisible: currentTool?.visible ?? false,
     toolTransforms: currentTool?.transforms ?? null,
     
-    // Smart End Effector State
+    // End effector state (simplified: robot + tcp)
     currentEndEffectorPoint,
-    endEffectorDistance,
     hasValidEndEffector: !!(currentEndEffectorPoint.x !== 0 || currentEndEffectorPoint.y !== 0 || currentEndEffectorPoint.z !== 0),
     isUsingTCP: !!currentTool,
     isUsingRobotEndEffector: !currentTool && targetRobotId,
@@ -274,20 +171,13 @@ export const useTCP = (robotId = null) => {
     setToolTransform: setRobotToolTransform,
     setToolVisibility: setRobotToolVisibility,
     
-    // Smart End Effector Methods
-    getEndEffectorPoint,
-    forceRecalculateEndEffector,
-    getEndEffectorDistance,
-    getEndEffectorArray,
-    isEndEffectorAt,
-    getEndEffectorType,
-    getEndEffectorInfo,
-    
     // Convenience methods
     resetTransforms: resetToolTransforms,
     scaleUniform: scaleToolUniform,
-    moveRelative: moveToolRelative,
-    rotateRelative: rotateToolRelative,
+    
+    // End effector methods
+    getEndEffectorInfo,
+    getEndEffectorType,
     
     // Global methods
     refreshTools: loadAvailableTools,
@@ -295,7 +185,6 @@ export const useTCP = (robotId = null) => {
     
     // Utils
     getToolById: (toolId) => availableTools.find(t => t.id === toolId),
-    getAllAttachedTools: () => Array.from(attachedTools.entries()),
     isToolAttached: (toolId) => currentTool?.toolId === toolId
   };
 };
