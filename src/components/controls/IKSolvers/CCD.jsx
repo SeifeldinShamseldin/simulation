@@ -43,14 +43,14 @@ class CCDSolver {
     
     console.log(`[CCD] Using end effector: ${realEndEffector.name}`);
     
-    // Store CURRENT joint angles (don't reset!)
+    // Store CURRENT joint angles as starting point (IMPORTANT: don't reset!)
     const startingAngles = {};
     const movableJoints = [];
     
     if (robot.joints) {
       Object.entries(robot.joints).forEach(([name, joint]) => {
         if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
-          startingAngles[name] = joint.angle; // Use CURRENT angles, not reset
+          startingAngles[name] = joint.angle; // Store current position
           movableJoints.push(name);
         }
       });
@@ -160,10 +160,20 @@ class CCDSolver {
       }
     }
     
-    // DON'T restore robot position - leave it at the solution position!
-    // The JointContext will handle the animation from current to target
+    // CRITICAL FIX: Restore robot to original position
+    // This ensures the robot returns to its starting pose so JointContext can animate properly
+    console.log('[CCD] Restoring robot to starting position for smooth animation');
+    Object.entries(startingAngles).forEach(([name, angle]) => {
+      if (robot.joints[name]) {
+        robot.setJointValue(name, angle);
+      }
+    });
+    
+    // Update matrices to ensure robot is back to starting position
+    robot.updateMatrixWorld(true);
+    
     console.log('[CCD] Solution calculated:', virtualAngles);
-    console.log('[CCD] Robot left at solution position for smooth animation');
+    console.log('[CCD] Robot restored to starting position - ready for animation');
     
     return virtualAngles;
   }

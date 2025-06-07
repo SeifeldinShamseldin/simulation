@@ -161,7 +161,26 @@ export const JointProvider = ({ children }) => {
     };
   }, [stopAnimation]);
 
-  // Animate to target joint values
+  // Internal method to set joint values via robot manager (MOVED UP)
+  const setRobotJointValues_Internal = useCallback((robotId, values) => {
+    if (!robotManagerRef.current) {
+      console.warn(`[JointContext] Robot manager not available`);
+      return false;
+    }
+    
+    try {
+      const success = robotManagerRef.current.setJointValues(robotId, values);
+      if (!success) {
+        console.warn(`[JointContext] Failed to set joint values for ${robotId}`);
+      }
+      return success;
+    } catch (error) {
+      console.error(`[JointContext] Error setting joint values:`, error);
+      return false;
+    }
+  }, []);
+
+  // Animate to target joint values (MOVED AFTER setRobotJointValues_Internal)
   const animateToJointValues = useCallback(async (robotId, targetValues, duration = 1000) => {
     return new Promise((resolve) => {
       console.log(`[JointContext] Starting animation for ${robotId}`);
@@ -173,8 +192,19 @@ export const JointProvider = ({ children }) => {
         console.log(`[JointContext] Cancelled existing animation for ${robotId}`);
       }
       
-      // Get current joint values as starting point
-      const currentValues = robotJointValues.get(robotId) || {};
+      // CRITICAL FIX: Get ACTUAL current joint values from the robot, not stored values
+      const currentValues = {};
+      if (robotManagerRef.current) {
+        const actualValues = robotManagerRef.current.getJointValues(robotId);
+        Object.assign(currentValues, actualValues);
+        console.log(`[JointContext] Got ACTUAL current joint values:`, currentValues);
+      } else {
+        // Fallback to stored values if robot manager not available
+        const storedValues = robotJointValues.get(robotId) || {};
+        Object.assign(currentValues, storedValues);
+        console.log(`[JointContext] Using stored joint values (fallback):`, currentValues);
+      }
+      
       const startTime = Date.now();
       
       // Set animation state
@@ -240,26 +270,7 @@ export const JointProvider = ({ children }) => {
       const frameId = requestAnimationFrame(animate);
       animationFrameRef.current.set(robotId, frameId);
     });
-  }, [robotJointValues]);
-
-  // Internal method to set joint values via robot manager
-  const setRobotJointValues_Internal = useCallback((robotId, values) => {
-    if (!robotManagerRef.current) {
-      console.warn(`[JointContext] Robot manager not available`);
-      return false;
-    }
-    
-    try {
-      const success = robotManagerRef.current.setJointValues(robotId, values);
-      if (!success) {
-        console.warn(`[JointContext] Failed to set joint values for ${robotId}`);
-      }
-      return success;
-    } catch (error) {
-      console.error(`[JointContext] Error setting joint values:`, error);
-      return false;
-    }
-  }, []);
+  }, [robotJointValues, setRobotJointValues_Internal]);
 
   // Public method to set a single joint value
   const setJointValue = useCallback((robotId, jointName, value) => {

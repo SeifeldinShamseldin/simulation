@@ -93,21 +93,46 @@ class SimpleTCPManager {
   }
 
   /**
-   * Calculate TCP tool tip offset - FIXED OFFSET FOR TESTING
+   * Calculate TCP tool tip offset from transform values
    */
   calculateToolTipOffset(toolObject, toolContainer) {
     if (!toolObject || !toolContainer) return { x: 0, y: 0, z: 0 };
 
-    // For now, use a small fixed offset to test the logic
-    // Later we can improve this to calculate from geometry
-    const result = {
-      x: 0.01,   // Small X offset
-      y: 0.01,   // Small Y offset  
-      z: 0.05    // Small Z offset (tool length)
+    // Get the current transform values applied to the tool container
+    const position = toolContainer.position;
+    const rotation = toolContainer.rotation;
+    const scale = toolContainer.scale;
+
+    // Start with the position offset
+    let tipOffset = {
+      x: position.x,
+      y: position.y,
+      z: position.z
     };
 
-    console.log(`[TCP] Using fixed tool tip offset: (${result.x.toFixed(3)}, ${result.y.toFixed(3)}, ${result.z.toFixed(3)})`);
-    return result;
+    // Apply rotation to the tip offset if there's any base offset
+    if (rotation.x !== 0 || rotation.y !== 0 || rotation.z !== 0) {
+      // Create a base tip vector (assuming tool extends in Z direction)
+      const baseTip = new THREE.Vector3(0, 0, 0.05 * scale.z); // 5cm base length scaled
+      
+      // Apply rotation
+      baseTip.applyEuler(rotation);
+      
+      // Add rotated tip to position offset
+      tipOffset.x += baseTip.x;
+      tipOffset.y += baseTip.y;
+      tipOffset.z += baseTip.z;
+    } else {
+      // No rotation, just add a small base tip in Z direction
+      tipOffset.z += 0.05 * scale.z;
+    }
+
+    console.log(`[TCP] Calculated tool tip offset: (${tipOffset.x.toFixed(3)}, ${tipOffset.y.toFixed(3)}, ${tipOffset.z.toFixed(3)})`);
+    console.log(`[TCP] From position: (${position.x.toFixed(3)}, ${position.y.toFixed(3)}, ${position.z.toFixed(3)})`);
+    console.log(`[TCP] From rotation: (${rotation.x.toFixed(3)}, ${rotation.y.toFixed(3)}, ${rotation.z.toFixed(3)})`);
+    console.log(`[TCP] From scale: (${scale.x.toFixed(3)}, ${scale.y.toFixed(3)}, ${scale.z.toFixed(3)})`);
+    
+    return tipOffset;
   }
 
   /**
@@ -419,8 +444,10 @@ class SimpleTCPManager {
       // Store transforms
       toolData.transforms = { ...transforms };
 
-      // Recalculate final end effector position
+      // CRITICAL: Recalculate final end effector position after transform change
       const finalPosition = this.getFinalEndEffectorPosition(robotId);
+
+      console.log(`[TCP] Transform updated, new final position:`, finalPosition);
 
       // Emit events
       EventBus.emit('tcp:tool-transformed', {
