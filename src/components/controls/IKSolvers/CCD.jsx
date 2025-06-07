@@ -20,88 +20,108 @@ class CCDSolver {
   }
 
   /**
-   * Solve IK using CCD algorithm
+   * Solve IK using CCD algorithm - VIRTUAL SOLVING (don't move actual robot)
    * @param {Object} robot - The robot model
    * @param {THREE.Vector3} targetPos - Target position
    * @param {Function} findEndEffector - Function to find end effector
+   * @param {Object} currentPos - Current end effector position {x, y, z}
    * @returns {Object} Joint angles solution or null
    */
-  async solve(robot, targetPos, findEndEffector) {
+  async solve(robot, targetPos, findEndEffector, currentPos) {
     if (!robot) return null;
     
-    console.log('[CCD] Starting IK solve for target:', targetPos);
-    console.log('[CCD] Available joints:', robot.joints ? Object.keys(robot.joints) : 'No joints');
+    console.log('[CCD] Starting IK solve');
+    console.log('[CCD] Target position:', targetPos);
     
-    // Store initial joint angles - only for movable joints
-    const startAngles = {};
+    // Get the actual robot end effector (not virtual)
+    const realEndEffector = robot.userData?.endEffectorLink;
+    if (!realEndEffector) {
+      console.error('[CCD] No end effector link found in robot.userData');
+      return null;
+    }
+    
+    console.log(`[CCD] Using end effector: ${realEndEffector.name}`);
+    
+    // Store current joint angles
+    const currentAngles = {};
     const movableJoints = [];
     
     if (robot.joints) {
       Object.entries(robot.joints).forEach(([name, joint]) => {
         if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
-          startAngles[name] = joint.angle;
+          currentAngles[name] = joint.angle;
           movableJoints.push(name);
         }
       });
     }
-    
-    console.log('[CCD] Movable joints:', movableJoints);
-    console.log('[CCD] Initial angles:', startAngles);
     
     if (movableJoints.length === 0) {
       console.warn('[CCD] No movable joints found');
       return null;
     }
     
+    console.log(`[CCD] Movable joints: ${movableJoints.join(', ')}`);
+    
+    // Create working copy of joint values for virtual solving
+    const virtualAngles = { ...currentAngles };
+    
     // CCD iterations
     for (let iter = 0; iter < this.maxIterations; iter++) {
-      const endEffector = findEndEffector(robot);
-      if (!endEffector) {
-        console.warn('[CCD] End effector not found');
-        return null;
-      }
+      // Apply virtual angles temporarily for calculations
+      Object.entries(virtualAngles).forEach(([name, angle]) => {
+        if (robot.joints[name]) {
+          robot.setJointValue(name, angle);
+        }
+      });
       
-      // Get current end effector position
-      endEffector.getWorldPosition(this.vectors.worldEndPos);
+      // Update matrices to ensure correct positions
+      robot.updateMatrixWorld(true);
+      
+      // Get current end effector world position
+      realEndEffector.getWorldPosition(this.vectors.worldEndPos);
       
       // Check convergence
       const distanceToTarget = this.vectors.worldEndPos.distanceTo(targetPos);
-      console.log(`[CCD] Iteration ${iter}: distance to target = ${distanceToTarget.toFixed(4)}`);
+      console.log(`[CCD] Iteration ${iter}: distance = ${distanceToTarget.toFixed(4)}`);
       
       if (distanceToTarget < this.tolerance) {
         console.log('[CCD] Converged!');
-        break; // Converged!
+        break;
       }
       
-      // Process each joint from end to base
-      const jointNames = movableJoints.slice().reverse(); // Work backwards
+      // Process joints from end to base (reverse kinematic chain)
+      const jointNames = movableJoints.slice().reverse();
       
       for (const jointName of jointNames) {
         const joint = robot.joints[jointName];
         if (!joint || joint.jointType === 'fixed') continue;
         
-        // Get joint world position and axis
+        // Get joint world position
         joint.getWorldPosition(this.vectors.jointPos);
+        
+        // Get joint axis in world coordinates
         this.vectors.axis.copy(joint.axis)
           .applyQuaternion(joint.getWorldQuaternion(this.vectors.tempQuat))
           .normalize();
         
-        // Update end effector position after previous joint updates
-        endEffector.getWorldPosition(this.vectors.worldEndPos);
+        // Update end effector position after any joint changes
+        realEndEffector.getWorldPosition(this.vectors.worldEndPos);
         
-        // Vectors from joint to current end effector and target
+        // Calculate vectors from joint to end effector and target
         this.vectors.toEnd.subVectors(this.vectors.worldEndPos, this.vectors.jointPos);
         this.vectors.toTarget.subVectors(targetPos, this.vectors.jointPos);
         
         const toEndLength = this.vectors.toEnd.length();
         const toTargetLength = this.vectors.toTarget.length();
         
+        // Skip if vectors are too small
         if (toEndLength < 0.001 || toTargetLength < 0.001) continue;
         
+        // Normalize vectors
         this.vectors.toEnd.normalize();
         this.vectors.toTarget.normalize();
         
-        // Calculate rotation angle
+        // Calculate angle between vectors
         const dotProduct = THREE.MathUtils.clamp(
           this.vectors.toEnd.dot(this.vectors.toTarget), 
           -0.999, 
@@ -109,22 +129,22 @@ class CCDSolver {
         );
         let angle = Math.acos(dotProduct);
         
-        // Determine rotation direction
+        // Determine rotation direction using cross product
         this.vectors.cross.crossVectors(this.vectors.toEnd, this.vectors.toTarget);
         if (this.vectors.cross.dot(this.vectors.axis) < 0) {
           angle = -angle;
         }
         
-        // Apply damping
+        // Apply damping to prevent overshooting
         angle *= this.dampingFactor;
         
-        // Limit angle change
+        // Limit maximum angle change per iteration
         angle = THREE.MathUtils.clamp(angle, -this.angleLimit, this.angleLimit);
         
         // Calculate new joint angle
-        let newAngle = joint.angle + angle;
+        let newAngle = virtualAngles[jointName] + angle;
         
-        // Apply joint limits
+        // Apply joint limits if they exist
         if (!joint.ignoreLimits && joint.limit) {
           newAngle = THREE.MathUtils.clamp(
             newAngle, 
@@ -133,54 +153,25 @@ class CCDSolver {
           );
         }
         
-        // Update joint
-        robot.setJointValue(joint.name, newAngle);
-        joint.updateMatrixWorld(true);
+        // Update virtual angle
+        virtualAngles[jointName] = newAngle;
       }
     }
     
-    // Get final joint angles - only for joints that were moved
-    const goalAngles = {};
-    movableJoints.forEach(jointName => {
-      const joint = robot.joints[jointName];
-      if (joint) {
-        goalAngles[jointName] = joint.angle || 0;
-      }
-    });
-    
-    // Reset to initial angles (for animation)
-    Object.entries(startAngles).forEach(([name, angle]) => {
+    // Restore robot to original position
+    Object.entries(currentAngles).forEach(([name, angle]) => {
       if (robot.joints[name]) {
         robot.setJointValue(name, angle);
       }
     });
     
-    // Check final convergence
-    const endEffector = findEndEffector(robot);
-    let converged = false;
-    if (endEffector) {
-      // Temporarily apply goal angles to check convergence
-      Object.entries(goalAngles).forEach(([name, angle]) => {
-        if (robot.joints[name]) {
-          robot.setJointValue(name, angle);
-        }
-      });
-      
-      endEffector.getWorldPosition(this.vectors.worldEndPos);
-      converged = this.vectors.worldEndPos.distanceTo(targetPos) < this.tolerance;
-      
-      // Reset to initial angles again
-      Object.entries(startAngles).forEach(([name, angle]) => {
-        if (robot.joints[name]) {
-          robot.setJointValue(name, angle);
-        }
-      });
-    }
+    // Update matrices to restore original state
+    robot.updateMatrixWorld(true);
     
-    console.log('[CCD] Final solution:', goalAngles);
-    console.log('[CCD] Converged:', converged);
+    console.log('[CCD] Solution calculated:', virtualAngles);
+    console.log('[CCD] Robot restored to original position');
     
-    return goalAngles; // Return just the goal angles - executeIK expects this format
+    return virtualAngles;
   }
 
   /**

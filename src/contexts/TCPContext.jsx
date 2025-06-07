@@ -21,69 +21,73 @@ class SimpleTCPManager {
    * Calculate normal robot end effector position (base calculation)
    */
   calculateRobotEndEffector(robotId) {
-    console.log(`[TCP] calculateRobotEndEffector called for ${robotId}`);
+    console.log(`[TCP Context] calculateRobotEndEffector for ${robotId}`);
     
     const robot = this.robotManager.getRobot(robotId);
     if (!robot) {
-      console.warn(`[TCP] Robot ${robotId} not found in manager`);
+      console.warn(`[TCP Context] Robot ${robotId} not found`);
       return { x: 0, y: 0, z: 0 };
     }
 
-    console.log(`[TCP] Found robot:`, robot);
-    console.log(`[TCP] Robot links:`, robot.links ? Object.keys(robot.links) : 'No links');
-
-    // Find end effector by common names
+    // Find the actual end effector link in the robot
     const endEffectorNames = [
-      'end_effector', 'tool0', 'ee_link', 'gripper_link', 
+      'tool0', 'ee_link', 'end_effector', 'gripper_link', 
       'link_6', 'link_7', 'wrist_3_link', 'tool_link',
-      'flange', 'tool_flange'
+      'flange', 'tool_flange', 'tcp'
     ];
     
-    let endEffector = null;
-    for (const name of endEffectorNames) {
-      if (robot.links && robot.links[name]) {
-        endEffector = robot.links[name];
-        console.log(`[TCP] Found end effector by name: ${name}`);
-        break;
+    let endEffectorLink = null;
+    
+    // First try to find by name
+    if (robot.links) {
+      for (const name of endEffectorNames) {
+        if (robot.links[name]) {
+          endEffectorLink = robot.links[name];
+          console.log(`[TCP Context] Found end effector link: ${name}`);
+          break;
+        }
       }
     }
-
-    // Fallback: find deepest link
-    if (!endEffector) {
-      console.log(`[TCP] No end effector found by name, searching for deepest link...`);
+    
+    // If not found by name, find the deepest link
+    if (!endEffectorLink) {
+      console.log(`[TCP Context] Searching for deepest link...`);
       let deepestLink = null;
       let maxDepth = 0;
-      const findDeepestLink = (obj, depth = 0) => {
+      
+      const findDeepest = (obj, depth = 0) => {
         if (obj.isURDFLink && depth > maxDepth) {
           maxDepth = depth;
           deepestLink = obj;
-          console.log(`[TCP] Found link at depth ${depth}: ${obj.name}`);
         }
         if (obj.children) {
-          obj.children.forEach(child => findDeepestLink(child, depth + 1));
+          obj.children.forEach(child => findDeepest(child, depth + 1));
         }
       };
-      findDeepestLink(robot);
-      endEffector = deepestLink;
       
-      if (endEffector) {
-        console.log(`[TCP] Using deepest link as end effector: ${endEffector.name} at depth ${maxDepth}`);
+      findDeepest(robot);
+      endEffectorLink = deepestLink;
+      
+      if (endEffectorLink) {
+        console.log(`[TCP Context] Using deepest link: ${endEffectorLink.name} at depth ${maxDepth}`);
       }
     }
 
-    if (!endEffector) {
-      console.warn(`[TCP] No end effector found for robot ${robotId}`);
+    if (!endEffectorLink) {
+      console.warn(`[TCP Context] No end effector found for robot ${robotId}`);
       return { x: 0, y: 0, z: 0 };
     }
 
+    // Store reference to end effector for CCD to use
+    robot.userData = robot.userData || {};
+    robot.userData.endEffectorLink = endEffectorLink;
+
     // Get world position
     const worldPos = new THREE.Vector3();
-    endEffector.getWorldPosition(worldPos);
+    endEffectorLink.getWorldPosition(worldPos);
     
-    console.log(`[TCP] End effector "${endEffector.name}" world position:`, worldPos);
-
     const result = { x: worldPos.x, y: worldPos.y, z: worldPos.z };
-    console.log(`[TCP] Calculated robot end effector: (${result.x.toFixed(3)}, ${result.y.toFixed(3)}, ${result.z.toFixed(3)})`);
+    console.log(`[TCP Context] Robot end effector at: (${result.x.toFixed(3)}, ${result.y.toFixed(3)}, ${result.z.toFixed(3)})`);
     
     return result;
   }

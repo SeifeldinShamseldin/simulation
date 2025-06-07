@@ -1,18 +1,120 @@
 // src/components/controls/ControlJoints/ControlJoints.jsx
 import React, { useState, useEffect } from 'react';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
+import EventBus from '../../../utils/EventBus';
 
 const ControlJoints = () => {
   const { 
     activeRobotId, 
     robot, 
     setJointValue, 
+    setJointValues: setRobotJointValues,
     resetJoints, 
     isReady 
   } = useRobotControl();
   
   const [jointValues, setJointValues] = useState({});
   const [jointInfo, setJointInfo] = useState([]);
+  const [isIKAnimating, setIsIKAnimating] = useState(false);
+
+  // Listen for IK calculated joint values
+  useEffect(() => {
+    const handleIKJointValues = async (data) => {
+      if (data.robotId !== activeRobotId) return;
+      
+      console.log('[Joint Control] Received IK joint values:', data.jointValues);
+      setIsIKAnimating(true);
+      
+      // Get CURRENT joint values as starting point
+      const currentJointValues = {};
+      if (robot && robot.joints) {
+        Object.entries(robot.joints).forEach(([name, joint]) => {
+          if (joint && joint.jointType !== 'fixed') {
+            currentJointValues[name] = joint.angle || 0;
+          }
+        });
+      }
+      
+      console.log('[Joint Control] Starting from current angles:', currentJointValues);
+      
+      if (data.animate) {
+        // Animate from current position to target
+        await animateToJointValues(data.jointValues, data.duration, currentJointValues);
+      } else {
+        // Apply immediately
+        const success = setRobotJointValues(data.jointValues);
+        if (success) {
+          setJointValues(prev => ({ ...prev, ...data.jointValues }));
+        }
+      }
+      
+      setIsIKAnimating(false);
+      
+      // Notify IK that animation is complete
+      EventBus.emit('ik:animation-complete', {
+        robotId: activeRobotId,
+        success: true
+      });
+    };
+
+    const unsubscribe = EventBus.on('ik:joint-values-calculated', handleIKJointValues);
+    return () => unsubscribe();
+  }, [activeRobotId, setRobotJointValues, robot]);
+
+  // Listen for IK animation completion in IK Context
+  useEffect(() => {
+    const handleAnimationComplete = (data) => {
+      if (data.robotId === activeRobotId) {
+        EventBus.emit('ik:set-animation-state', {
+          robotId: activeRobotId,
+          isAnimating: false,
+          status: data.success ? 'Ready' : 'Error'
+        });
+      }
+    };
+
+    const unsubscribe = EventBus.on('ik:animation-complete', handleAnimationComplete);
+    return () => unsubscribe();
+  }, [activeRobotId]);
+
+  // Animate to target joint values
+  const animateToJointValues = async (targetValues, duration = 1000, startingAngles = {}) => {
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      
+      console.log('[Joint Control] Animating from:', startingAngles, 'to:', targetValues);
+      
+      // Animation loop
+      const animate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Interpolate angles
+        const currentValues = {};
+        Object.keys(targetValues).forEach(jointName => {
+          const start = startingAngles[jointName] || 0;
+          const end = targetValues[jointName];
+          const interpolatedAngle = start + (end - start) * progress;
+          
+          // Set joint value through robot control
+          setJointValue(jointName, interpolatedAngle);
+          currentValues[jointName] = interpolatedAngle;
+        });
+        
+        // Update local state
+        setJointValues(prev => ({ ...prev, ...currentValues }));
+        
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          console.log('[Joint Control] Animation complete');
+          resolve();
+        }
+      };
+      
+      animate();
+    });
+  };
 
   useEffect(() => {
     if (!robot) {
@@ -74,7 +176,14 @@ const ControlJoints = () => {
 
   return (
     <div className="controls-section">
-      <h3 className="controls-section-title">Joint Control - {activeRobotId}</h3>
+      <h3 className="controls-section-title">
+        Joint Control - {activeRobotId}
+        {isIKAnimating && (
+          <span className="controls-badge controls-badge-info controls-ml-2">
+            IK Moving...
+          </span>
+        )}
+      </h3>
       
       <div className="joint-controls-container">
         {jointInfo.map((joint) => {

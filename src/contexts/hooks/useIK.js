@@ -1,4 +1,4 @@
-// src/contexts/hooks/useIK.js - Updated to work with TCP system
+// src/contexts/hooks/useIK.js - Updated to work with simplified TCP system
 import { useContext } from 'react';
 import * as THREE from 'three';
 import IKContext from '../IKContext';
@@ -35,14 +35,20 @@ export const useIK = () => {
 
   // Convenience methods for common operations
   const moveToTarget = (animate = true) => {
-    return executeIK(targetPosition, { animate });
+    // Pass current position to executeIK so CCD knows where to start
+    return executeIK(targetPosition, { 
+      animate,
+      currentPosition: currentEndEffectorPoint 
+    });
   };
 
   const moveRelative = (axis, amount) => {
     const newTarget = { ...targetPosition };
     newTarget[axis] += amount;
     setTargetPosition(newTarget);
-    return executeIK(newTarget);
+    return executeIK(newTarget, {
+      currentPosition: currentEndEffectorPoint
+    });
   };
 
   const syncTargetToCurrent = () => {
@@ -50,7 +56,7 @@ export const useIK = () => {
   };
 
   return {
-    // State
+    // State - current position comes from useTCP
     currentPosition: currentEndEffectorPoint,
     targetPosition,
     isAnimating,
@@ -78,7 +84,10 @@ export const useIK = () => {
     getEndEffectorType,
     
     // Direct access to executeIK for custom targets
-    executeIK
+    executeIK: (target, options = {}) => executeIK(target, {
+      ...options,
+      currentPosition: currentEndEffectorPoint
+    })
   };
 };
 

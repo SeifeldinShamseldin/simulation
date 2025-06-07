@@ -303,12 +303,12 @@ class RobotLoader {
                 // Use robot's setJointValue method, not joint's
                 const success = robotData.model.setJointValue(jointName, value);
                 if (success) {
-                    // Emit joint change event
+                    // Emit joint change event with BOTH robotName and robotId for compatibility
                     EventBus.emit('robot:joint-changed', { 
                         robotName, 
+                        robotId: robotName,
                         jointName, 
-                        value,
-                        robotId: robotName // Also emit with robotId for consistency
+                        value
                     });
                     
                     console.log(`[RobotLoader] Set joint ${jointName} = ${value} for robot ${robotName}`);
@@ -362,11 +362,11 @@ class RobotLoader {
         }
         
         if (anySuccess) {
-            // Emit joints change event
+            // Emit joints change event with BOTH robotName and robotId
             EventBus.emit('robot:joints-changed', { 
                 robotName, 
-                values,
-                robotId: robotName // Also emit with robotId for consistency
+                robotId: robotName,
+                values
             });
             
             console.log(`[RobotLoader] Set multiple joints for robot ${robotName}:`, values);

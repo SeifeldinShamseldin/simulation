@@ -74,6 +74,19 @@ export const IKProvider = ({ children }) => {
     return () => unsubscribe();
   }, [activeRobotId, isUsingTCP, getEndEffectorInfo]);
 
+  // Listen for animation state updates from Joint Control
+  useEffect(() => {
+    const handleAnimationState = (data) => {
+      if (data.robotId === activeRobotId) {
+        setIsAnimating(data.isAnimating);
+        setSolverStatus(data.status);
+      }
+    };
+
+    const unsubscribe = EventBus.on('ik:set-animation-state', handleAnimationState);
+    return () => unsubscribe();
+  }, [activeRobotId]);
+
   // Simplified end effector getter - creates virtual end effector at final position
   const getEffectiveEndEffector = useCallback((robot) => {
     // Create a virtual end effector object at the final calculated position
@@ -99,12 +112,9 @@ export const IKProvider = ({ children }) => {
     return virtualEndEffector;
   }, [currentEndEffectorPoint, isUsingTCP]);
 
-  const solve = useCallback(async (targetPos) => {
+  const solve = useCallback(async (targetPos, currentPos) => {
     const robot = getRobot(activeRobotId);
     if (!robot || !isReady.current) return null;
-    
-    const endEffectorObject = getEffectiveEndEffector(robot);
-    if (!endEffectorObject) return null;
     
     const solver = solversRef.current[currentSolver];
     if (!solver) {
@@ -112,66 +122,35 @@ export const IKProvider = ({ children }) => {
       return null;
     }
     
-    const endEffectorType = isUsingTCP ? 'TCP' : 'Robot';
-    console.log(`[IK:${activeRobotId}] Solving with ${currentSolver} for ${endEffectorType} end effector`);
+    console.log(`[IK Context] Solving from:`, currentPos, 'to:', targetPos);
     
-    return await solver.solve(robot, targetPos, () => endEffectorObject);
-  }, [activeRobotId, getRobot, currentSolver, getEffectiveEndEffector, isUsingTCP]);
+    // Pass the actual robot to CCD (it will find the real end effector)
+    return await solver.solve(robot, targetPos, () => robot.userData?.endEffectorLink, currentPos);
+  }, [activeRobotId, getRobot, currentSolver]);
 
   const executeIK = useCallback(async (target, options = {}) => {
     const robot = getRobot(activeRobotId);
     if (!robot || !isReady.current || isAnimating) return false;
     
+    // Get current position from options (passed from useIK)
+    const currentPos = options.currentPosition || { x: 0, y: 0, z: 0 };
+    
     setIsAnimating(true);
     setSolverStatus('Solving...');
     
     try {
-      const result = await solve(target);
+      const result = await solve(target, currentPos);
       
       if (result) {
         setSolverStatus('Success');
-        if (options.animate) {
-          // Animate the movement
-          const duration = options.duration || 1000;
-          const startTime = Date.now();
-          const startAngles = {};
-          const targetAngles = result;
-          
-          // Store initial angles
-          Object.keys(targetAngles).forEach(jointName => {
-            startAngles[jointName] = robot.joints[jointName].angle || 0; // Get current angle value
-          });
-          
-          // Animation loop
-          const animate = () => {
-            const elapsed = Date.now() - startTime;
-            const progress = Math.min(elapsed / duration, 1);
-            
-            // Interpolate angles
-            Object.keys(targetAngles).forEach(jointName => {
-              const start = startAngles[jointName];
-              const end = targetAngles[jointName];
-              const interpolatedAngle = start + (end - start) * progress;
-              robot.setJointValue(jointName, interpolatedAngle); // Use setJointValue method
-            });
-            
-            if (progress < 1) {
-              requestAnimationFrame(animate);
-            } else {
-              setIsAnimating(false);
-              setSolverStatus('Ready');
-            }
-          };
-          
-          animate();
-        } else {
-          // Apply angles immediately
-          Object.entries(result).forEach(([jointName, angle]) => {
-            robot.setJointValue(jointName, angle); // Use setJointValue method, not direct angle property
-          });
-          setIsAnimating(false);
-          setSolverStatus('Ready');
-        }
+        
+        // Emit event to Joint Control with the goal angles
+        EventBus.emit('ik:joint-values-calculated', {
+          robotId: activeRobotId,
+          jointValues: result, // CCD now returns just goal angles, no reset needed
+          animate: options.animate,
+          duration: options.duration || 1000
+        });
         
         return true;
       } else {

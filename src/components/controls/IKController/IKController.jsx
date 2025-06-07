@@ -177,29 +177,25 @@ const IKController = () => {
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('x', -0.01)}
                 disabled={isAnimating}
-                style={{ width: '30px', padding: '0.25rem' }}
               >
                 -
               </button>
               <input
                 type="number"
-                className="controls-form-control controls-text-center"
-                value={targetPosition.x || 0}
+                className="controls-form-control"
+                value={targetPosition.x}
                 onChange={(e) => handleInputChange('x', e.target.value)}
-                step="0.0001"
+                step="0.001"
                 disabled={isAnimating}
-                style={{ 
-                  padding: '0.375rem 0.5rem',
-                  color: '#212529',
-                  backgroundColor: '#ffffff',
-                  border: '1px solid #ced4da'
+                style={{
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'textfield'
                 }}
               />
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('x', 0.01)}
                 disabled={isAnimating}
-                style={{ width: '30px', padding: '0.25rem' }}
               >
                 +
               </button>
@@ -213,29 +209,25 @@ const IKController = () => {
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('y', -0.01)}
                 disabled={isAnimating}
-                style={{ width: '30px', padding: '0.25rem' }}
               >
                 -
               </button>
               <input
                 type="number"
-                className="controls-form-control controls-text-center"
-                value={targetPosition.y || 0}
+                className="controls-form-control"
+                value={targetPosition.y}
                 onChange={(e) => handleInputChange('y', e.target.value)}
-                step="0.0001"
+                step="0.001"
                 disabled={isAnimating}
-                style={{ 
-                  padding: '0.375rem 0.5rem',
-                  color: '#212529',
-                  backgroundColor: '#ffffff',
-                  border: '1px solid #ced4da'
+                style={{
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'textfield'
                 }}
               />
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('y', 0.01)}
                 disabled={isAnimating}
-                style={{ width: '30px', padding: '0.25rem' }}
               >
                 +
               </button>
@@ -249,29 +241,25 @@ const IKController = () => {
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('z', -0.01)}
                 disabled={isAnimating}
-                style={{ width: '30px', padding: '0.25rem' }}
               >
                 -
               </button>
               <input
                 type="number"
-                className="controls-form-control controls-text-center"
-                value={targetPosition.z || 0}
+                className="controls-form-control"
+                value={targetPosition.z}
                 onChange={(e) => handleInputChange('z', e.target.value)}
-                step="0.0001"
+                step="0.001"
                 disabled={isAnimating}
-                style={{ 
-                  padding: '0.375rem 0.5rem',
-                  color: '#212529',
-                  backgroundColor: '#ffffff',
-                  border: '1px solid #ced4da'
+                style={{
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'textfield'
                 }}
               />
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('z', 0.01)}
                 disabled={isAnimating}
-                style={{ width: '30px', padding: '0.25rem' }}
               >
                 +
               </button>
@@ -293,99 +281,6 @@ const IKController = () => {
           disabled={isAnimating}
         >
           {isAnimating ? 'Moving...' : 'Move Robot to Target'}
-        </button>
-      </div>
-
-      {/* Relative Movement */}
-      <div className="controls-form-group">
-        <h4 className="controls-h6">Relative Movement:</h4>
-        <div className="controls-grid controls-grid-cols-6 controls-gap-1">
-          <button
-            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => moveRelative('x', -0.01)}
-            disabled={isAnimating}
-          >
-            -1cm
-          </button>
-          <button
-            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => moveRelative('x', 0.01)}
-            disabled={isAnimating}
-          >
-            +1cm
-          </button>
-          <button
-            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => moveRelative('y', -0.01)}
-            disabled={isAnimating}
-          >
-            -1cm
-          </button>
-          <button
-            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => moveRelative('y', 0.01)}
-            disabled={isAnimating}
-          >
-            +1cm
-          </button>
-          <button
-            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => moveRelative('z', -0.01)}
-            disabled={isAnimating}
-          >
-            -1cm
-          </button>
-          <button
-            className="controls-btn controls-btn-sm controls-btn-outline-secondary"
-            onClick={() => moveRelative('z', 0.01)}
-            disabled={isAnimating}
-          >
-            +1cm
-          </button>
-        </div>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="controls-btn-group controls-w-100">
-        <button
-          className="controls-btn controls-btn-sm controls-btn-primary"
-          onClick={() => moveToTarget(true)}
-          disabled={isAnimating}
-          title="Move to Target"
-        >
-          Move
-        </button>
-        <button
-          className="controls-btn controls-btn-sm controls-btn-info"
-          onClick={() => moveToTarget(false)}
-          disabled={isAnimating}
-          title="Move Instantly"
-        >
-          Instant
-        </button>
-        <button
-          className="controls-btn controls-btn-sm controls-btn-warning"
-          onClick={stopAnimation}
-          disabled={!isAnimating}
-          title="Stop"
-        >
-          Stop
-        </button>
-        <button
-          className="controls-btn controls-btn-sm controls-btn-secondary"
-          onClick={syncTargetToCurrent}
-          disabled={isAnimating}
-          title="Use Current Position"
-        >
-          Sync
-        </button>
-        <button
-          className="controls-btn controls-btn-sm controls-btn-danger"
-          onClick={resetRobot}
-          disabled={isAnimating}
-          title="Reset"
-        >
-          Reset
         </button>
       </div>
 
