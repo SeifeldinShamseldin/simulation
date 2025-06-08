@@ -1,15 +1,18 @@
-// src/contexts/RobotContext.jsx - MERGED VERSION
+// src/contexts/RobotContext.jsx - Complete implementation
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { useViewer } from './ViewerContext';
 import EventBus from '../utils/EventBus';
 
 const RobotContext = createContext(null);
 
 export const RobotProvider = ({ children }) => {
+  const { isViewerReady, viewerInstance } = useViewer();
+  
   // Available robots from server
   const [availableRobots, setAvailableRobots] = useState([]);
   const [categories, setCategories] = useState([]);
   
-  // Active robot management (merged from ActiveRobotContext)
+  // Active robot management
   const [activeRobotId, setActiveRobotId] = useState(null);
   const [activeRobot, setActiveRobot] = useState(null);
   const [loadedRobots, setLoadedRobots] = useState(new Map());
@@ -17,9 +20,6 @@ export const RobotProvider = ({ children }) => {
   // Loading states
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  
-  // Viewer reference
-  const [viewer, setViewer] = useState(null);
   
   // Discover robots from server
   const discoverRobots = async () => {
@@ -57,11 +57,8 @@ export const RobotProvider = ({ children }) => {
   };
   
   // Load robot using viewer
-  const loadRobot = async (robotId, urdfPath, options = {}) => {
-    // Try to get viewer from context or from the global viewer if available
-    const currentViewer = viewer || window.viewerInstance;
-    
-    if (!currentViewer) {
+  const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
+    if (!viewerInstance) {
       throw new Error('Viewer not initialized');
     }
     
@@ -69,7 +66,9 @@ export const RobotProvider = ({ children }) => {
       setIsLoading(true);
       setError(null);
       
-      const robot = await currentViewer.loadRobot(robotId, urdfPath, options);
+      console.log(`[RobotContext] Loading robot ${robotId} from ${urdfPath}`);
+      
+      const robot = await viewerInstance.loadRobot(robotId, urdfPath, options);
       
       // Update loaded robots map
       setLoadedRobots(prev => {
@@ -77,7 +76,9 @@ export const RobotProvider = ({ children }) => {
         newMap.set(robotId, {
           id: robotId,
           robot: robot,
-          isActive: options.makeActive !== false
+          urdfPath,
+          isActive: options.makeActive !== false,
+          loadedAt: new Date().toISOString()
         });
         return newMap;
       });
@@ -97,82 +98,28 @@ export const RobotProvider = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [viewerInstance]);
   
-  // Add new robot
-  const addRobot = async (formData) => {
-    try {
-      setIsLoading(true);
-      
-      const response = await fetch('/api/robots/add', {
-        method: 'POST',
-        body: formData
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        await discoverRobots();
-        return result;
-      } else {
-        throw new Error(result.message);
-      }
-    } catch (err) {
-      setError(err.message);
-      return { success: false, error: err.message };
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Check if robot is loaded
+  const isRobotLoaded = useCallback((robotId) => {
+    return loadedRobots.has(robotId);
+  }, [loadedRobots]);
   
-  // Listen for robot events
-  useEffect(() => {
-    const handleRobotRemoved = (data) => {
-      if (data.robotName === activeRobotId) {
-        setActiveRobotId(null);
-        setActiveRobot(null);
-      }
-      
-      setLoadedRobots(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(data.robotName);
-        return newMap;
-      });
-    };
-    
-    const handleRobotActiveChanged = (data) => {
-      if (data.robotName === activeRobotId && !data.isActive) {
-        setActiveRobotId(null);
-        setActiveRobot(null);
-      } else if (data.isActive) {
-        setActiveRobotId(data.robotName);
-        // Get robot from loaded robots
-        const robotData = loadedRobots.get(data.robotName);
-        if (robotData) {
-          setActiveRobot(robotData.robot);
-        }
-      }
-    };
-    
-    const unsubscribeRemoved = EventBus.on('robot:removed', handleRobotRemoved);
-    const unsubscribeActiveChanged = EventBus.on('robot:active-changed', handleRobotActiveChanged);
-    
-    return () => {
-      unsubscribeRemoved();
-      unsubscribeActiveChanged();
-    };
-  }, [activeRobotId, loadedRobots]);
+  // Get robot by ID
+  const getRobot = useCallback((robotId) => {
+    const robotData = loadedRobots.get(robotId);
+    return robotData?.robot;
+  }, [loadedRobots]);
   
-  // Initialize on mount
-  useEffect(() => {
-    discoverRobots();
-  }, []);
-
+  // Unload robot
   const unloadRobot = useCallback((robotId) => {
-    if (!viewer) return;
+    if (!viewerInstance) return;
     
     try {
-      viewer.unloadRobot(robotId);
+      // Remove from viewer if it has unloadRobot method
+      if (viewerInstance.unloadRobot) {
+        viewerInstance.unloadRobot(robotId);
+      }
       
       setLoadedRobots(prev => {
         const newMap = new Map(prev);
@@ -189,56 +136,36 @@ export const RobotProvider = ({ children }) => {
     } catch (err) {
       setError(err.message);
     }
-  }, [viewer, activeRobotId]);
-
-  const getRobot = useCallback((robotId) => {
-    return loadedRobots.get(robotId)?.robot;
-  }, [loadedRobots]);
-
-  const getActiveRobot = useCallback(() => {
-    return activeRobot;
-  }, [activeRobot]);
-
-  const getActiveRobotId = useCallback(() => {
-    return activeRobotId;
-  }, [activeRobotId]);
-
-  const getLoadedRobots = useCallback(() => {
-    return Array.from(loadedRobots.values());
-  }, [loadedRobots]);
-
-  const isRobotLoaded = useCallback((robotId) => {
-    return loadedRobots.has(robotId);
-  }, [loadedRobots]);
-
-  const isRobotActive = useCallback((robotId) => {
-    return activeRobotId === robotId;
-  }, [activeRobotId]);
-
-  const clearAllRobots = useCallback(() => {
-    if (!viewer) return;
-    
-    try {
-      loadedRobots.forEach(({ id }) => {
-        viewer.unloadRobot(id);
-      });
-      
-      setLoadedRobots(new Map());
-      setActiveRobotId(null);
-      setActiveRobot(null);
-      
-      EventBus.emit('robots:cleared');
-    } catch (err) {
-      setError(err.message);
-    }
-  }, [viewer, loadedRobots]);
-
-  // Cleanup on unmount
+  }, [viewerInstance, activeRobotId]);
+  
+  // Listen for robot events
   useEffect(() => {
-    return () => {
-      clearAllRobots();
+    const handleRobotRemoved = (data) => {
+      if (data.robotName === activeRobotId) {
+        setActiveRobotId(null);
+        setActiveRobot(null);
+      }
+      
+      setLoadedRobots(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(data.robotName);
+        return newMap;
+      });
     };
-  }, [clearAllRobots]);
+    
+    const unsubscribeRemoved = EventBus.on('robot:removed', handleRobotRemoved);
+    
+    return () => {
+      unsubscribeRemoved();
+    };
+  }, [activeRobotId]);
+  
+  // Initialize on mount
+  useEffect(() => {
+    if (isViewerReady) {
+      discoverRobots();
+    }
+  }, [isViewerReady]);
 
   const value = {
     // Data
@@ -252,22 +179,14 @@ export const RobotProvider = ({ children }) => {
     
     // Functions
     loadRobot,
-    addRobot,
+    unloadRobot,
     setActiveRobotId,
     setActiveRobot,
     refresh: discoverRobots,
-    unloadRobot,
     getRobot,
-    getActiveRobot,
-    getActiveRobotId,
-    getLoadedRobots,
     isRobotLoaded,
-    isRobotActive,
-    clearAllRobots,
-    
-    // Viewer access
-    viewerRef: viewer,
-    setViewer
+    getLoadedRobots: () => loadedRobots,
+    clearError: () => setError(null)
   };
   
   return (

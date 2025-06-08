@@ -1,31 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useWorkspace } from '../../../contexts/WorkspaceContext';
 
 const AddRobot = ({ isOpen, onClose, onSuccess }) => {
+  const { addRobotToWorkspace, isRobotInWorkspace } = useWorkspace();
   const [availableRobots, setAvailableRobots] = useState([]);
   const [categories, setCategories] = useState([]);
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [files, setFiles] = useState({});
-  const [formData, setFormData] = useState({});
+  const [successMessage, setSuccessMessage] = useState('');
 
-  const handleNext = () => {
-    if (currentStep < 3) {
-      setCurrentStep(currentStep + 1);
-    }
-  };
-
-  const handlePrevious = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-    }
-  };
-
-  // Scan for available robots when modal opens
+  // Reset state when modal opens/closes
   useEffect(() => {
     if (isOpen) {
+      setCurrentStep(1);
+      setSelectedCategory(null);
+      setError(null);
+      setSuccessMessage('');
       scanLocalRobots();
     }
   }, [isOpen]);
@@ -59,17 +52,40 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
   };
 
   const handleSelectRobot = async (robot) => {
-    // Create the robot data
-    const newRobot = {
-      id: robot.id,
-      name: robot.name,
-      manufacturer: robot.manufacturer,
-      urdfPath: robot.urdfPath,
-      model: robot.name
-    };
-    
-    // Call onSuccess which will add to workspace AND load into scene
-    onSuccess(newRobot);
+    try {
+      // Check if robot is already in workspace
+      if (isRobotInWorkspace(robot.id)) {
+        setError(`${robot.name} is already in your workspace`);
+        return;
+      }
+
+      // Create robot data for workspace
+      const robotData = {
+        id: robot.id,
+        name: robot.name,
+        manufacturer: robot.manufacturer,
+        urdfPath: robot.urdfPath
+      };
+      
+      // Add to workspace
+      const workspaceRobot = addRobotToWorkspace(robotData);
+      
+      setSuccessMessage(`${robot.name} added to workspace!`);
+      
+      // Call success callback
+      if (onSuccess) {
+        onSuccess(workspaceRobot);
+      }
+      
+      // Close modal after a short delay
+      setTimeout(() => {
+        onClose();
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Error adding robot to workspace:', error);
+      setError('Failed to add robot to workspace');
+    }
   };
 
   const getIconForManufacturer = (name) => {
@@ -83,57 +99,6 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
     return iconMap[name.toLowerCase()] || '🤖';
   };
 
-  const handleAddRobot = async () => {
-    if (!canProceedToNext()) return;
-    
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const data = new FormData();
-      
-      // Add text fields
-      data.append('manufacturer', formData.isNewManufacturer ? formData.manufacturer : selectedCategory.name);
-      data.append('model', formData.model);
-      
-      // Add URDF file
-      if (files.urdf) {
-        data.append('urdf', files.urdf);
-      }
-      
-      // Add mesh files
-      if (files.meshes && files.meshes.length > 0) {
-        files.meshes.forEach((file) => {
-          data.append('meshes', file);
-        });
-      }
-
-      const response = await fetch('/api/robots/add', {
-        method: 'POST',
-        body: data
-        // Don't set Content-Type header - let browser set it with boundary
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        onSuccess({
-          id: result.robot.id,
-          name: result.robot.name,
-          manufacturer: result.robot.manufacturer,
-          urdfPath: `/robots/${result.robot.manufacturer}/${result.robot.name}/${result.robot.urdfFile}`,
-          model: result.robot.name
-        });
-      } else {
-        setError(result.message || 'Upload failed');
-      }
-    } catch (error) {
-      setError('Error uploading robot: ' + error.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   if (!isOpen) return null;
 
   return createPortal(
@@ -141,7 +106,7 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
       <div className="controls-modal" style={{ maxWidth: '800px', maxHeight: '600px' }}>
         <div className="controls-modal-header">
           <h2 style={{ margin: 0, fontSize: '1.5rem' }}>
-            {selectedCategory ? `${selectedCategory.name} Robots` : 'Select Robot'}
+            {selectedCategory ? `${selectedCategory.name} Robots` : 'Add Robot to Workspace'}
           </h2>
           <button 
             className="controls-close"
@@ -167,22 +132,25 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
         </div>
         
         <div className="controls-modal-body" style={{ padding: '2rem', overflowY: 'auto', maxHeight: '500px' }}>
+          {/* Messages */}
+          {error && (
+            <div className="controls-alert controls-alert-danger controls-mb-3">
+              {error}
+            </div>
+          )}
+          
+          {successMessage && (
+            <div className="controls-alert controls-alert-success controls-mb-3">
+              {successMessage}
+            </div>
+          )}
+          
           {isLoading ? (
             <div className="controls-text-center controls-p-5">
               <div className="controls-spinner-border" role="status">
                 <span className="controls-sr-only">Scanning robots...</span>
               </div>
               <p className="controls-mt-3">Scanning local robots...</p>
-            </div>
-          ) : error ? (
-            <div className="controls-alert controls-alert-danger">
-              {error}
-              <button 
-                className="controls-btn controls-btn-sm controls-btn-danger controls-mt-2"
-                onClick={scanLocalRobots}
-              >
-                Try Again
-              </button>
             </div>
           ) : !selectedCategory ? (
             // Show manufacturers
@@ -240,38 +208,53 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
               </h4>
               
               <div className="controls-grid controls-grid-cols-2 controls-gap-3">
-                {selectedCategory.robots.map(robot => (
-                  <div
-                    key={robot.id}
-                    className="controls-card"
-                    onClick={() => handleSelectRobot({
-                      ...robot,
-                      manufacturer: selectedCategory.name
-                    })}
-                    style={{
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '';
-                    }}
-                  >
-                    <div className="controls-card-body">
-                      <h5 className="controls-h5 controls-mb-2">{robot.name}</h5>
-                      <p className="controls-text-muted controls-small controls-mb-3">
-                        URDF • Ready to load
-                      </p>
-                      <button className="controls-btn controls-btn-success controls-btn-sm controls-btn-block">
-                        + Add to Workspace
-                      </button>
+                {selectedCategory.robots.map(robot => {
+                  const inWorkspace = isRobotInWorkspace(robot.id);
+                  
+                  return (
+                    <div
+                      key={robot.id}
+                      className="controls-card"
+                      onClick={() => !inWorkspace && handleSelectRobot({
+                        ...robot,
+                        manufacturer: selectedCategory.name
+                      })}
+                      style={{
+                        cursor: inWorkspace ? 'not-allowed' : 'pointer',
+                        opacity: inWorkspace ? 0.6 : 1,
+                        transition: 'all 0.2s',
+                        borderColor: inWorkspace ? '#6c757d' : undefined
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!inWorkspace) {
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!inWorkspace) {
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = '';
+                        }
+                      }}
+                    >
+                      <div className="controls-card-body">
+                        <h5 className="controls-h5 controls-mb-2">{robot.name}</h5>
+                        <p className="controls-text-muted controls-small controls-mb-3">
+                          URDF • {inWorkspace ? 'Already in workspace' : 'Ready to add'}
+                        </p>
+                        <button 
+                          className={`controls-btn controls-btn-sm controls-btn-block ${
+                            inWorkspace ? 'controls-btn-secondary' : 'controls-btn-success'
+                          }`}
+                          disabled={inWorkspace}
+                        >
+                          {inWorkspace ? '✓ In Workspace' : '+ Add to Workspace'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
