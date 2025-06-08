@@ -5,11 +5,8 @@ import IKController from './IKController/IKController';
 import Reposition from './Reposition/Reposition';
 import TrajectoryViewer from './RecordMap/TrajectoryViewer';
 import TCPController from './TCP/TCPController';
-import { useRobot } from '../../contexts/RobotContext';
 
-const Controls = ({ viewerRef, onClose }) => {
-  const { activeRobotId } = useRobot();
-
+const Controls = ({ viewerRef, onClose, activeRobotId }) => {
   if (!activeRobotId) {
     return (
       <div className="controls">

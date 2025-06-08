@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { useViewer } from './ViewerContext';
-import { useRobot } from './RobotContext';
 import URDFLoader from '../core/Loader/URDFLoader';
 import MeshLoader from '../core/Loader/MeshLoader';
 import EventBus from '../utils/EventBus';

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useRobot } from '../../../contexts/RobotContext';
+import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useViewer } from '../../../contexts/ViewerContext';
 import EventBus from '../../../utils/EventBus';
 
@@ -7,36 +7,30 @@ const RobotManager = ({
   isPanel = false, 
   onClose,
   setShowAddModal,
-  onRobotSelected
+  onRobotSelected,
+  loadRobot,
+  isLoading,
+  getLoadedRobots,
+  isRobotLoaded
 }) => {
-  const {
-    workspaceRobots,
-    workspaceCount,
-    hasWorkspaceRobots,
-    isLoading,
-    error,
-    loadRobot,
-    removeRobotFromWorkspace,
-    isRobotLoaded,
-    getRobotStatus,
-    clearError
-  } = useRobot();
+  const { workspaceRobots, removeRobotFromWorkspace } = useWorkspace();
   const { viewerInstance } = useViewer();
+  const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
 
   const handleLoadRobot = async (robot) => {
     if (!viewerInstance) {
-      setSuccessMessage('Viewer not ready');
+      setError('Viewer not initialized');
       return;
     }
     
     try {
-      clearError();
+      setError(null);
       
-      const status = getRobotStatus(robot.id);
-      
-      if (status.isLoaded) {
-        console.log('[RobotManager] Robot already loaded, selecting:', robot.id);
+      // Check if robot is already loaded in the viewer
+      if (isRobotLoaded(robot.id)) {
+        console.log('[RobotManager] Robot already loaded, just selecting it:', robot.id);
+        // Robot already loaded, just navigate to controls
         if (onRobotSelected) {
           onRobotSelected(robot.id);
         }
@@ -45,6 +39,7 @@ const RobotManager = ({
       
       console.log('[RobotManager] Loading robot:', robot);
       
+      // Load robot into the viewer
       await loadRobot(robot.id, robot.urdfPath, {
         position: { x: 0, y: 0, z: 0 },
         makeActive: true,
@@ -54,6 +49,7 @@ const RobotManager = ({
       setSuccessMessage(`${robot.name} loaded successfully!`);
       setTimeout(() => setSuccessMessage(''), 3000);
       
+      // Navigate to robot controls
       if (onRobotSelected) {
         onRobotSelected(robot.id);
       }
@@ -65,8 +61,7 @@ const RobotManager = ({
       
     } catch (error) {
       console.error('[RobotManager] Error loading robot:', error);
-      setSuccessMessage('Failed to load robot');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      setError('Failed to load robot: ' + error.message);
     }
   };
 
@@ -76,6 +71,14 @@ const RobotManager = ({
       setSuccessMessage('Robot removed from workspace');
       setTimeout(() => setSuccessMessage(''), 3000);
     }
+  };
+
+  const getRobotLoadStatus = (robot) => {
+    const loaded = isRobotLoaded(robot.id);
+    return {
+      isLoaded: loaded,
+      statusText: loaded ? 'Loaded' : 'Click to Load'
+    };
   };
 
   return (
@@ -90,7 +93,7 @@ const RobotManager = ({
         borderBottom: '1px solid #dee2e6'
       }}>
         <h2 style={{ margin: 0, fontSize: '1.5rem' }}>
-          My Robots ({workspaceCount})
+          My Robots ({workspaceRobots.length})
         </h2>
         {isPanel && (
           <button
@@ -128,9 +131,9 @@ const RobotManager = ({
       {/* Robot Grid */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <div className="controls-grid controls-grid-cols-2 controls-gap-3">
-          {/* Workspace Robots */}
+          {/* Show workspace robots */}
           {workspaceRobots.map(robot => {
-            const status = getRobotStatus(robot.id);
+            const status = getRobotLoadStatus(robot);
             
             return (
               <div 
@@ -160,24 +163,18 @@ const RobotManager = ({
                   <h5 className="controls-h5 controls-mb-1">{robot.name}</h5>
                   <small className="controls-text-muted">{robot.manufacturer}</small>
                   
-                  {/* Status Badge */}
+                  {/* Status badge */}
                   <div style={{ marginTop: '0.5rem' }}>
                     <span 
-                      className={`controls-badge ${
-                        status.isActive ? 'controls-badge-success' : 
-                        status.isLoaded ? 'controls-badge-info' : 
-                        'controls-badge-secondary'
-                      }`}
+                      className={`controls-badge ${status.isLoaded ? 'controls-badge-success' : 'controls-badge-secondary'}`}
                       style={{ fontSize: '0.7rem' }}
                     >
-                      {status.isActive ? 'Active' : 
-                       status.isLoaded ? 'Loaded' : 
-                       'Click to Load'}
+                      {status.statusText}
                     </span>
                   </div>
                 </div>
                 
-                {/* Remove Button */}
+                {/* Remove button */}
                 <button
                   className="controls-btn controls-btn-danger controls-btn-sm"
                   style={{
@@ -194,10 +191,10 @@ const RobotManager = ({
                     handleRemoveRobot(robot.id);
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.opacity = '1';
+                    e.currentTarget.parentElement.style.opacity = '1';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.opacity = '0';
+                    e.currentTarget.parentElement.style.opacity = '0';
                   }}
                 >
                   ×
@@ -239,8 +236,8 @@ const RobotManager = ({
           </div>
         </div>
         
-        {/* Empty State */}
-        {!hasWorkspaceRobots && (
+        {/* Empty state */}
+        {workspaceRobots.length === 0 && (
           <div style={{
             textAlign: 'center',
             padding: '3rem 1rem',
@@ -259,7 +256,7 @@ const RobotManager = ({
         )}
       </div>
       
-      {/* Loading Overlay */}
+      {/* Loading indicator */}
       {isLoading && (
         <div style={{
           position: 'absolute',

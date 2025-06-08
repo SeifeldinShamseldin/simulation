@@ -1,7 +1,6 @@
 // src/contexts/hooks/useTCP.js - Enhanced with position and orientation
 import { useCallback, useState, useEffect } from 'react';
 import { useTCPContext } from '../TCPContext';
-import { useRobot } from '../RobotContext';
 import EventBus from '../../utils/EventBus';
 
 export const useTCP = (robotId = null) => {
@@ -18,15 +17,25 @@ export const useTCP = (robotId = null) => {
     setToolVisibility,
     getToolInfo,
     getCurrentEndEffectorPoint,
-    getCurrentEndEffectorOrientation, // New method from TCPContext
+    getCurrentEndEffectorOrientation,
     recalculateEndEffector,
     getRobotEndEffectorPosition,
-    getRobotEndEffectorOrientation, // New method from TCPContext
+    getRobotEndEffectorOrientation,
     hasToolAttached,
     clearError
   } = useTCPContext();
   
-  const { activeRobotId } = useRobot();
+  const [activeRobotId, setActiveRobotId] = useState(null);
+  
+  // Listen for robot selection changes
+  useEffect(() => {
+    const handleRobotSelected = (data) => {
+      setActiveRobotId(data.robotId);
+    };
+
+    const unsubscribe = EventBus.on('robot:selected', handleRobotSelected);
+    return () => unsubscribe();
+  }, []);
   
   // Use provided robotId or fall back to active robot
   const targetRobotId = robotId || activeRobotId;

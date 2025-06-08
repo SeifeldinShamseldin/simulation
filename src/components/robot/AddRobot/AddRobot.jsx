@@ -1,45 +1,61 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useRobot } from '../../../contexts/RobotContext';
+import { useWorkspace } from '../../../contexts/WorkspaceContext';
 
 const AddRobot = ({ isOpen, onClose, onSuccess }) => {
-  // Data from useRobot hook (pure data transfer)
-  const {
-    categories,
-    availableRobots,
-    isLoading,
-    error,
-    addRobotToWorkspace,
-    addNewRobot,
-    isRobotInWorkspace,
-    discoverRobots,
-    clearError
-  } = useRobot();
-  
-  // Local UI state only
+  const { addRobotToWorkspace, isRobotInWorkspace } = useWorkspace();
+  const [availableRobots, setAvailableRobots] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [currentStep, setCurrentStep] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
 
   // Reset state when modal opens/closes
   useEffect(() => {
     if (isOpen) {
+      setCurrentStep(1);
       setSelectedCategory(null);
+      setError(null);
       setSuccessMessage('');
-      clearError();
-      // Refresh available robots when opening
-      discoverRobots();
+      scanLocalRobots();
     }
-  }, [isOpen, discoverRobots, clearError]);
+  }, [isOpen]);
 
-  // Pure UI logic - delegates to context methods
+  const scanLocalRobots = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const response = await fetch('/robots/list');
+      const data = await response.json();
+      setCategories(data);
+      
+      // Flatten all robots for easy access
+      const allRobots = [];
+      data.forEach(category => {
+        category.robots.forEach(robot => {
+          allRobots.push({
+            ...robot,
+            manufacturer: category.name,
+            manufacturerId: category.id
+          });
+        });
+      });
+      setAvailableRobots(allRobots);
+    } catch (err) {
+      console.error('Error scanning robots:', err);
+      setError('Failed to scan robots');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSelectRobot = async (robot) => {
     try {
-      clearError();
-      
       // Check if robot is already in workspace
       if (isRobotInWorkspace(robot.id)) {
-        setSuccessMessage(`${robot.name} is already in your workspace`);
+        setError(`${robot.name} is already in your workspace`);
         return;
       }
 
@@ -51,7 +67,7 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
         urdfPath: robot.urdfPath
       };
       
-      // Use context method - all logic is there
+      // Add to workspace
       const workspaceRobot = addRobotToWorkspace(robotData);
       
       setSuccessMessage(`${robot.name} added to workspace!`);
@@ -67,38 +83,8 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
       }, 1000);
       
     } catch (error) {
-      console.error('[AddRobot] Error adding robot to workspace:', error);
-      setSuccessMessage('Failed to add robot to workspace');
-    }
-  };
-
-  const handleUploadNewRobot = async (formData) => {
-    try {
-      setIsUploading(true);
-      clearError();
-      
-      // Use context method for server upload
-      const result = await addNewRobot(formData);
-      
-      if (result.success) {
-        setSuccessMessage(`${result.robot.name} uploaded and added to workspace!`);
-        
-        // Call success callback
-        if (onSuccess) {
-          onSuccess(result.robot);
-        }
-        
-        // Close modal after a short delay
-        setTimeout(() => {
-          onClose();
-        }, 1000);
-      }
-      
-    } catch (error) {
-      console.error('[AddRobot] Error uploading robot:', error);
-      setSuccessMessage('Failed to upload robot');
-    } finally {
-      setIsUploading(false);
+      console.error('Error adding robot to workspace:', error);
+      setError('Failed to add robot to workspace');
     }
   };
 
@@ -115,7 +101,6 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
 
   if (!isOpen) return null;
 
-  // Pure UI rendering
   return createPortal(
     <div className="controls-modal-overlay">
       <div className="controls-modal" style={{ maxWidth: '800px', maxHeight: '600px' }}>
@@ -160,16 +145,12 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
             </div>
           )}
           
-          {(isLoading || isUploading) ? (
+          {isLoading ? (
             <div className="controls-text-center controls-p-5">
               <div className="controls-spinner-border" role="status">
-                <span className="controls-sr-only">
-                  {isUploading ? 'Uploading...' : 'Loading...'}
-                </span>
+                <span className="controls-sr-only">Scanning robots...</span>
               </div>
-              <p className="controls-mt-3">
-                {isUploading ? 'Uploading robot...' : 'Loading available robots...'}
-              </p>
+              <p className="controls-mt-3">Scanning local robots...</p>
             </div>
           ) : !selectedCategory ? (
             // Show manufacturers
@@ -203,37 +184,6 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
                     </div>
                   </div>
                 ))}
-                
-                {/* Upload New Robot Card */}
-                <div
-                  className="controls-card"
-                  style={{
-                    cursor: 'pointer',
-                    borderStyle: 'dashed',
-                    borderWidth: '2px',
-                    borderColor: '#ffc107',
-                    background: '#fff',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = '#e0a800';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                    e.currentTarget.style.background = '#fffdf5';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = '#ffc107';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '';
-                    e.currentTarget.style.background = '#fff';
-                  }}
-                >
-                  <div className="controls-card-body controls-text-center controls-p-4">
-                    <div style={{ fontSize: '3rem', marginBottom: '0.5rem', color: '#ffc107' }}>📤</div>
-                    <h5 className="controls-h5 controls-mb-1">Upload New</h5>
-                    <small className="controls-text-muted">Custom Robot</small>
-                  </div>
-                </div>
               </div>
             </div>
           ) : (

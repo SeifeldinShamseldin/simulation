@@ -1,4 +1,4 @@
-// src/App.jsx - Clean Architecture (RobotContext handles all robot logic)
+// src/App.jsx - Updated with WorkspaceProvider and clean separation
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
@@ -7,7 +7,7 @@ import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import ResizablePanel from './components/common/ResizablePanel';
 import { SceneProvider } from './contexts/SceneContext';
-import { RobotProvider } from './contexts/RobotContext';
+import { WorkspaceProvider } from './contexts/WorkspaceContext';
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
@@ -31,7 +31,7 @@ const RobotPanel = ({ onClose, viewerRef }) => {
   const handleBackToRobots = () => {
     console.log('[App] Going back to robot selection');
     setShowControls(false);
-    // Keep selectedRobotId for potential return
+    // Don't clear selectedRobotId - keep it for potential return
   };
 
   if (showControls && selectedRobotId) {
@@ -52,7 +52,7 @@ const RobotPanel = ({ onClose, viewerRef }) => {
           >
             ← Back to Robots
           </button>
-          <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Robot Controls</h2>
+          <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Controls</h2>
           <button
             onClick={onClose}
             style={{
@@ -73,7 +73,10 @@ const RobotPanel = ({ onClose, viewerRef }) => {
         
         {/* Robot controls */}
         <div style={{ flex: '1', overflowY: 'auto' }}>
-          <Controls viewerRef={viewerRef} />
+          <Controls 
+            viewerRef={viewerRef} 
+            activeRobotId={selectedRobotId}
+          />
         </div>
       </div>
     );
@@ -186,12 +189,12 @@ const AppContent = () => {
   );
 };
 
-// Clean Provider Architecture - RobotContext handles all robot logic
+// Provider architecture with WorkspaceProvider added
 const App = () => {
   return (
     <SceneProvider>
       <ViewerProvider>
-        <RobotProvider>
+        <WorkspaceProvider>
           <TCPProvider>
             <JointProvider>
               <IKProvider>
@@ -201,7 +204,7 @@ const App = () => {
               </IKProvider>
             </JointProvider>
           </TCPProvider>
-        </RobotProvider>
+        </WorkspaceProvider>
       </ViewerProvider>
     </SceneProvider>
   );

@@ -1,7 +1,8 @@
 // src/contexts/hooks/useJoints.js - Simple data transfer hook
-import { useCallback } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { useJointContext } from '../JointContext';
-import { useRobot } from '../RobotContext';
+import { useViewer } from '../ViewerContext';
+import EventBus from '../../utils/EventBus';
 
 export const useJoints = (robotId = null) => {
   const {
@@ -20,7 +21,17 @@ export const useJoints = (robotId = null) => {
     stopAnimation
   } = useJointContext();
   
-  const { activeRobotId } = useRobot();
+  const [activeRobotId, setActiveRobotId] = useState(null);
+  
+  // Listen for robot selection changes
+  useEffect(() => {
+    const handleRobotSelected = (data) => {
+      setActiveRobotId(data.robotId);
+    };
+
+    const unsubscribe = EventBus.on('robot:selected', handleRobotSelected);
+    return () => unsubscribe();
+  }, []);
   
   // Use provided robotId or fall back to active robot
   const targetRobotId = robotId || activeRobotId;

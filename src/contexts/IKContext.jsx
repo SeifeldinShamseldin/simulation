@@ -1,14 +1,16 @@
 // src/contexts/IKContext.jsx - Fixed animation completion handling
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { useRobot } from './RobotContext';
+import { useViewer } from './ViewerContext';
 import { useTCP } from './hooks/useTCP';
 import EventBus from '../utils/EventBus';
 
 const IKContext = createContext(null);
 
 export const IKProvider = ({ children }) => {
-  const { activeRobotId, getRobot } = useRobot();
+  const { getRobotManager } = useViewer();
+  const robotManager = getRobotManager();
+  const [activeRobotId, setActiveRobotId] = useState(null);
   const { 
     currentEndEffectorPoint,
     hasValidEndEffector,
@@ -17,6 +19,20 @@ export const IKProvider = ({ children }) => {
     getEndEffectorInfo,
     getEndEffectorType
   } = useTCP();
+
+  // Listen for robot selection changes
+  useEffect(() => {
+    const handleRobotSelected = (data) => {
+      setActiveRobotId(data.robotId);
+    };
+
+    const unsubscribe = EventBus.on('robot:selected', handleRobotSelected);
+    return () => unsubscribe();
+  }, []);
+
+  const getRobot = useCallback((robotId) => {
+    return robotManager?.getRobot(robotId);
+  }, [robotManager]);
 
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
   const [isAnimating, setIsAnimating] = useState(false);
