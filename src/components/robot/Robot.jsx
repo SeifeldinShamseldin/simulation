@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import RobotManager from './RobotManager/RobotManager';
 import LoadedRobots from './LoadedRobots/LoadedRobots';
 import ControlJoints from '../controls/ControlJoints/ControlJoints';
@@ -15,6 +15,27 @@ const Robot = ({ isPanel = false, onClose }) => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [workspaceRobots, setWorkspaceRobots] = useState([]);
   const [activeRobotId, setActiveRobotId] = useState(null);
+
+  // Load saved robots from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedRobots = localStorage.getItem('workspaceRobots');
+      if (savedRobots) {
+        setWorkspaceRobots(JSON.parse(savedRobots));
+      }
+    } catch (error) {
+      console.error('Error loading saved robots:', error);
+    }
+  }, []);
+
+  // Save robots to localStorage whenever workspaceRobots changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('workspaceRobots', JSON.stringify(workspaceRobots));
+    } catch (error) {
+      console.error('Error saving robots:', error);
+    }
+  }, [workspaceRobots]);
 
   const handleAddRobotSuccess = (newRobot) => {
     setWorkspaceRobots(prev => [...prev, newRobot]);
@@ -82,4 +103,4 @@ const Robot = ({ isPanel = false, onClose }) => {
   );
 };
 
-export default Robot; 
+export default Robot;
