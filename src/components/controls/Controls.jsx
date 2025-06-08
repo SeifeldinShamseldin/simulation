@@ -1,75 +1,74 @@
-// src/components/controls/Controls.jsx - Control components only
+// src/components/controls/Controls.jsx - Complete robot control interface
 import React from 'react';
+import { useRobot } from '../../contexts/RobotContext';
+import { useViewer } from '../../contexts/ViewerContext';
 import ControlJoints from './ControlJoints/ControlJoints';
 import IKController from './IKController/IKController';
+import TCPController from './tcp/TCPController';
 import Reposition from './Reposition/Reposition';
 import TrajectoryViewer from './RecordMap/TrajectoryViewer';
-import TCPController from './TCP/TCPController';
+import LoadedRobots from '../robot/LoadedRobots/LoadedRobots';
 
-const Controls = ({ viewerRef, onClose, activeRobotId }) => {
+const Controls = ({ onClose }) => {
+  const { activeRobotId, getLoadedRobots } = useRobot();
+  const { viewerInstance } = useViewer();
+  
+  const loadedRobots = getLoadedRobots();
+  const workspaceRobots = loadedRobots.map(robotData => ({
+    id: robotData.id,
+    name: robotData.id,
+    manufacturer: 'Robot',
+    icon: '🤖'
+  }));
+
   if (!activeRobotId) {
     return (
-      <div className="controls">
+      <div className="controls-container">
         <div className="controls-section">
           <h3 className="controls-section-title">Robot Controls</h3>
-          <p className="controls-text-muted">No robot selected. Please select a robot first.</p>
+          <p className="controls-text-muted">No robot loaded. Please load a robot first.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="controls" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '1rem',
-        paddingBottom: '1rem',
-        borderBottom: '1px solid #dee2e6'
-      }}>
-        <h2 style={{ margin: 0, fontSize: '1.5rem' }}>Robot Controls</h2>
-        <button
-          onClick={onClose}
-          style={{
-            background: 'none',
-            border: 'none',
-            fontSize: '1.8rem',
-            cursor: 'pointer',
-            color: '#6c757d',
-            padding: '0.25rem 0.5rem',
-            borderRadius: '4px',
-            transition: 'all 0.2s ease',
-            lineHeight: 1
-          }}
-        >
-          ×
-        </button>
-      </div>
-
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        <section className="controls-section-wrapper">
-          <ControlJoints />
-        </section>
-        
-        <section className="controls-section-wrapper">
-          <IKController />
-        </section>
-        
-        <section className="controls-section-wrapper">
-          <Reposition viewerRef={viewerRef} />
-        </section>
-        
-        <section className="controls-section-wrapper">
-          <TCPController viewerRef={viewerRef} />
-        </section>
-        
-        <section className="controls-section-wrapper">
-          <TrajectoryViewer viewerRef={viewerRef} />
-        </section>
-      </div>
+    <div className="controls-container">
+      {/* Active Robot Display */}
+      <section className="controls-section-wrapper">
+        <LoadedRobots
+          viewerRef={{ current: viewerInstance }}
+          workspaceRobots={workspaceRobots}
+          activeRobotId={activeRobotId}
+          setActiveRobotId={() => {}} // Handled by RobotContext
+          setShowRobotSelection={() => {}} // Not needed in controls
+        />
+      </section>
+      
+      {/* Joint Control */}
+      <section className="controls-section-wrapper">
+        <ControlJoints />
+      </section>
+      
+      {/* TCP Tool Control */}
+      <section className="controls-section-wrapper">
+        <TCPController viewerRef={{ current: viewerInstance }} />
+      </section>
+      
+      {/* Inverse Kinematics */}
+      <section className="controls-section-wrapper">
+        <IKController />
+      </section>
+      
+      {/* Robot Position */}
+      <section className="controls-section-wrapper">
+        <Reposition viewerRef={{ current: viewerInstance }} />
+      </section>
+      
+      {/* Trajectory Recording & Playback */}
+      <section className="controls-section-wrapper">
+        <TrajectoryViewer viewerRef={{ current: viewerInstance }} />
+      </section>
     </div>
   );
 };
-
-export default Controls;

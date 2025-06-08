@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useViewer } from '../../../contexts/ViewerContext';
-import { useRobot } from '../../../contexts/RobotContext';
 import EventBus from '../../../utils/EventBus';
 
 const RobotManager = ({ 
@@ -12,7 +11,6 @@ const RobotManager = ({
 }) => {
   const { workspaceRobots, removeRobotFromWorkspace } = useWorkspace();
   const { viewerInstance } = useViewer();
-  const { loadRobot, isRobotLoaded } = useRobot();
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
 
