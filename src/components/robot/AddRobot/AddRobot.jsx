@@ -1,3 +1,4 @@
+// src/components/robot/AddRobot/AddRobot.jsx - Uses WorkspaceContext
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
@@ -265,4 +266,4 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
   );
 };
 
-export default AddRobot; 
+export default AddRobot;
