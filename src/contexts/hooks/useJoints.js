@@ -2,6 +2,7 @@
 import { useCallback, useState, useEffect } from 'react';
 import { useJointContext } from '../JointContext';
 import { useViewer } from '../ViewerContext';
+import { useRobot } from '../RobotContext';
 import EventBus from '../../utils/EventBus';
 
 export const useJoints = (robotId = null) => {

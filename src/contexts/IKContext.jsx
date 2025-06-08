@@ -2,7 +2,9 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { useViewer } from './ViewerContext';
-import { useTCP } from './hooks/useTCP';
+import { useRobot } from './RobotContext';
+import { useTCP } from './TCPContext';
+import { useJoint } from './JointContext';
 import EventBus from '../utils/EventBus';
 
 const IKContext = createContext(null);

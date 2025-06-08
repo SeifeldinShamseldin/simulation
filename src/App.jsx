@@ -14,7 +14,34 @@ import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
 import { JointProvider } from './contexts/JointContext';
 import WorldManager from './components/World/WorldManager';
-import './App.css';
+import { RobotProvider } from './contexts/RobotContext';
+import { TrajectoryProvider } from './contexts/TrajectoryContext';
+import { HumanProvider } from './contexts/HumanContext';
+import { EnvironmentProvider } from './contexts/EnvironmentContext';
+import { CustomObjectProvider } from './contexts/CustomObjectContext';
+import { CollisionProvider } from './contexts/CollisionContext';
+import { PhysicsProvider } from './contexts/PhysicsContext';
+import { AnimationProvider } from './contexts/AnimationContext';
+import { EventProvider } from './contexts/EventContext';
+import { SettingsProvider } from './contexts/SettingsContext';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { ErrorProvider } from './contexts/ErrorContext';
+import { LoadingProvider } from './contexts/LoadingContext';
+import { ModalProvider } from './contexts/ModalContext';
+import { ToastProvider } from './contexts/ToastContext';
+import { KeyboardProvider } from './contexts/KeyboardContext';
+import { MouseProvider } from './contexts/MouseContext';
+import { TouchProvider } from './contexts/TouchContext';
+import { GestureProvider } from './contexts/GestureContext';
+import { WindowProvider } from './contexts/WindowContext';
+import { TimeProvider } from './contexts/TimeContext';
+import { DebugProvider } from './contexts/DebugContext';
+import { PerformanceProvider } from './contexts/PerformanceContext';
+import { AnalyticsProvider } from './contexts/AnalyticsContext';
+import { LoggingProvider } from './contexts/LoggingContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { AppRoutes } from './routes';
+import './styles/App.css';
 
 const RobotPanel = ({ onClose, viewerRef }) => {
   const [showControls, setShowControls] = useState(false);
@@ -192,21 +219,73 @@ const AppContent = () => {
 // Provider architecture with WorkspaceProvider added
 const App = () => {
   return (
-    <SceneProvider>
-      <ViewerProvider>
-        <WorkspaceProvider>
-          <TCPProvider>
-            <JointProvider>
-              <IKProvider>
-                <WorldProvider>
-                  <AppContent />
-                </WorldProvider>
-              </IKProvider>
-            </JointProvider>
-          </TCPProvider>
-        </WorkspaceProvider>
-      </ViewerProvider>
-    </SceneProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <SettingsProvider>
+          <EventProvider>
+            <WindowProvider>
+              <KeyboardProvider>
+                <MouseProvider>
+                  <TouchProvider>
+                    <GestureProvider>
+                      <TimeProvider>
+                        <DebugProvider>
+                          <PerformanceProvider>
+                            <AnalyticsProvider>
+                              <LoggingProvider>
+                                <LoadingProvider>
+                                  <ErrorProvider>
+                                    <ModalProvider>
+                                      <ToastProvider>
+                                        <ViewerProvider>
+                                          <SceneProvider>
+                                            <WorkspaceProvider>
+                                              <RobotProvider>
+                                                <JointProvider>
+                                                  <TCPProvider>
+                                                    <IKProvider>
+                                                      <WorldProvider>
+                                                        <TrajectoryProvider>
+                                                          <HumanProvider>
+                                                            <EnvironmentProvider>
+                                                              <CustomObjectProvider>
+                                                                <CollisionProvider>
+                                                                  <PhysicsProvider>
+                                                                    <AnimationProvider>
+                                                                      <AppRoutes />
+                                                                    </AnimationProvider>
+                                                                  </PhysicsProvider>
+                                                                </CollisionProvider>
+                                                              </CustomObjectProvider>
+                                                            </EnvironmentProvider>
+                                                          </HumanProvider>
+                                                        </TrajectoryProvider>
+                                                      </WorldProvider>
+                                                    </IKProvider>
+                                                  </TCPProvider>
+                                                </JointProvider>
+                                              </RobotProvider>
+                                            </WorkspaceProvider>
+                                          </SceneProvider>
+                                        </ViewerProvider>
+                                      </ToastProvider>
+                                    </ModalProvider>
+                                  </ErrorProvider>
+                                </LoadingProvider>
+                              </LoggingProvider>
+                            </AnalyticsProvider>
+                          </PerformanceProvider>
+                        </DebugProvider>
+                      </TimeProvider>
+                    </GestureProvider>
+                  </TouchProvider>
+                </MouseProvider>
+              </KeyboardProvider>
+            </WindowProvider>
+          </EventProvider>
+        </SettingsProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 };
 

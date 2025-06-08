@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { useViewer } from './ViewerContext';
+import { useRobot } from './RobotContext';
 import URDFLoader from '../core/Loader/URDFLoader';
 import MeshLoader from '../core/Loader/MeshLoader';
 import EventBus from '../utils/EventBus';
@@ -639,6 +640,7 @@ export const TCPProvider = ({ children }) => {
   console.log('[TCP Context] Using SIMPLIFIED TCP System v2.0');
   
   const { isViewerReady, getSceneSetup, getRobotManager } = useViewer();
+  const { getRobot } = useRobot();
   const tcpManagerRef = useRef(null);
   
   // State

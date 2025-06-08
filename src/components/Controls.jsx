@@ -1,0 +1,36 @@
+import React, { useState, useEffect } from 'react';
+import { useViewer } from '../contexts/ViewerContext';
+import { useRobot } from '../contexts/RobotContext';
+import { useWorkspace } from '../contexts/WorkspaceContext';
+import { useJoint } from '../contexts/JointContext';
+import { useTCP } from '../contexts/TCPContext';
+import { useIK } from '../contexts/IKContext';
+import { useWorld } from '../contexts/WorldContext';
+import { useTrajectory } from '../contexts/TrajectoryContext';
+import { useHuman } from '../contexts/HumanContext';
+import { useEnvironment } from '../contexts/EnvironmentContext';
+import { useCustomObject } from '../contexts/CustomObjectContext';
+import { useCollision } from '../contexts/CollisionContext';
+import { usePhysics } from '../contexts/PhysicsContext';
+import { useAnimation } from '../contexts/AnimationContext';
+import { useEvent } from '../contexts/EventContext';
+import { useSettings } from '../contexts/SettingsContext';
+import { useTheme } from '../contexts/ThemeContext';
+import { useError } from '../contexts/ErrorContext';
+import { useLoading } from '../contexts/LoadingContext';
+import { useModal } from '../contexts/ModalContext';
+import { useToast } from '../contexts/ToastContext';
+import { useKeyboard } from '../contexts/KeyboardContext';
+import { useMouse } from '../contexts/MouseContext';
+import { useTouch } from '../contexts/TouchContext';
+import { useGesture } from '../contexts/GestureContext';
+import { useWindow } from '../contexts/WindowContext';
+import { useTime } from '../contexts/TimeContext';
+import { useDebug } from '../contexts/DebugContext';
+import { usePerformance } from '../contexts/PerformanceContext';
+import { useAnalytics } from '../contexts/AnalyticsContext';
+import { useLogging } from '../contexts/LoggingContext';
+import EventBus from '../utils/EventBus';
+import './Controls.css';
+
+// ... rest of the file remains unchanged ... 

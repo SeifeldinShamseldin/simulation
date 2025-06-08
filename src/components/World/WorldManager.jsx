@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useWorld } from '../../contexts/WorldContext';
 import { useScene } from '../../contexts/hooks/useScene';
+import { useRobot } from '../../contexts/RobotContext';
 import EventBus from '../../utils/EventBus';
 import * as THREE from 'three';
 
@@ -17,6 +18,8 @@ const WorldManager = ({ viewerRef, isOpen, onClose }) => {
     exportWorld,
     importWorld
   } = useWorld();
+  
+  const { loadRobot } = useRobot();
   
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [worldName, setWorldName] = useState('');
