@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useViewer } from '../ViewerContext';
-import { useTCPContext } from '../TCPContext';
+import { useTCPContext } from '../TCPContext'; // Fixed import
 import { useRobot } from '../RobotContext';
 import EventBus from '../../utils/EventBus';
 
@@ -11,11 +11,22 @@ export const useRobotControl = () => {
     getCurrentEndEffectorPoint,
     hasToolAttached,
     getToolInfo
-  } = useTCPContext();
+  } = useTCPContext(); // Fixed context usage
 
   const [robot, setRobot] = useState(null);
   const [robotManager, setRobotManager] = useState(null);
   const [isReady, setIsReady] = useState(false);
+
+  // Debug logging
+  useEffect(() => {
+    console.log('[useRobotControl] State update:', {
+      isViewerReady,
+      activeRobotId,
+      hasRobotManager: !!robotManager,
+      hasRobot: !!robot,
+      isReady
+    });
+  }, [isViewerReady, activeRobotId, robotManager, robot, isReady]);
 
   useEffect(() => {
     if (!isViewerReady || !activeRobotId) {

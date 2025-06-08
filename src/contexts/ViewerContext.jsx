@@ -1,160 +1,192 @@
-// src/contexts/WorkspaceContext.jsx - Manages workspace robots (saved/bookmarked robots)
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+// src/contexts/ViewerContext.jsx - Manages the URDF viewer instance and provides access to its components
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import EventBus from '../utils/EventBus';
 
-const WorkspaceContext = createContext(null);
+const ViewerContext = createContext(null);
 
-export const WorkspaceProvider = ({ children }) => {
-  const [workspaceRobots, setWorkspaceRobots] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
+export const ViewerProvider = ({ children }) => {
+  const [viewerInstance, setViewerInstanceState] = useState(null);
+  const [isViewerReady, setIsViewerReady] = useState(false);
+  const [robotManager, setRobotManager] = useState(null);
+  const [sceneSetup, setSceneSetup] = useState(null);
 
-  // Load workspace robots from localStorage on mount
-  useEffect(() => {
-    try {
-      const savedRobots = localStorage.getItem('workspaceRobots');
-      if (savedRobots) {
-        const robots = JSON.parse(savedRobots);
-        setWorkspaceRobots(robots);
-        console.log('[Workspace] Loaded robots from localStorage:', robots);
+  // Set viewer instance and extract its components
+  const setViewerInstance = useCallback((viewer) => {
+    console.log('[ViewerContext] Setting viewer instance:', !!viewer);
+    
+    if (viewer) {
+      setViewerInstanceState(viewer);
+      
+      // Extract robot manager and scene setup from viewer
+      if (viewer.robotManager) {
+        setRobotManager(viewer.robotManager);
+        console.log('[ViewerContext] Robot manager extracted');
       }
-    } catch (error) {
-      console.error('[Workspace] Error loading saved robots:', error);
-      setError('Failed to load saved robots');
+      
+      if (viewer.sceneSetup) {
+        setSceneSetup(viewer.sceneSetup);
+        console.log('[ViewerContext] Scene setup extracted');
+      }
+      
+      setIsViewerReady(true);
+      
+      // Emit ready event
+      EventBus.emit('viewer:ready', { viewer });
+      
+    } else {
+      setViewerInstanceState(null);
+      setRobotManager(null);
+      setSceneSetup(null);
+      setIsViewerReady(false);
+      
+      EventBus.emit('viewer:disposed');
     }
   }, []);
 
-  // Save workspace robots to localStorage whenever it changes
-  useEffect(() => {
-    try {
-      localStorage.setItem('workspaceRobots', JSON.stringify(workspaceRobots));
-      console.log('[Workspace] Saved robots to localStorage:', workspaceRobots);
-    } catch (error) {
-      console.error('[Workspace] Error saving robots:', error);
-      setError('Failed to save robots');
+  // Get robot manager
+  const getRobotManager = useCallback(() => {
+    if (!robotManager && viewerInstance?.robotManager) {
+      setRobotManager(viewerInstance.robotManager);
+      return viewerInstance.robotManager;
     }
-  }, [workspaceRobots]);
+    return robotManager;
+  }, [robotManager, viewerInstance]);
 
-  // Add robot to workspace
-  const addRobotToWorkspace = useCallback((robotData) => {
-    const newRobot = {
-      id: `${robotData.id}_${Date.now()}`,
-      robotId: robotData.id,
-      name: robotData.name,
-      manufacturer: robotData.manufacturer,
-      urdfPath: robotData.urdfPath,
-      icon: '🤖',
-      addedAt: new Date().toISOString()
+  // Get scene setup
+  const getSceneSetup = useCallback(() => {
+    if (!sceneSetup && viewerInstance?.sceneSetup) {
+      setSceneSetup(viewerInstance.sceneSetup);
+      return viewerInstance.sceneSetup;
+    }
+    return sceneSetup;
+  }, [sceneSetup, viewerInstance]);
+
+  // Load robot method that delegates to viewer instance
+  const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
+    if (!viewerInstance) {
+      throw new Error('Viewer instance not available');
+    }
+    
+    if (!viewerInstance.loadRobot) {
+      throw new Error('Viewer instance does not support robot loading');
+    }
+    
+    try {
+      console.log('[ViewerContext] Loading robot:', robotId);
+      const robot = await viewerInstance.loadRobot(robotId, urdfPath, options);
+      
+      // Create robot data
+      const robotData = {
+        id: robotId,
+        urdfPath,
+        robot,
+        loadedAt: new Date().toISOString(),
+        makeActive: options.makeActive !== false
+      };
+      
+      console.log('[ViewerContext] Robot loaded, emitting events for:', robotId);
+      
+      // Emit event for RobotContext
+      EventBus.emit('robot:loaded-in-context', {
+        robotId,
+        robotData
+      });
+      
+      // Also emit the original robot:loaded event for compatibility
+      EventBus.emit('robot:loaded', {
+        robotName: robotId,
+        robot,
+        makeActive: options.makeActive !== false
+      });
+      
+      return robot;
+    } catch (error) {
+      console.error('[ViewerContext] Error loading robot:', error);
+      throw error;
+    }
+  }, [viewerInstance]);
+
+  // Check if robot is loaded
+  const isRobotLoaded = useCallback((robotId) => {
+    if (!robotManager) return false;
+    
+    if (robotManager.getAllRobots) {
+      const allRobots = robotManager.getAllRobots();
+      return allRobots.has(robotId);
+    }
+    
+    return false;
+  }, [robotManager]);
+
+  // Get robot
+  const getRobot = useCallback((robotId) => {
+    if (!robotManager) return null;
+    
+    if (robotManager.getRobot) {
+      return robotManager.getRobot(robotId);
+    }
+    
+    if (robotManager.getAllRobots) {
+      const allRobots = robotManager.getAllRobots();
+      const robotData = allRobots.get(robotId);
+      return robotData?.model || null;
+    }
+    
+    return null;
+  }, [robotManager]);
+
+  // Focus on robot
+  const focusOnRobot = useCallback((robotId, force = false) => {
+    if (!sceneSetup || !robotManager) return;
+    
+    const robot = getRobot(robotId);
+    if (!robot) return;
+    
+    if (sceneSetup.focusOnObject) {
+      sceneSetup.focusOnObject(robot);
+    }
+  }, [sceneSetup, robotManager, getRobot]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      setViewerInstanceState(null);
+      setRobotManager(null);
+      setSceneSetup(null);
+      setIsViewerReady(false);
     };
-    
-    setWorkspaceRobots(prev => {
-      // Check if robot already exists
-      const exists = prev.some(r => r.robotId === robotData.id);
-      if (exists) {
-        console.log('[Workspace] Robot already in workspace:', robotData.name);
-        return prev;
-      }
-      
-      console.log('[Workspace] Adding robot to workspace:', newRobot);
-      return [...prev, newRobot];
-    });
-    
-    return newRobot;
   }, []);
-
-  // Remove robot from workspace
-  const removeRobotFromWorkspace = useCallback((workspaceRobotId) => {
-    setWorkspaceRobots(prev => {
-      const updated = prev.filter(r => r.id !== workspaceRobotId);
-      console.log('[Workspace] Removing robot from workspace:', workspaceRobotId);
-      return updated;
-    });
-  }, []);
-
-  // Get robot by workspace ID
-  const getWorkspaceRobot = useCallback((workspaceRobotId) => {
-    return workspaceRobots.find(r => r.id === workspaceRobotId);
-  }, [workspaceRobots]);
-
-  // Check if robot is in workspace
-  const isRobotInWorkspace = useCallback((robotId) => {
-    return workspaceRobots.some(r => r.robotId === robotId);
-  }, [workspaceRobots]);
-
-  // Clear all robots from workspace
-  const clearWorkspace = useCallback(() => {
-    setWorkspaceRobots([]);
-    console.log('[Workspace] Cleared all robots from workspace');
-  }, []);
-
-  // Import robots (from file)
-  const importRobots = useCallback((robotsData) => {
-    try {
-      setWorkspaceRobots(robotsData);
-      console.log('[Workspace] Imported robots:', robotsData);
-    } catch (error) {
-      console.error('[Workspace] Error importing robots:', error);
-      setError('Failed to import robots');
-    }
-  }, []);
-
-  // Export robots (to file)
-  const exportRobots = useCallback(() => {
-    try {
-      const dataStr = JSON.stringify(workspaceRobots, null, 2);
-      const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(dataBlob);
-      
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `workspace_robots_${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      URL.revokeObjectURL(url);
-      console.log('[Workspace] Exported robots to file');
-    } catch (error) {
-      console.error('[Workspace] Error exporting robots:', error);
-      setError('Failed to export robots');
-    }
-  }, [workspaceRobots]);
 
   const value = {
-    // State
-    workspaceRobots,
-    isLoading,
-    error,
+    // Core state
+    viewerInstance,
+    isViewerReady,
+    robotManager,
+    sceneSetup,
     
     // Methods
-    addRobotToWorkspace,
-    removeRobotFromWorkspace,
-    getWorkspaceRobot,
-    isRobotInWorkspace,
-    clearWorkspace,
-    importRobots,
-    exportRobots,
-    
-    // Utils
-    robotCount: workspaceRobots.length,
-    isEmpty: workspaceRobots.length === 0,
-    
-    // Error handling
-    clearError: () => setError(null)
+    setViewerInstance,
+    getRobotManager,
+    getSceneSetup,
+    loadRobot,
+    isRobotLoaded,
+    getRobot,
+    focusOnRobot
   };
 
   return (
-    <WorkspaceContext.Provider value={value}>
+    <ViewerContext.Provider value={value}>
       {children}
-    </WorkspaceContext.Provider>
+    </ViewerContext.Provider>
   );
 };
 
-export const useWorkspace = () => {
-  const context = useContext(WorkspaceContext);
+export const useViewer = () => {
+  const context = useContext(ViewerContext);
   if (!context) {
-    throw new Error('useWorkspace must be used within WorkspaceProvider');
+    throw new Error('useViewer must be used within ViewerProvider');
   }
   return context;
 };
 
-export default WorkspaceContext;
+export default ViewerContext;

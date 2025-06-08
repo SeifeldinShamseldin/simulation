@@ -15,7 +15,7 @@ import { TCPProvider } from './contexts/TCPContext';
 import { JointProvider } from './contexts/JointContext';
 import WorldManager from './components/World/WorldManager';
 import { RobotProvider } from './contexts/RobotContext';
-import './styles/App.css';
+import './App.css';
 
 const RobotPanel = ({ onClose, viewerRef }) => {
   const [showControls, setShowControls] = useState(false);
@@ -76,7 +76,7 @@ const RobotPanel = ({ onClose, viewerRef }) => {
         <div style={{ flex: '1', overflowY: 'auto' }}>
           <Controls 
             viewerRef={viewerRef} 
-            activeRobotId={selectedRobotId}
+            onClose={onClose}
           />
         </div>
       </div>
@@ -190,76 +190,26 @@ const AppContent = () => {
   );
 };
 
-// Provider architecture with WorkspaceProvider added
+// Main App component with proper provider hierarchy
 const App = () => {
   return (
-    <ErrorBoundary>
-      <ThemeProvider>
-        <SettingsProvider>
-          <EventProvider>
-            <WindowProvider>
-              <KeyboardProvider>
-                <MouseProvider>
-                  <TouchProvider>
-                    <GestureProvider>
-                      <TimeProvider>
-                        <DebugProvider>
-                          <PerformanceProvider>
-                            <AnalyticsProvider>
-                              <LoggingProvider>
-                                <LoadingProvider>
-                                  <ErrorProvider>
-                                    <ModalProvider>
-                                      <ToastProvider>
-                                        <ViewerProvider>
-                                          <SceneProvider>
-                                            <WorkspaceProvider>
-                                              <RobotProvider>
-                                                <JointProvider>
-                                                  <TCPProvider>
-                                                    <IKProvider>
-                                                      <WorldProvider>
-                                                        <TrajectoryProvider>
-                                                          <HumanProvider>
-                                                            <EnvironmentProvider>
-                                                              <CustomObjectProvider>
-                                                                <CollisionProvider>
-                                                                  <PhysicsProvider>
-                                                                    <AnimationProvider>
-                                                                      <AppRoutes />
-                                                                    </AnimationProvider>
-                                                                  </PhysicsProvider>
-                                                                </CollisionProvider>
-                                                              </CustomObjectProvider>
-                                                            </EnvironmentProvider>
-                                                          </HumanProvider>
-                                                        </TrajectoryProvider>
-                                                      </WorldProvider>
-                                                    </IKProvider>
-                                                  </TCPProvider>
-                                                </JointProvider>
-                                              </RobotProvider>
-                                            </WorkspaceProvider>
-                                          </SceneProvider>
-                                        </ViewerProvider>
-                                      </ToastProvider>
-                                    </ModalProvider>
-                                  </ErrorProvider>
-                                </LoadingProvider>
-                              </LoggingProvider>
-                            </AnalyticsProvider>
-                          </PerformanceProvider>
-                        </DebugProvider>
-                      </TimeProvider>
-                    </GestureProvider>
-                  </TouchProvider>
-                </MouseProvider>
-              </KeyboardProvider>
-            </WindowProvider>
-          </EventProvider>
-        </SettingsProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
+    <ViewerProvider>
+      <SceneProvider>
+        <WorkspaceProvider>
+          <RobotProvider>
+            <JointProvider>
+              <TCPProvider>
+                <IKProvider>
+                  <WorldProvider>
+                    <AppContent />
+                  </WorldProvider>
+                </IKProvider>
+              </TCPProvider>
+            </JointProvider>
+          </RobotProvider>
+        </WorkspaceProvider>
+      </SceneProvider>
+    </ViewerProvider>
   );
 };
 

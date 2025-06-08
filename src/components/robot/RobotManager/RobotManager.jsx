@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useViewer } from '../../../contexts/ViewerContext';
+import { useRobot } from '../../../contexts/RobotContext';
 import EventBus from '../../../utils/EventBus';
 
 const RobotManager = ({ 
@@ -10,12 +11,13 @@ const RobotManager = ({
   onRobotSelected
 }) => {
   const { workspaceRobots, removeRobotFromWorkspace } = useWorkspace();
-  const { viewerInstance } = useViewer();
+  const { isViewerReady } = useViewer();
+  const { loadRobot, isRobotLoaded, selectRobot } = useRobot();
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
 
   const handleLoadRobot = async (robot) => {
-    if (!viewerInstance) {
+    if (!isViewerReady) {
       setError('Viewer not initialized');
       return;
     }
@@ -24,11 +26,12 @@ const RobotManager = ({
       setError(null);
       
       // Check if robot is already loaded in the viewer
-      if (isRobotLoaded(robot.id)) {
-        console.log('[RobotManager] Robot already loaded, just selecting it:', robot.id);
-        // Robot already loaded, just navigate to controls
+      if (isRobotLoaded(robot.robotId)) {
+        console.log('[RobotManager] Robot already loaded, just selecting it:', robot.robotId);
+        // Robot already loaded, just select it and navigate to controls
+        selectRobot(robot.robotId);
         if (onRobotSelected) {
-          onRobotSelected(robot.id);
+          onRobotSelected(robot.robotId);
         }
         return;
       }
@@ -36,7 +39,7 @@ const RobotManager = ({
       console.log('[RobotManager] Loading robot:', robot);
       
       // Load robot into the viewer
-      await loadRobot(robot.id, robot.urdfPath, {
+      await loadRobot(robot.robotId, robot.urdfPath, {
         position: { x: 0, y: 0, z: 0 },
         makeActive: true,
         clearOthers: false
@@ -47,11 +50,11 @@ const RobotManager = ({
       
       // Navigate to robot controls
       if (onRobotSelected) {
-        onRobotSelected(robot.id);
+        onRobotSelected(robot.robotId);
       }
       
       EventBus.emit('robot:workspace-robot-loaded', {
-        robotId: robot.id,
+        robotId: robot.robotId,
         name: robot.name
       });
       
@@ -70,7 +73,7 @@ const RobotManager = ({
   };
 
   const getRobotLoadStatus = (robot) => {
-    const loaded = isRobotLoaded(robot.id);
+    const loaded = isRobotLoaded(robot.robotId);
     return {
       isLoaded: loaded,
       statusText: loaded ? 'Loaded' : 'Click to Load'
@@ -187,14 +190,21 @@ const RobotManager = ({
                     handleRemoveRobot(robot.id);
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.parentElement.style.opacity = '1';
+                    e.currentTarget.style.opacity = '1';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.parentElement.style.opacity = '0';
+                    e.currentTarget.style.opacity = '0';
                   }}
                 >
                   ×
                 </button>
+                
+                {/* Hover effect for remove button */}
+                <style jsx>{`
+                  .controls-card:hover .controls-btn-danger {
+                    opacity: 1 !important;
+                  }
+                `}</style>
               </div>
             );
           })}
@@ -251,26 +261,6 @@ const RobotManager = ({
           </div>
         )}
       </div>
-      
-      {/* Loading indicator */}
-      {isLoading && (
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(255, 255, 255, 0.8)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000
-        }}>
-          <div className="controls-spinner-border" role="status">
-            <span className="controls-sr-only">Loading robot...</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

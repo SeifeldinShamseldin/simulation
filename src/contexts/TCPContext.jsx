@@ -652,24 +652,27 @@ export const TCPProvider = ({ children }) => {
 
   // Initialize TCP Manager
   useEffect(() => {
-    console.log(`[TCP Context] Init effect - isViewerReady: ${isViewerReady}`);
+    console.log(`[TCP Context] Init effect triggered`);
+    console.log(`[TCP Context] - isViewerReady: ${isViewerReady}`);
     
     if (isViewerReady) {
       const sceneSetup = getSceneSetup();
       const robotManager = getRobotManager();
       
-      console.log(`[TCP Context] sceneSetup:`, !!sceneSetup);
-      console.log(`[TCP Context] robotManager:`, !!robotManager);
+      console.log(`[TCP Context] - sceneSetup: ${!!sceneSetup}`);
+      console.log(`[TCP Context] - robotManager: ${!!robotManager}`);
       
-      if (sceneSetup && robotManager) {
+      // Initialize even if sceneSetup is not available - TCP can work with just robotManager
+      if (robotManager) {
         try {
           if (!tcpManagerRef.current) {
             tcpManagerRef.current = new SimpleTCPManager();
             console.log(`[TCP Context] Created new SimpleTCPManager`);
           }
           
-          console.log(`[TCP Context] Initializing TCP manager...`);
-          tcpManagerRef.current.initialize(sceneSetup, robotManager);
+          console.log(`[TCP Context] Initializing TCP manager with robotManager only...`);
+          // Pass null for sceneSetup if not available - TCP can still function
+          tcpManagerRef.current.initialize(sceneSetup || null, robotManager);
           
           setIsInitialized(true);
           setError(null);
@@ -684,7 +687,7 @@ export const TCPProvider = ({ children }) => {
           setError(`Initialization failed: ${err.message}`);
         }
       } else {
-        console.log(`[TCP Context] Waiting for viewer components - sceneSetup: ${!!sceneSetup}, robotManager: ${!!robotManager}`);
+        console.log(`[TCP Context] Waiting for robotManager - not available yet`);
       }
     } else {
       console.log(`[TCP Context] Viewer not ready yet`);

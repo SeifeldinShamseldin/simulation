@@ -1,10 +1,10 @@
-// src/contexts/IKContext.jsx - Fixed animation completion handling
+// src/contexts/IKContext.jsx - Fixed animation completion handling and imports
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { useViewer } from './ViewerContext';
 import { useRobot } from './RobotContext';
-import { useTCP } from './TCPContext';
-import { useJoint } from './JointContext';
+import { useTCPContext } from './TCPContext';
+import { useJointContext } from './JointContext'; // Fixed import name
 import EventBus from '../utils/EventBus';
 
 const IKContext = createContext(null);
@@ -12,19 +12,20 @@ const IKContext = createContext(null);
 export const IKProvider = ({ children }) => {
   const { getRobotManager } = useViewer();
   const { activeRobotId, getRobot } = useRobot();
+  
+  // Get TCP data
   const { 
-    currentEndEffectorPoint,
-    hasValidEndEffector,
-    isUsingTCP,
-    isUsingRobotEndEffector,
-    getEndEffectorInfo,
-    getEndEffectorType
-  } = useTCP();
+    getCurrentEndEffectorPoint,
+    getCurrentEndEffectorOrientation,
+    hasToolAttached,
+    getToolInfo
+  } = useTCPContext();
 
   // Listen for robot selection changes
   useEffect(() => {
     const handleRobotSelected = (data) => {
-      setActiveRobotId(data.robotId);
+      // Robot selection is handled by RobotContext
+      console.log('[IK Context] Robot selected:', data.robotId);
     };
 
     const unsubscribe = EventBus.on('robot:selected', handleRobotSelected);
@@ -62,12 +63,13 @@ export const IKProvider = ({ children }) => {
 
   // Listen for TCP changes and update status
   useEffect(() => {
-    if (isUsingTCP) {
-      setSolverStatus(`Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})`);
+    if (activeRobotId && hasToolAttached && hasToolAttached(activeRobotId)) {
+      const toolInfo = getToolInfo && getToolInfo(activeRobotId);
+      setSolverStatus(`Ready (TCP: ${toolInfo?.tool?.name || 'Tool'})`);
     } else {
       setSolverStatus('Ready (Robot End Effector)');
     }
-  }, [isUsingTCP, getEndEffectorInfo]);
+  }, [activeRobotId, hasToolAttached, getToolInfo]);
 
   // Listen for TCP end effector updates
   useEffect(() => {
@@ -78,14 +80,19 @@ export const IKProvider = ({ children }) => {
         
         // Reset status after a delay
         setTimeout(() => {
-          setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
+          if (activeRobotId && hasToolAttached && hasToolAttached(activeRobotId)) {
+            const toolInfo = getToolInfo && getToolInfo(activeRobotId);
+            setSolverStatus(`Ready (TCP: ${toolInfo?.tool?.name || 'Tool'})`);
+          } else {
+            setSolverStatus('Ready (Robot End Effector)');
+          }
         }, 2000);
       }
     };
     
     const unsubscribe = EventBus.on('tcp:endeffector-updated', handleTCPEndEffectorUpdate);
     return () => unsubscribe();
-  }, [activeRobotId, isUsingTCP, getEndEffectorInfo, isAnimating]);
+  }, [activeRobotId, hasToolAttached, getToolInfo, isAnimating]);
 
   // Listen for animation completion from JointContext
   useEffect(() => {
@@ -100,14 +107,24 @@ export const IKProvider = ({ children }) => {
           
           // Reset status after a delay
           setTimeout(() => {
-            setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
+            if (activeRobotId && hasToolAttached && hasToolAttached(activeRobotId)) {
+              const toolInfo = getToolInfo && getToolInfo(activeRobotId);
+              setSolverStatus(`Ready (TCP: ${toolInfo?.tool?.name || 'Tool'})`);
+            } else {
+              setSolverStatus('Ready (Robot End Effector)');
+            }
           }, 2000);
         } else {
           setSolverStatus('Move Cancelled');
           
           // Reset status after a delay
           setTimeout(() => {
-            setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
+            if (activeRobotId && hasToolAttached && hasToolAttached(activeRobotId)) {
+              const toolInfo = getToolInfo && getToolInfo(activeRobotId);
+              setSolverStatus(`Ready (TCP: ${toolInfo?.tool?.name || 'Tool'})`);
+            } else {
+              setSolverStatus('Ready (Robot End Effector)');
+            }
           }, 1000);
         }
       }
@@ -115,32 +132,7 @@ export const IKProvider = ({ children }) => {
 
     const unsubscribe = EventBus.on('ik:animation-complete', handleAnimationComplete);
     return () => unsubscribe();
-  }, [activeRobotId, isUsingTCP, getEndEffectorInfo]);
-
-  // Simplified end effector getter - creates virtual end effector at final position
-  const getEffectiveEndEffector = useCallback((robot) => {
-    // Create a virtual end effector object at the final calculated position
-    // This works for both TCP and robot end effector since currentEndEffectorPoint
-    // already contains the final calculated position (robot + tcp)
-    const virtualEndEffector = new THREE.Object3D();
-    virtualEndEffector.name = 'virtual_end_effector';
-    
-    // Position it at the current calculated end effector point
-    virtualEndEffector.position.set(
-      currentEndEffectorPoint.x,
-      currentEndEffectorPoint.y,
-      currentEndEffectorPoint.z
-    );
-    
-    // Make sure it has the necessary matrices
-    virtualEndEffector.updateMatrix();
-    virtualEndEffector.updateMatrixWorld(true);
-    
-    const endEffectorType = isUsingTCP ? 'TCP' : 'Robot';
-    console.log(`[IK] Using ${endEffectorType} end effector at: (${currentEndEffectorPoint.x.toFixed(3)}, ${currentEndEffectorPoint.y.toFixed(3)}, ${currentEndEffectorPoint.z.toFixed(3)})`);
-    
-    return virtualEndEffector;
-  }, [currentEndEffectorPoint, isUsingTCP]);
+  }, [activeRobotId, hasToolAttached, getToolInfo]);
 
   const solve = useCallback(async (targetPos, currentPos, options = {}) => {
     const robot = getRobot(activeRobotId);
@@ -176,8 +168,14 @@ export const IKProvider = ({ children }) => {
       return false;
     }
     
-    // Get current position from options (passed from useIK)
-    const currentPos = options.currentPosition || { x: 0, y: 0, z: 0 };
+    // Get current position from options or TCP context
+    let currentPos = options.currentPosition;
+    if (!currentPos && getCurrentEndEffectorPoint) {
+      currentPos = getCurrentEndEffectorPoint(activeRobotId);
+    }
+    if (!currentPos) {
+      currentPos = { x: 0, y: 0, z: 0 };
+    }
     
     console.log(`[IK Context] Starting IK execution for ${activeRobotId}`);
     console.log(`[IK Context] Target orientation:`, options.targetOrientation);
@@ -218,7 +216,7 @@ export const IKProvider = ({ children }) => {
       setIsAnimating(false);
       return false;
     }
-  }, [activeRobotId, getRobot, solve, isAnimating]);
+  }, [activeRobotId, getRobot, solve, isAnimating, getCurrentEndEffectorPoint]);
 
   const stopAnimation = useCallback(() => {
     console.log(`[IK Context] Stopping animation for ${activeRobotId}`);
@@ -231,9 +229,14 @@ export const IKProvider = ({ children }) => {
     
     // Reset status after a delay
     setTimeout(() => {
-      setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
+      if (activeRobotId && hasToolAttached && hasToolAttached(activeRobotId)) {
+        const toolInfo = getToolInfo && getToolInfo(activeRobotId);
+        setSolverStatus(`Ready (TCP: ${toolInfo?.tool?.name || 'Tool'})`);
+      } else {
+        setSolverStatus('Ready (Robot End Effector)');
+      }
     }, 1000);
-  }, [activeRobotId, isUsingTCP, getEndEffectorInfo]);
+  }, [activeRobotId, hasToolAttached, getToolInfo]);
 
   const configureSolver = useCallback((solverName, config) => {
     const solver = solversRef.current[solverName];
