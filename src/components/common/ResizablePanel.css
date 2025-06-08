@@ -1,0 +1,91 @@
+/* src/components/common/ResizablePanel.css */
+
+.resizable-panel {
+  position: relative;
+}
+
+/* Resize handle base styles */
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 100%;
+  cursor: ew-resize;
+  background: transparent;
+  z-index: 1001;
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.resize-handle:hover {
+  opacity: 1;
+}
+
+/* Visual indicator */
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 1px;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 40px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 1px;
+  transition: background-color 0.2s ease;
+}
+
+.resize-handle:hover::after {
+  background: #00a99d;
+}
+
+/* Active state */
+.resize-handle.active::after {
+  background: #00a99d;
+  box-shadow: 0 0 0 1px rgba(0, 169, 157, 0.3);
+}
+
+/* Hover area for better UX */
+.resize-hover-area {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 8px;
+  height: 100%;
+  cursor: ew-resize;
+  background: transparent;
+  z-index: 1000;
+}
+
+/* Visual feedback during resize */
+.resizable-panel.resizing {
+  user-select: none;
+  pointer-events: none;
+}
+
+.resizable-panel.resizing .resize-handle::after {
+  background: #00a99d;
+  box-shadow: 0 0 0 2px rgba(0, 169, 157, 0.2);
+}
+
+/* Improve responsiveness */
+@media (hover: none) {
+  .resize-handle {
+    opacity: 1;
+  }
+  
+  .resize-handle::after {
+    background: rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Animation for smooth transitions */
+.resizable-panel:not(.resizing) {
+  transition: width 0.1s ease-out;
+}
+
+/* Panel content protection during resize */
+.resizable-panel.resizing * {
+  pointer-events: none;
+} 

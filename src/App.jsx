@@ -4,6 +4,7 @@ import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
 import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
+import ResizablePanel from './components/common/ResizablePanel';
 import { SceneProvider } from './contexts/SceneContext';
 import { RobotProvider } from './contexts/RobotContext';
 import { WorldProvider } from './contexts/WorldContext';
@@ -16,6 +17,7 @@ import './App.css';
 
 const AppContent = () => {
   const [activePanel, setActivePanel] = useState(null);
+  const [panelWidth, setPanelWidth] = useState(400); // Track current panel width
   const { setViewerInstance } = useViewer();
   const viewerRef = useRef(null);
 
@@ -34,6 +36,10 @@ const AppContent = () => {
     setActivePanel(prevPanel => prevPanel === panel ? null : panel);
   };
 
+  const handlePanelWidthChange = (width) => {
+    setPanelWidth(width);
+  };
+
   return (
     <div className="app-wrapper">
       <Navbar 
@@ -42,20 +48,39 @@ const AppContent = () => {
       />
       
       <div className="app-container">
-        <div className={`controls-panel ${activePanel === 'robot' ? 'panel-open' : 'panel-closed'}`}>
-          <Controls onClose={() => setActivePanel(null)} />
-        </div>
+        {/* Controls Panel */}
+        {activePanel === 'robot' && (
+          <ResizablePanel
+            className="controls-panel panel-open"
+            defaultWidth={400}
+            minWidth={300}
+            maxWidth={800}
+            storageKey="controls-panel-width"
+            onWidthChange={handlePanelWidthChange}
+          >
+            <Controls onClose={() => setActivePanel(null)} />
+          </ResizablePanel>
+        )}
         
-        <div className={`environment-panel ${activePanel === 'environment' ? 'panel-open' : 'panel-closed'}`}>
-          {activePanel === 'environment' && (
+        {/* Environment Panel */}
+        {activePanel === 'environment' && (
+          <ResizablePanel
+            className="environment-panel panel-open"
+            defaultWidth={400}
+            minWidth={300}
+            maxWidth={800}
+            storageKey="environment-panel-width"
+            onWidthChange={handlePanelWidthChange}
+          >
             <Environment 
               viewerRef={viewerRef}
               isPanel={true}
               onClose={() => setActivePanel(null)}
             />
-          )}
-        </div>
+          </ResizablePanel>
+        )}
 
+        {/* World Panel */}
         <div className={`world-panel ${activePanel === 'world' ? 'panel-open' : 'panel-closed'}`}>
           <WorldManager 
             viewerRef={viewerRef}
@@ -64,7 +89,13 @@ const AppContent = () => {
           />
         </div>
         
-        <div className={`viewer-panel ${activePanel ? 'viewer-shifted' : ''}`}>
+        {/* Viewer Panel - dynamically adjust margin based on panel width */}
+        <div 
+          className={`viewer-panel ${activePanel && activePanel !== 'world' ? 'viewer-shifted' : ''}`}
+          style={{
+            marginLeft: activePanel && activePanel !== 'world' ? `${panelWidth}px` : '0'
+          }}
+        >
           <URDFViewer
             ref={viewerRef}
             width="100%"

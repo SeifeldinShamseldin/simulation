@@ -1,4 +1,4 @@
-/* src/App.css */
+/* src/App.css - Updated for resizable panels */
 .app-wrapper {
   display: flex;
   flex-direction: column;
@@ -20,21 +20,26 @@
 }
 
 .viewer-panel.viewer-shifted {
-  margin-left: 300px;
+  /* Margin will be set dynamically via inline styles */
+}
+
+/* Resizable Panel Styles */
+.resizable-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: white;
+  box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+  z-index: 100;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Width will be set dynamically */
 }
 
 .controls-panel,
 .environment-panel {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 400px;
-  height: 100%;
-  background: white;
-  box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-  transition: transform 0.3s ease;
-  z-index: 100;
-  overflow-y: auto;
+  /* Remove fixed width - will be handled by ResizablePanel */
 }
 
 .panel-closed {
@@ -45,19 +50,84 @@
   transform: translateX(0);
 }
 
+/* World panel (not resizable) */
+.world-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* Ensure navbar stays at top */
 .controls-navbar {
   flex-shrink: 0;
   z-index: 1000;
-  min-height: 60px; /* Ensure minimum height */
+  min-height: 60px;
 }
 
-/* Add this to App.css */
+/* World link styling */
 .controls-navbar .controls-nav-link[href="#"]:nth-child(3) {
   transition: color 0.2s ease;
 }
 
 .controls-navbar .controls-nav-link[href="#"]:nth-child(3).active {
-  color: #ff9900 !important; /* Orange for World */
+  color: #ff9900 !important;
   font-weight: 600;
+}
+
+/* Resize handle hover effects */
+.resizable-panel:hover .resize-handle {
+  opacity: 1;
+}
+
+.resize-handle {
+  opacity: 0.7;
+  transition: opacity 0.2s ease;
+}
+
+.resize-handle:hover {
+  opacity: 1;
+}
+
+/* Improve scrollbar for resizable panels */
+.resizable-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.resizable-panel::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.resizable-panel::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+.resizable-panel::-webkit-scrollbar-thumb:hover {
+  background: #00a99d;
+}
+
+/* Prevent text selection during resize */
+.resizable-panel.resizing {
+  user-select: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .resizable-panel {
+    width: 100vw !important;
+    max-width: 100vw !important;
+  }
+  
+  .viewer-panel.viewer-shifted {
+    margin-left: 0 !important;
+    display: none;
+  }
 }
