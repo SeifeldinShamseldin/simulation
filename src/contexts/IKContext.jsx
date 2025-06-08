@@ -11,8 +11,7 @@ const IKContext = createContext(null);
 
 export const IKProvider = ({ children }) => {
   const { getRobotManager } = useViewer();
-  const robotManager = getRobotManager();
-  const [activeRobotId, setActiveRobotId] = useState(null);
+  const { activeRobotId, getRobot } = useRobot();
   const { 
     currentEndEffectorPoint,
     hasValidEndEffector,
@@ -31,10 +30,6 @@ export const IKProvider = ({ children }) => {
     const unsubscribe = EventBus.on('robot:selected', handleRobotSelected);
     return () => unsubscribe();
   }, []);
-
-  const getRobot = useCallback((robotId) => {
-    return robotManager?.getRobot(robotId);
-  }, [robotManager]);
 
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
   const [isAnimating, setIsAnimating] = useState(false);

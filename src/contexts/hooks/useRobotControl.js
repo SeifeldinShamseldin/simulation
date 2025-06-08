@@ -1,22 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useViewer } from '../ViewerContext';
 import { useTCP } from './useTCP';
+import { useRobot } from '../RobotContext';
 import EventBus from '@/utils/EventBus';
 
 export const useRobotControl = () => {
-  const [activeRobotId, setActiveRobotId] = useState(null);
-  
-  // Listen for robot selection changes
-  useEffect(() => {
-    const handleRobotSelected = (data) => {
-      setActiveRobotId(data.robotId);
-    };
-
-    const unsubscribe = EventBus.on('robot:selected', handleRobotSelected);
-    return () => unsubscribe();
-  }, []);
-
   const { isViewerReady, getRobotManager } = useViewer();
+  const { activeRobotId } = useRobot();
   const { 
     currentEndEffectorPoint,
     hasValidEndEffector,

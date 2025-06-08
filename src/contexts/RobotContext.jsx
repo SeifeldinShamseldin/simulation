@@ -1,6 +1,7 @@
 // src/contexts/RobotContext.jsx - Manages loaded robots in the viewer
-import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
 import { useViewer } from './ViewerContext';
+import EventBus from '../utils/EventBus';
 
 const RobotContext = createContext(null);
 
@@ -9,6 +10,17 @@ export const RobotProvider = ({ children }) => {
   const [loadedRobots, setLoadedRobots] = useState(new Map());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Listen for robot loading events
+  useEffect(() => {
+    const handleRobotLoadedInContext = (data) => {
+      const { robotId, robotData } = data;
+      setLoadedRobots(prev => new Map(prev).set(robotId, robotData));
+    };
+
+    const unsubscribe = EventBus.on('robot:loaded-in-context', handleRobotLoadedInContext);
+    return () => unsubscribe();
+  }, []);
 
   const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
     if (!viewerInstance) {

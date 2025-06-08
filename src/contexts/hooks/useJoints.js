@@ -22,17 +22,7 @@ export const useJoints = (robotId = null) => {
     stopAnimation
   } = useJointContext();
   
-  const [activeRobotId, setActiveRobotId] = useState(null);
-  
-  // Listen for robot selection changes
-  useEffect(() => {
-    const handleRobotSelected = (data) => {
-      setActiveRobotId(data.robotId);
-    };
-
-    const unsubscribe = EventBus.on('robot:selected', handleRobotSelected);
-    return () => unsubscribe();
-  }, []);
+  const { activeRobotId } = useRobot();
   
   // Use provided robotId or fall back to active robot
   const targetRobotId = robotId || activeRobotId;
