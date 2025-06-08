@@ -1,4 +1,4 @@
-// src/App.jsx - Fixed architecture with proper separation
+// src/App.jsx - Clean Architecture (RobotContext handles all robot logic)
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
@@ -7,7 +7,7 @@ import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import ResizablePanel from './components/common/ResizablePanel';
 import { SceneProvider } from './contexts/SceneContext';
-import { RobotProvider, useRobot } from './contexts/RobotContext';
+import { RobotProvider } from './contexts/RobotContext';
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
@@ -22,14 +22,16 @@ const RobotPanel = ({ onClose, viewerRef }) => {
 
   // Handle when a robot is selected for controls
   const handleRobotSelected = (robotId) => {
+    console.log('[App] Robot selected for controls:', robotId);
     setSelectedRobotId(robotId);
     setShowControls(true);
   };
 
   // Handle going back to robot selection
   const handleBackToRobots = () => {
+    console.log('[App] Going back to robot selection');
     setShowControls(false);
-    setSelectedRobotId(null);
+    // Keep selectedRobotId for potential return
   };
 
   if (showControls && selectedRobotId) {
@@ -50,7 +52,7 @@ const RobotPanel = ({ onClose, viewerRef }) => {
           >
             ← Back to Robots
           </button>
-          <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Controls - {selectedRobotId}</h2>
+          <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Robot Controls</h2>
           <button
             onClick={onClose}
             style={{
@@ -92,17 +94,19 @@ const AppContent = () => {
   const viewerRef = useRef(null);
 
   useEffect(() => {
-    console.log('Active panel:', activePanel);
+    console.log('[App] Active panel changed:', activePanel);
   }, [activePanel]);
 
   useEffect(() => {
     if (viewerRef.current) {
+      console.log('[App] Setting viewer instance');
       setViewerInstance(viewerRef.current);
       window.viewerInstance = viewerRef.current;
     }
   }, [setViewerInstance]);
 
   const handlePanelToggle = (panel) => {
+    console.log('[App] Panel toggle requested:', panel);
     setActivePanel(prevPanel => prevPanel === panel ? null : panel);
   };
 
@@ -182,7 +186,7 @@ const AppContent = () => {
   );
 };
 
-// Provider architecture with proper flow
+// Clean Provider Architecture - RobotContext handles all robot logic
 const App = () => {
   return (
     <SceneProvider>
