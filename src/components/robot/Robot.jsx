@@ -1,21 +1,13 @@
-// src/components/robot/Robot.jsx
+// src/components/robot/Robot.jsx - Robot management only
 import React, { useState, useEffect } from 'react';
 import RobotManager from './RobotManager/RobotManager';
-import LoadedRobots from './LoadedRobots/LoadedRobots';
-import ControlJoints from '../controls/ControlJoints/ControlJoints';
-import IKController from '../controls/IKController/IKController';
-import Reposition from '../controls/Reposition/Reposition';
-import TrajectoryViewer from '../controls/RecordMap/TrajectoryViewer';
-import TCPController from '../controls/TCP/TCPController';
 import AddRobot from './AddRobot/AddRobot';
 import { useViewer } from '../../contexts/ViewerContext';
 
-const Robot = ({ isPanel = false, onClose }) => {
+const Robot = ({ isPanel = false, onClose, onRobotSelected }) => {
   const { viewerInstance } = useViewer();
-  const [showRobotSelection, setShowRobotSelection] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [workspaceRobots, setWorkspaceRobots] = useState([]);
-  const [activeRobotId, setActiveRobotId] = useState(null);
 
   // Load saved robots from localStorage on mount
   useEffect(() => {
@@ -43,9 +35,16 @@ const Robot = ({ isPanel = false, onClose }) => {
     setShowAddModal(false);
   };
 
+  const handleRobotLoad = (robotId) => {
+    // When a robot is loaded and user wants to control it
+    if (onRobotSelected) {
+      onRobotSelected(robotId);
+    }
+  };
+
   return (
     <div className="controls" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {showRobotSelection && (
+      <div style={{ flex: 1, overflowY: 'auto' }}>
         <section className="controls-section-wrapper">
           <RobotManager 
             viewerRef={{ current: viewerInstance }}
@@ -54,46 +53,10 @@ const Robot = ({ isPanel = false, onClose }) => {
             workspaceRobots={workspaceRobots}
             setWorkspaceRobots={setWorkspaceRobots}
             setShowAddModal={setShowAddModal}
-            activeRobotId={activeRobotId}
-            setActiveRobotId={setActiveRobotId}
-            setShowRobotSelection={setShowRobotSelection}
+            onRobotSelected={handleRobotLoad}
           />
         </section>
-      )}
-      
-      {activeRobotId && !showRobotSelection && (
-        <>
-          <section className="controls-section-wrapper">
-            <LoadedRobots
-              viewerRef={{ current: viewerInstance }}
-              workspaceRobots={workspaceRobots}
-              activeRobotId={activeRobotId}
-              setActiveRobotId={setActiveRobotId}
-              setShowRobotSelection={setShowRobotSelection}
-            />
-          </section>
-          
-          <section className="controls-section-wrapper">
-            <ControlJoints />
-          </section>
-          
-          <section className="controls-section-wrapper">
-            <IKController />
-          </section>
-          
-          <section className="controls-section-wrapper">
-            <Reposition viewerRef={{ current: viewerInstance }} />
-          </section>
-          
-          <section className="controls-section-wrapper">
-            <TCPController viewerRef={{ current: viewerInstance }} />
-          </section>
-          
-          <section className="controls-section-wrapper">
-            <TrajectoryViewer viewerRef={{ current: viewerInstance }} />
-          </section>
-        </>
-      )}
+      </div>
       
       <AddRobot
         isOpen={showAddModal}

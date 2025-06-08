@@ -9,11 +9,9 @@ const RobotManager = ({
   workspaceRobots,
   setWorkspaceRobots,
   setShowAddModal,
-  activeRobotId,
-  setActiveRobotId,
-  setShowRobotSelection
+  onRobotSelected
 }) => {
-  const { loadRobot, isLoading, setActiveRobotId: setContextActiveRobotId, setActiveRobot } = useRobot();
+  const { loadRobot, isLoading } = useRobot();
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -34,15 +32,13 @@ const RobotManager = ({
       
       setWorkspaceRobots(prev => [...prev, newRobot]);
       
-      // Use the context's loadRobot which properly updates state
+      // Load robot and automatically show controls
       await loadRobot(newRobot.id, robot.urdfPath, {
         position: { x: 0, y: 0, z: 0 },
         makeActive: true,
         clearOthers: false
       });
       
-      setActiveRobotId(newRobot.id);
-      setShowRobotSelection(false);
       setSuccessMessage(`${robot.name} loaded successfully!`);
       setTimeout(() => setSuccessMessage(''), 3000);
       
@@ -50,6 +46,11 @@ const RobotManager = ({
         robotId: newRobot.id,
         name: robot.name
       });
+      
+      // Navigate to robot controls
+      if (onRobotSelected) {
+        onRobotSelected(newRobot.id);
+      }
       
     } catch (error) {
       console.error('Error loading robot:', error);
@@ -71,24 +72,25 @@ const RobotManager = ({
         const existingRobot = robotManager.getRobot(robot.id);
         
         if (existingRobot) {
-          // Robot already loaded, just make it active
-          setActiveRobotId(robot.id);
-          setContextActiveRobotId(robot.id);
-          setActiveRobot(existingRobot);
-          setShowRobotSelection(false);
+          // Robot already loaded, just navigate to controls
+          if (onRobotSelected) {
+            onRobotSelected(robot.id);
+          }
           return;
         }
       }
       
-      // Use the context's loadRobot to ensure proper state updates
+      // Load robot first
       await loadRobot(robot.id, robot.urdfPath, {
         position: { x: 0, y: 0, z: 0 },
         makeActive: true,
         clearOthers: false
       });
       
-      setActiveRobotId(robot.id);
-      setShowRobotSelection(false);
+      // Navigate to robot controls
+      if (onRobotSelected) {
+        onRobotSelected(robot.id);
+      }
       
     } catch (error) {
       console.error('Error loading robot:', error);

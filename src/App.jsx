@@ -1,23 +1,93 @@
-// src/App.jsx - Updated with JointProvider in the architecture
+// src/App.jsx - Fixed architecture with proper separation
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
+import Robot from './components/robot/Robot';
 import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import ResizablePanel from './components/common/ResizablePanel';
 import { SceneProvider } from './contexts/SceneContext';
-import { RobotProvider } from './contexts/RobotContext';
+import { RobotProvider, useRobot } from './contexts/RobotContext';
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
-import { JointProvider } from './contexts/JointContext'; // New JointProvider
+import { JointProvider } from './contexts/JointContext';
 import WorldManager from './components/World/WorldManager';
 import './App.css';
 
+const RobotPanel = ({ onClose, viewerRef }) => {
+  const [showControls, setShowControls] = useState(false);
+  const [selectedRobotId, setSelectedRobotId] = useState(null);
+
+  // Handle when a robot is selected for controls
+  const handleRobotSelected = (robotId) => {
+    setSelectedRobotId(robotId);
+    setShowControls(true);
+  };
+
+  // Handle going back to robot selection
+  const handleBackToRobots = () => {
+    setShowControls(false);
+    setSelectedRobotId(null);
+  };
+
+  if (showControls && selectedRobotId) {
+    return (
+      <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        {/* Controls header with back button */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '1rem',
+          paddingBottom: '1rem',
+          borderBottom: '1px solid #dee2e6'
+        }}>
+          <button
+            onClick={handleBackToRobots}
+            className="controls-btn controls-btn-secondary controls-btn-sm"
+          >
+            ← Back to Robots
+          </button>
+          <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Controls - {selectedRobotId}</h2>
+          <button
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: '1.8rem',
+              cursor: 'pointer',
+              color: '#6c757d',
+              padding: '0.25rem 0.5rem',
+              borderRadius: '4px',
+              transition: 'all 0.2s ease',
+              lineHeight: 1
+            }}
+          >
+            ×
+          </button>
+        </div>
+        
+        {/* Robot controls */}
+        <div style={{ flex: '1', overflowY: 'auto' }}>
+          <Controls viewerRef={viewerRef} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <Robot 
+      onClose={onClose} 
+      onRobotSelected={handleRobotSelected}
+    />
+  );
+};
+
 const AppContent = () => {
   const [activePanel, setActivePanel] = useState(null);
-  const [panelWidth, setPanelWidth] = useState(400); // Track current panel width
+  const [panelWidth, setPanelWidth] = useState(400);
   const { setViewerInstance } = useViewer();
   const viewerRef = useRef(null);
 
@@ -48,17 +118,20 @@ const AppContent = () => {
       />
       
       <div className="app-container">
-        {/* Controls Panel */}
+        {/* Robot Panel (includes both robot management and controls) */}
         {activePanel === 'robot' && (
           <ResizablePanel
             className="controls-panel panel-open"
             defaultWidth={400}
             minWidth={300}
             maxWidth={800}
-            storageKey="controls-panel-width"
+            storageKey="robot-panel-width"
             onWidthChange={handlePanelWidthChange}
           >
-            <Controls onClose={() => setActivePanel(null)} />
+            <RobotPanel 
+              onClose={() => setActivePanel(null)}
+              viewerRef={viewerRef}
+            />
           </ResizablePanel>
         )}
         
@@ -89,7 +162,7 @@ const AppContent = () => {
           />
         </div>
         
-        {/* Viewer Panel - dynamically adjust margin based on panel width */}
+        {/* Viewer Panel */}
         <div 
           className={`viewer-panel ${activePanel && activePanel !== 'world' ? 'viewer-shifted' : ''}`}
           style={{
@@ -109,14 +182,7 @@ const AppContent = () => {
   );
 };
 
-// Updated provider architecture with proper flow:
-// SceneProvider (3D scene)
-// ViewerProvider (viewer instance)
-// RobotProvider (robot loading/management)
-// TCPProvider (end effector calculation logic)
-// JointProvider (joint management logic)
-// IKProvider (IK calculation logic)
-// WorldProvider (world saving/loading)
+// Provider architecture with proper flow
 const App = () => {
   return (
     <SceneProvider>
