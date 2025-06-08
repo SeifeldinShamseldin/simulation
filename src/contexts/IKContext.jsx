@@ -129,7 +129,7 @@ export const IKProvider = ({ children }) => {
     return virtualEndEffector;
   }, [currentEndEffectorPoint, isUsingTCP]);
 
-  const solve = useCallback(async (targetPos, currentPos) => {
+  const solve = useCallback(async (targetPos, currentPos, options = {}) => {
     const robot = getRobot(activeRobotId);
     if (!robot || !isReady.current) return null;
     
@@ -140,9 +140,20 @@ export const IKProvider = ({ children }) => {
     }
     
     console.log(`[IK Context] Solving from:`, currentPos, 'to:', targetPos);
+    console.log(`[IK Context] Target orientation:`, options.targetOrientation);
+    console.log(`[IK Context] Current orientation:`, options.currentOrientation);
     
-    // Pass the actual robot to CCD (it will find the real end effector)
-    return await solver.solve(robot, targetPos, () => robot.userData?.endEffectorLink, currentPos);
+    // Pass the actual robot to CCD with orientation data
+    return await solver.solve(
+      robot, 
+      targetPos, 
+      () => robot.userData?.endEffectorLink, 
+      currentPos,
+      {
+        targetOrientation: options.targetOrientation,
+        currentOrientation: options.currentOrientation
+      }
+    );
   }, [activeRobotId, getRobot, currentSolver]);
 
   const executeIK = useCallback(async (target, options = {}) => {
@@ -156,11 +167,16 @@ export const IKProvider = ({ children }) => {
     const currentPos = options.currentPosition || { x: 0, y: 0, z: 0 };
     
     console.log(`[IK Context] Starting IK execution for ${activeRobotId}`);
+    console.log(`[IK Context] Target orientation:`, options.targetOrientation);
+    console.log(`[IK Context] Current orientation:`, options.currentOrientation);
     setIsAnimating(true);
     setSolverStatus('Solving...');
     
     try {
-      const result = await solve(target, currentPos);
+      const result = await solve(target, currentPos, {
+        targetOrientation: options.targetOrientation,
+        currentOrientation: options.currentOrientation
+      });
       
       if (result) {
         setSolverStatus(options.animate ? 'Moving...' : 'Applying...');

@@ -1,16 +1,18 @@
-// components/controls/IKController/IKController.jsx - Fixed button states
+// components/controls/IKController/IKController.jsx - Fixed infinite loop and input handling
 import React, { useState, useEffect } from 'react';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import { useIK } from '../../../contexts/hooks/useIK';
 
 /**
- * Component for controlling Inverse Kinematics
- * Uses direct end effector position tracking for robot movement
+ * Component for controlling Inverse Kinematics with position and orientation
+ * Uses direct end effector position and orientation tracking for robot movement
  */
 const IKController = () => {
   const { activeRobotId, robot, isReady } = useRobotControl();
   const {
     currentPosition,
+    currentOrientation,
+    currentEulerAngles,
     targetPosition,
     isAnimating,
     solverStatus,
@@ -26,6 +28,8 @@ const IKController = () => {
 
   const [showSettings, setShowSettings] = useState(false);
   const [solverSettings, setSolverSettings] = useState({});
+  const [targetOrientation, setTargetOrientation] = useState({ roll: 0, pitch: 0, yaw: 0 });
+  const [orientationInitialized, setOrientationInitialized] = useState(false);
 
   // Update solver settings when solver changes
   useEffect(() => {
@@ -35,8 +39,35 @@ const IKController = () => {
     }
   }, [currentSolver, getSolverSettings]);
 
-  const handleInputChange = (axis, value) => {
+  // FIXED: Only sync target orientation with current ONCE when robot first loads or changes
+  useEffect(() => {
+    if (currentEulerAngles && !orientationInitialized && activeRobotId) {
+      console.log('[IKController] Initializing target orientation from current:', currentEulerAngles);
+      setTargetOrientation({
+        roll: currentEulerAngles.roll * 180 / Math.PI,
+        pitch: currentEulerAngles.pitch * 180 / Math.PI,
+        yaw: currentEulerAngles.yaw * 180 / Math.PI
+      });
+      setOrientationInitialized(true);
+    }
+  }, [currentEulerAngles, orientationInitialized, activeRobotId]);
+
+  // Reset initialization when robot changes
+  useEffect(() => {
+    setOrientationInitialized(false);
+    setTargetOrientation({ roll: 0, pitch: 0, yaw: 0 });
+  }, [activeRobotId]);
+
+  const handlePositionChange = (axis, value) => {
     setTargetPosition(prev => ({
+      ...prev,
+      [axis]: parseFloat(value) || 0
+    }));
+  };
+
+  const handleOrientationChange = (axis, value) => {
+    console.log(`[IKController] Orientation change: ${axis} = ${value}`);
+    setTargetOrientation(prev => ({
       ...prev,
       [axis]: parseFloat(value) || 0
     }));
@@ -49,23 +80,54 @@ const IKController = () => {
     }));
   };
 
+  const rotateRelative = (axis, delta) => {
+    console.log(`[IKController] Rotate relative: ${axis} += ${delta}`);
+    setTargetOrientation(prev => ({
+      ...prev,
+      [axis]: (prev[axis] || 0) + delta
+    }));
+  };
+
   const moveToTarget = async (animate = true) => {
     if (!robot || !isReady || isAnimating) return;
     
     try {
-      console.log(`[IKController] Moving to target:`, targetPosition);
-      await executeIK(targetPosition, { animate });
+      console.log(`[IKController] Moving to target position:`, targetPosition);
+      console.log(`[IKController] Moving to target orientation:`, targetOrientation);
+      
+      // Convert target orientation from degrees to radians for the solver
+      const targetOrientationRad = {
+        roll: targetOrientation.roll * Math.PI / 180,
+        pitch: targetOrientation.pitch * Math.PI / 180,
+        yaw: targetOrientation.yaw * Math.PI / 180
+      };
+      
+      await executeIK(targetPosition, { 
+        animate,
+        targetOrientation: targetOrientationRad
+      });
     } catch (error) {
       console.error('[IKController] IK execution failed:', error);
     }
   };
 
   const syncTargetToCurrent = () => {
+    console.log('[IKController] Syncing target to current');
     setTargetPosition({
       x: currentPosition.x,
       y: currentPosition.y,
       z: currentPosition.z
     });
+    
+    if (currentEulerAngles) {
+      const newOrientation = {
+        roll: currentEulerAngles.roll * 180 / Math.PI,
+        pitch: currentEulerAngles.pitch * 180 / Math.PI,
+        yaw: currentEulerAngles.yaw * 180 / Math.PI
+      };
+      console.log('[IKController] Syncing orientation to:', newOrientation);
+      setTargetOrientation(newOrientation);
+    }
   };
 
   const resetRobot = () => {
@@ -153,7 +215,7 @@ const IKController = () => {
         </div>
       )}
 
-      {/* Current End Effector Position */}
+      {/* Current End Effector State */}
       <div className="controls-form-group">
         <h4 className="controls-h6">Current End Effector Position:</h4>
         <div className="controls-grid controls-grid-cols-3 controls-gap-2">
@@ -172,11 +234,34 @@ const IKController = () => {
         </div>
       </div>
 
+      {/* Current End Effector Orientation */}
+      {currentEulerAngles && (
+        <div className="controls-form-group">
+          <h4 className="controls-h6">Current End Effector Orientation:</h4>
+          <div className="controls-grid controls-grid-cols-3 controls-gap-2">
+            <div>
+              <label className="controls-form-label">Roll (°)</label>
+              <div className="controls-form-control-static">{(currentEulerAngles.roll * 180 / Math.PI).toFixed(2)}</div>
+            </div>
+            <div>
+              <label className="controls-form-label">Pitch (°)</label>
+              <div className="controls-form-control-static">{(currentEulerAngles.pitch * 180 / Math.PI).toFixed(2)}</div>
+            </div>
+            <div>
+              <label className="controls-form-label">Yaw (°)</label>
+              <div className="controls-form-control-static">{(currentEulerAngles.yaw * 180 / Math.PI).toFixed(2)}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Move Robot To Section */}
       <div className="controls-card controls-p-3 controls-mb-3">
         <h4 className="controls-h5 controls-mb-3">MOVE ROBOT TO:</h4>
         
-        <div className="controls-grid controls-grid-cols-3 controls-gap-3">
+        {/* Position Controls */}
+        <h5 className="controls-h6 controls-mb-2">Target Position:</h5>
+        <div className="controls-grid controls-grid-cols-3 controls-gap-3 controls-mb-3">
           <div>
             <label className="controls-form-label">X Position:</label>
             <div className="controls-input-group">
@@ -191,7 +276,7 @@ const IKController = () => {
                 type="number"
                 className="controls-form-control"
                 value={targetPosition.x}
-                onChange={(e) => handleInputChange('x', e.target.value)}
+                onChange={(e) => handlePositionChange('x', e.target.value)}
                 step="0.001"
                 disabled={isAnimating}
                 style={{
@@ -223,7 +308,7 @@ const IKController = () => {
                 type="number"
                 className="controls-form-control"
                 value={targetPosition.y}
-                onChange={(e) => handleInputChange('y', e.target.value)}
+                onChange={(e) => handlePositionChange('y', e.target.value)}
                 step="0.001"
                 disabled={isAnimating}
                 style={{
@@ -255,7 +340,7 @@ const IKController = () => {
                 type="number"
                 className="controls-form-control"
                 value={targetPosition.z}
-                onChange={(e) => handleInputChange('z', e.target.value)}
+                onChange={(e) => handlePositionChange('z', e.target.value)}
                 step="0.001"
                 disabled={isAnimating}
                 style={{
@@ -274,12 +359,112 @@ const IKController = () => {
           </div>
         </div>
 
+        {/* Orientation Controls */}
+        <h5 className="controls-h6 controls-mb-2">Target Orientation:</h5>
+        <div className="controls-grid controls-grid-cols-3 controls-gap-3 controls-mb-3">
+          <div>
+            <label className="controls-form-label">Roll (°):</label>
+            <div className="controls-input-group">
+              <button
+                className="controls-btn controls-btn-sm controls-btn-secondary"
+                onClick={() => rotateRelative('roll', -5)}
+                disabled={isAnimating}
+              >
+                -
+              </button>
+              <input
+                type="number"
+                className="controls-form-control"
+                value={targetOrientation.roll}
+                onChange={(e) => handleOrientationChange('roll', e.target.value)}
+                step="1"
+                disabled={isAnimating}
+                style={{
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'textfield'
+                }}
+              />
+              <button
+                className="controls-btn controls-btn-sm controls-btn-secondary"
+                onClick={() => rotateRelative('roll', 5)}
+                disabled={isAnimating}
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="controls-form-label">Pitch (°):</label>
+            <div className="controls-input-group">
+              <button
+                className="controls-btn controls-btn-sm controls-btn-secondary"
+                onClick={() => rotateRelative('pitch', -5)}
+                disabled={isAnimating}
+              >
+                -
+              </button>
+              <input
+                type="number"
+                className="controls-form-control"
+                value={targetOrientation.pitch}
+                onChange={(e) => handleOrientationChange('pitch', e.target.value)}
+                step="1"
+                disabled={isAnimating}
+                style={{
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'textfield'
+                }}
+              />
+              <button
+                className="controls-btn controls-btn-sm controls-btn-secondary"
+                onClick={() => rotateRelative('pitch', 5)}
+                disabled={isAnimating}
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="controls-form-label">Yaw (°):</label>
+            <div className="controls-input-group">
+              <button
+                className="controls-btn controls-btn-sm controls-btn-secondary"
+                onClick={() => rotateRelative('yaw', -5)}
+                disabled={isAnimating}
+              >
+                -
+              </button>
+              <input
+                type="number"
+                className="controls-form-control"
+                value={targetOrientation.yaw}
+                onChange={(e) => handleOrientationChange('yaw', e.target.value)}
+                step="1"
+                disabled={isAnimating}
+                style={{
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'textfield'
+                }}
+              />
+              <button
+                className="controls-btn controls-btn-sm controls-btn-secondary"
+                onClick={() => rotateRelative('yaw', 5)}
+                disabled={isAnimating}
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+
         <button
           className="controls-btn controls-btn-sm controls-btn-info controls-w-100 controls-mt-3"
           onClick={syncTargetToCurrent}
           disabled={isAnimating}
         >
-          Use Current Position
+          Use Current Position & Orientation
         </button>
 
         {/* Move/Stop buttons */}

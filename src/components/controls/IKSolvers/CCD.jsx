@@ -6,6 +6,7 @@ class CCDSolver {
     this.tolerance = options.tolerance || 0.01;
     this.dampingFactor = options.dampingFactor || 0.5;
     this.angleLimit = options.angleLimit || 0.2; // Max angle change per iteration
+    this.orientationWeight = options.orientationWeight || 0.1; // Weight for orientation vs position
     
     // Reusable vectors to reduce GC
     this.vectors = {
@@ -15,24 +16,31 @@ class CCDSolver {
       toTarget: new THREE.Vector3(),
       axis: new THREE.Vector3(),
       tempQuat: new THREE.Quaternion(),
-      cross: new THREE.Vector3()
+      cross: new THREE.Vector3(),
+      targetQuat: new THREE.Quaternion(),
+      currentQuat: new THREE.Quaternion()
     };
   }
 
   /**
-   * Solve IK using CCD algorithm - VIRTUAL SOLVING (don't reset robot position)
+   * Solve IK using CCD algorithm with position and orientation awareness
    * @param {Object} robot - The robot model
    * @param {THREE.Vector3} targetPos - Target position
    * @param {Function} findEndEffector - Function to find end effector
    * @param {Object} currentPos - Current end effector position {x, y, z}
+   * @param {Object} options - Additional options including target orientation
    * @returns {Object} Joint angles solution or null
    */
-  async solve(robot, targetPos, findEndEffector, currentPos) {
+  async solve(robot, targetPos, findEndEffector, currentPos, options = {}) {
     if (!robot) return null;
     
-    console.log('[CCD] Starting IK solve');
+    const { targetOrientation, currentOrientation } = options;
+    
+    console.log('[CCD] Starting IK solve with orientation support');
     console.log('[CCD] Target position:', targetPos);
     console.log('[CCD] Current end effector position:', currentPos);
+    console.log('[CCD] Target orientation (euler):', targetOrientation);
+    console.log('[CCD] Current orientation (quat):', currentOrientation);
     
     // Get the actual robot end effector (not virtual)
     const realEndEffector = robot.userData?.endEffectorLink;
@@ -67,6 +75,19 @@ class CCDSolver {
     // Create working copy of joint values for virtual solving
     const virtualAngles = { ...startingAngles }; // Start from CURRENT position
     
+    // Convert target orientation to quaternion if provided
+    let targetQuaternion = null;
+    if (targetOrientation) {
+      this.vectors.targetQuat.setFromEuler(new THREE.Euler(
+        targetOrientation.roll || 0,
+        targetOrientation.pitch || 0,
+        targetOrientation.yaw || 0,
+        'XYZ'
+      ));
+      targetQuaternion = this.vectors.targetQuat.clone();
+      console.log('[CCD] Target quaternion:', targetQuaternion);
+    }
+    
     // CCD iterations
     for (let iter = 0; iter < this.maxIterations; iter++) {
       // Apply virtual angles temporarily for calculations
@@ -82,12 +103,24 @@ class CCDSolver {
       // Get current end effector world position
       realEndEffector.getWorldPosition(this.vectors.worldEndPos);
       
-      // Check convergence
+      // Check positional convergence
       const distanceToTarget = this.vectors.worldEndPos.distanceTo(targetPos);
-      console.log(`[CCD] Iteration ${iter}: distance = ${distanceToTarget.toFixed(4)}`);
       
-      if (distanceToTarget < this.tolerance) {
-        console.log('[CCD] Converged!');
+      // Check orientation convergence if target orientation is provided
+      let orientationError = 0;
+      if (targetQuaternion) {
+        realEndEffector.getWorldQuaternion(this.vectors.currentQuat);
+        orientationError = this.vectors.currentQuat.angleTo(targetQuaternion);
+      }
+      
+      console.log(`[CCD] Iteration ${iter}: distance = ${distanceToTarget.toFixed(4)}, orientation error = ${orientationError.toFixed(4)}`);
+      
+      // Combined convergence check
+      const positionConverged = distanceToTarget < this.tolerance;
+      const orientationConverged = !targetQuaternion || orientationError < (this.tolerance * 2); // More lenient for orientation
+      
+      if (positionConverged && orientationConverged) {
+        console.log('[CCD] Converged (position and orientation)!');
         break;
       }
       
@@ -109,7 +142,7 @@ class CCDSolver {
         // Update end effector position after any joint changes
         realEndEffector.getWorldPosition(this.vectors.worldEndPos);
         
-        // Calculate vectors from joint to end effector and target
+        // Calculate position-based angle
         this.vectors.toEnd.subVectors(this.vectors.worldEndPos, this.vectors.jointPos);
         this.vectors.toTarget.subVectors(targetPos, this.vectors.jointPos);
         
@@ -129,22 +162,43 @@ class CCDSolver {
           -0.999, 
           0.999
         );
-        let angle = Math.acos(dotProduct);
+        let positionAngle = Math.acos(dotProduct);
         
         // Determine rotation direction using cross product
         this.vectors.cross.crossVectors(this.vectors.toEnd, this.vectors.toTarget);
         if (this.vectors.cross.dot(this.vectors.axis) < 0) {
-          angle = -angle;
+          positionAngle = -positionAngle;
         }
         
+        // Calculate orientation-based angle contribution (if target orientation provided)
+        let orientationAngle = 0;
+        if (targetQuaternion && this.orientationWeight > 0) {
+          realEndEffector.getWorldQuaternion(this.vectors.currentQuat);
+          const orientationDiff = this.vectors.currentQuat.angleTo(targetQuaternion);
+          
+          // Simple heuristic: contribute small orientation correction
+          if (orientationDiff > 0.1) { // Only if significant orientation error
+            orientationAngle = orientationDiff * this.orientationWeight * 0.1; // Small contribution
+            
+            // Determine direction based on joint index (simple heuristic)
+            const jointIndex = movableJoints.indexOf(jointName);
+            if (jointIndex % 2 === 0) {
+              orientationAngle = -orientationAngle; // Alternate direction
+            }
+          }
+        }
+        
+        // Combine position and orientation angles
+        let totalAngle = positionAngle + orientationAngle;
+        
         // Apply damping to prevent overshooting
-        angle *= this.dampingFactor;
+        totalAngle *= this.dampingFactor;
         
         // Limit maximum angle change per iteration
-        angle = THREE.MathUtils.clamp(angle, -this.angleLimit, this.angleLimit);
+        totalAngle = THREE.MathUtils.clamp(totalAngle, -this.angleLimit, this.angleLimit);
         
         // Calculate new joint angle
-        let newAngle = virtualAngles[jointName] + angle;
+        let newAngle = virtualAngles[jointName] + totalAngle;
         
         // Apply joint limits if they exist
         if (!joint.ignoreLimits && joint.limit) {

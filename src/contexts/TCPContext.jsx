@@ -18,7 +18,7 @@ class SimpleTCPManager {
   }
 
   /**
-   * Calculate normal robot end effector position (base calculation)
+   * Calculate normal robot end effector position and orientation (base calculation)
    */
   calculateRobotEndEffector(robotId) {
     console.log(`[TCP Context] calculateRobotEndEffector for ${robotId}`);
@@ -26,7 +26,10 @@ class SimpleTCPManager {
     const robot = this.robotManager.getRobot(robotId);
     if (!robot) {
       console.warn(`[TCP Context] Robot ${robotId} not found`);
-      return { x: 0, y: 0, z: 0 };
+      return { 
+        position: { x: 0, y: 0, z: 0 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 }
+      };
     }
 
     // Find the actual end effector link in the robot
@@ -75,21 +78,41 @@ class SimpleTCPManager {
 
     if (!endEffectorLink) {
       console.warn(`[TCP Context] No end effector found for robot ${robotId}`);
-      return { x: 0, y: 0, z: 0 };
+      return { 
+        position: { x: 0, y: 0, z: 0 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 }
+      };
     }
 
     // Store reference to end effector for CCD to use
     robot.userData = robot.userData || {};
     robot.userData.endEffectorLink = endEffectorLink;
 
-    // Get world position
+    // Get world position and orientation
     const worldPos = new THREE.Vector3();
+    const worldQuat = new THREE.Quaternion();
     endEffectorLink.getWorldPosition(worldPos);
+    endEffectorLink.getWorldQuaternion(worldQuat);
     
-    const result = { x: worldPos.x, y: worldPos.y, z: worldPos.z };
-    console.log(`[TCP Context] Robot end effector at: (${result.x.toFixed(3)}, ${result.y.toFixed(3)}, ${result.z.toFixed(3)})`);
+    const result = {
+      position: { x: worldPos.x, y: worldPos.y, z: worldPos.z },
+      orientation: { x: worldQuat.x, y: worldQuat.y, z: worldQuat.z, w: worldQuat.w }
+    };
+    
+    console.log(`[TCP Context] Robot end effector at: (${result.position.x.toFixed(3)}, ${result.position.y.toFixed(3)}, ${result.position.z.toFixed(3)})`);
+    console.log(`[TCP Context] Robot end effector orientation: (${result.orientation.x.toFixed(3)}, ${result.orientation.y.toFixed(3)}, ${result.orientation.z.toFixed(3)}, ${result.orientation.w.toFixed(3)})`);
     
     return result;
+  }
+
+  /**
+   * Calculate robot end effector orientation (legacy method - maintained for backward compatibility)
+   */
+  calculateRobotEndEffectorOrientation(robotId) {
+    console.log(`[TCP Context] calculateRobotEndEffectorOrientation for ${robotId} (legacy method)`);
+    
+    const result = this.calculateRobotEndEffector(robotId);
+    return result.orientation;
   }
 
   /**
@@ -141,14 +164,14 @@ class SimpleTCPManager {
   getFinalEndEffectorPosition(robotId) {
     // Step 1: Get base robot end effector (ALWAYS calculate this)
     const robotEndEffector = this.calculateRobotEndEffector(robotId);
-    console.log(`[TCP] Robot end effector: (${robotEndEffector.x.toFixed(3)}, ${robotEndEffector.y.toFixed(3)}, ${robotEndEffector.z.toFixed(3)})`);
+    console.log(`[TCP] Robot end effector: (${robotEndEffector.position.x.toFixed(3)}, ${robotEndEffector.position.y.toFixed(3)}, ${robotEndEffector.position.z.toFixed(3)})`);
     
     // Step 2: Check if TCP tool attached
     const toolData = this.attachedTools.get(robotId);
     if (!toolData) {
-      // No TCP tool - return robot end effector
-      console.log(`[TCP] No tool attached, using robot end effector`);
-      return robotEndEffector;
+      // No TCP tool - return robot end effector position
+      console.log(`[TCP] No tool attached, using robot end effector position`);
+      return robotEndEffector.position;
     }
 
     // Step 3: Get current tool tip offset (small fixed values)
@@ -157,14 +180,58 @@ class SimpleTCPManager {
     
     // Step 4: Simple addition: robot + tip
     const finalPosition = {
-      x: robotEndEffector.x + tipOffset.x,
-      y: robotEndEffector.y + tipOffset.y,
-      z: robotEndEffector.z + tipOffset.z
+      x: robotEndEffector.position.x + tipOffset.x,
+      y: robotEndEffector.position.y + tipOffset.y,
+      z: robotEndEffector.position.z + tipOffset.z
     };
 
-    console.log(`[TCP] Final calculation: robot(${robotEndEffector.x.toFixed(3)}, ${robotEndEffector.y.toFixed(3)}, ${robotEndEffector.z.toFixed(3)}) + tip(${tipOffset.x.toFixed(3)}, ${tipOffset.y.toFixed(3)}, ${tipOffset.z.toFixed(3)}) = final(${finalPosition.x.toFixed(3)}, ${finalPosition.y.toFixed(3)}, ${finalPosition.z.toFixed(3)})`);
+    console.log(`[TCP] Final calculation: robot(${robotEndEffector.position.x.toFixed(3)}, ${robotEndEffector.position.y.toFixed(3)}, ${robotEndEffector.position.z.toFixed(3)}) + tip(${tipOffset.x.toFixed(3)}, ${tipOffset.y.toFixed(3)}, ${tipOffset.z.toFixed(3)}) = final(${finalPosition.x.toFixed(3)}, ${finalPosition.y.toFixed(3)}, ${finalPosition.z.toFixed(3)})`);
     
     return finalPosition;
+  }
+
+  /**
+   * Get final end effector orientation: robot_end_effector_orientation (+ tcp_orientation if tool attached)
+   */
+  getFinalEndEffectorOrientation(robotId) {
+    // Step 1: Get base robot end effector orientation (ALWAYS calculate this)
+    const robotEndEffector = this.calculateRobotEndEffector(robotId);
+    console.log(`[TCP] Robot end effector orientation: (${robotEndEffector.orientation.x.toFixed(3)}, ${robotEndEffector.orientation.y.toFixed(3)}, ${robotEndEffector.orientation.z.toFixed(3)}, ${robotEndEffector.orientation.w.toFixed(3)})`);
+    
+    // Step 2: Check if TCP tool attached
+    const toolData = this.attachedTools.get(robotId);
+    if (!toolData) {
+      // No TCP tool - return robot end effector orientation
+      console.log(`[TCP] No tool attached, using robot end effector orientation`);
+      return robotEndEffector.orientation;
+    }
+
+    // Step 3: Get tool container orientation
+    const toolContainer = toolData.toolContainer;
+    const toolQuat = new THREE.Quaternion();
+    toolContainer.getWorldQuaternion(toolQuat);
+
+    // Step 4: Combine robot and tool orientations
+    const robotQuat = new THREE.Quaternion(
+      robotEndEffector.orientation.x,
+      robotEndEffector.orientation.y,
+      robotEndEffector.orientation.z,
+      robotEndEffector.orientation.w
+    );
+
+    // Multiply quaternions to combine rotations
+    const finalQuat = robotQuat.multiply(toolQuat);
+    
+    const finalOrientation = {
+      x: finalQuat.x,
+      y: finalQuat.y,
+      z: finalQuat.z,
+      w: finalQuat.w
+    };
+
+    console.log(`[TCP] Final orientation calculation: robot(${robotEndEffector.orientation.x.toFixed(3)}, ${robotEndEffector.orientation.y.toFixed(3)}, ${robotEndEffector.orientation.z.toFixed(3)}, ${robotEndEffector.orientation.w.toFixed(3)}) * tool(${toolQuat.x.toFixed(3)}, ${toolQuat.y.toFixed(3)}, ${toolQuat.z.toFixed(3)}, ${toolQuat.w.toFixed(3)}) = final(${finalOrientation.x.toFixed(3)}, ${finalOrientation.y.toFixed(3)}, ${finalOrientation.z.toFixed(3)}, ${finalOrientation.w.toFixed(3)})`);
+    
+    return finalOrientation;
   }
 
   /**
@@ -537,16 +604,24 @@ class SimpleTCPManager {
    * Force recalculate end effector (called when joints change)
    */
   recalculateEndEffector(robotId) {
+    // Get both position and orientation
     const finalPosition = this.getFinalEndEffectorPosition(robotId);
+    const finalOrientation = this.getFinalEndEffectorOrientation(robotId);
     const hasTCP = this.attachedTools.has(robotId);
     
+    // Emit event with both position and orientation
     EventBus.emit('tcp:endeffector-updated', {
       robotId,
       endEffectorPoint: finalPosition,
+      endEffectorOrientation: finalOrientation,
       hasTCP
     });
     
-    return finalPosition;
+    // Return both position and orientation
+    return {
+      position: finalPosition,
+      orientation: finalOrientation
+    };
   }
 
   /**
@@ -781,16 +856,51 @@ export const TCPProvider = ({ children }) => {
     return result;
   }, [isInitialized]);
 
-  // Force recalculate
+  // Get final end effector orientation (robot + tcp)
+  const getCurrentEndEffectorOrientation = useCallback((robotId) => {
+    console.log(`[TCP Context] getCurrentEndEffectorOrientation called for robotId: ${robotId}`);
+    console.log(`[TCP Context] tcpManagerRef.current:`, !!tcpManagerRef.current);
+    console.log(`[TCP Context] isInitialized:`, isInitialized);
+    
+    if (!tcpManagerRef.current) {
+      console.warn(`[TCP Context] TCP manager not available for orientation`);
+      return { x: 0, y: 0, z: 0, w: 1 };
+    }
+    
+    console.log(`[TCP Context] Calling tcpManagerRef.current.getFinalEndEffectorOrientation(${robotId})`);
+    const result = tcpManagerRef.current.getFinalEndEffectorOrientation(robotId);
+    console.log(`[TCP Context] getFinalEndEffectorOrientation returned:`, result);
+    
+    return result;
+  }, [isInitialized]);
+
+  // Force recalculate end effector position and orientation
   const recalculateEndEffector = useCallback((robotId) => {
-    if (!tcpManagerRef.current) return { x: 0, y: 0, z: 0 };
-    return tcpManagerRef.current.recalculateEndEffector(robotId);
+    if (!tcpManagerRef.current) {
+      return {
+        position: { x: 0, y: 0, z: 0 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 }
+      };
+    }
+    
+    const position = tcpManagerRef.current.recalculateEndEffector(robotId);
+    const orientation = tcpManagerRef.current.getFinalEndEffectorOrientation(robotId);
+    
+    return { position, orientation };
   }, []);
 
-  // Get robot end effector (without TCP)
+  // Get robot end effector position (without TCP)
   const getRobotEndEffectorPosition = useCallback((robotId) => {
     if (!tcpManagerRef.current) return { x: 0, y: 0, z: 0 };
-    return tcpManagerRef.current.calculateRobotEndEffector(robotId);
+    const result = tcpManagerRef.current.calculateRobotEndEffector(robotId);
+    return result.position;
+  }, []);
+
+  // Get robot end effector orientation (without TCP)
+  const getRobotEndEffectorOrientation = useCallback((robotId) => {
+    if (!tcpManagerRef.current) return { x: 0, y: 0, z: 0, w: 1 };
+    const result = tcpManagerRef.current.calculateRobotEndEffector(robotId);
+    return result.orientation;
   }, []);
 
   // Cleanup
@@ -810,19 +920,24 @@ export const TCPProvider = ({ children }) => {
     error,
     isInitialized,
     
-    // Methods
+    // Tool Management Methods
     loadAvailableTools,
     attachTool,
     removeTool,
     setToolTransform,
     setToolVisibility,
     getToolInfo: (robotId) => attachedTools.get(robotId),
-    
-    // End effector methods
-    getCurrentEndEffectorPoint,
-    recalculateEndEffector,
-    getRobotEndEffectorPosition,
     hasToolAttached: (robotId) => attachedTools.has(robotId),
+    
+    // End Effector Methods
+    // Get current end effector state (with TCP if attached)
+    getCurrentEndEffectorPoint,      // Returns { x, y, z }
+    getCurrentEndEffectorOrientation, // Returns { x, y, z, w }
+    recalculateEndEffector,          // Returns { position: { x, y, z }, orientation: { x, y, z, w } }
+    
+    // Get robot end effector state (without TCP)
+    getRobotEndEffectorPosition,     // Returns { x, y, z }
+    getRobotEndEffectorOrientation,  // Returns { x, y, z, w }
     
     // Utils
     clearError: () => setError(null)

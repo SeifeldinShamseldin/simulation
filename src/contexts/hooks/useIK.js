@@ -1,5 +1,5 @@
-// src/contexts/hooks/useIK.js - Enhanced IK data transfer with joint integration
-import { useContext } from 'react';
+// src/contexts/hooks/useIK.js - Enhanced with orientation support
+import { useContext, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import IKContext from '../IKContext';
 import { useTCP } from './useTCP';
@@ -25,6 +25,9 @@ export const useIK = () => {
     isAnimating: isJointAnimating,
     animationProgress
   } = useJoints();
+
+  // Local state for target orientation
+  const [targetOrientation, setTargetOrientation] = useState({ roll: 0, pitch: 0, yaw: 0 });
 
   if (!context) {
     throw new Error('useIK must be used within IKProvider');
@@ -111,8 +114,8 @@ export const useIK = () => {
     return distances;
   };
 
-  // Enhanced move to target with IK data
-  const moveToTarget = (animate = true) => {
+  // Enhanced move to target with IK data including orientation
+  const moveToTarget = (animate = true, targetOrientationEuler = null) => {
     const ikData = getIKSolverData();
     if (!ikData) {
       console.warn('[useIK] No IK solver data available');
@@ -120,10 +123,13 @@ export const useIK = () => {
     }
     
     console.log('[useIK] Executing IK with data:', ikData);
+    console.log('[useIK] Target orientation:', targetOrientationEuler);
     
     return executeIK(targetPosition, { 
       animate,
       currentPosition: currentEndEffectorPoint,
+      currentOrientation: currentEndEffectorOrientation,
+      targetOrientation: targetOrientationEuler,
       ikData, // Pass comprehensive IK data to solver
       jointDistances: calculateJointDistances()
     });
@@ -138,6 +144,15 @@ export const useIK = () => {
     return moveToTarget(true);
   };
 
+  // Rotate relative
+  const rotateRelative = (axis, amount) => {
+    const newTargetOrientation = { ...targetOrientation };
+    newTargetOrientation[axis] += amount;
+    setTargetOrientation(newTargetOrientation);
+    
+    return moveToTarget(true, newTargetOrientation);
+  };
+
   // Sync target to current end effector position
   const syncTargetToCurrent = () => {
     setTargetPosition({
@@ -145,15 +160,34 @@ export const useIK = () => {
       y: currentEndEffectorPoint.y,
       z: currentEndEffectorPoint.z
     });
+    
+    // Sync orientation if available
+    if (getEndEffectorEulerAngles) {
+      const currentEuler = getEndEffectorEulerAngles();
+      setTargetOrientation({
+        roll: currentEuler.roll * 180 / Math.PI,
+        pitch: currentEuler.pitch * 180 / Math.PI,
+        yaw: currentEuler.yaw * 180 / Math.PI
+      });
+    }
   };
 
   // Sync target to current end effector with offset
-  const syncTargetToCurrentWithOffset = (offset = { x: 0, y: 0, z: 0 }) => {
+  const syncTargetToCurrentWithOffset = (offset = { x: 0, y: 0, z: 0 }, orientationOffset = { roll: 0, pitch: 0, yaw: 0 }) => {
     setTargetPosition({
       x: currentEndEffectorPoint.x + offset.x,
       y: currentEndEffectorPoint.y + offset.y,
       z: currentEndEffectorPoint.z + offset.z
     });
+    
+    if (getEndEffectorEulerAngles) {
+      const currentEuler = getEndEffectorEulerAngles();
+      setTargetOrientation({
+        roll: (currentEuler.roll * 180 / Math.PI) + orientationOffset.roll,
+        pitch: (currentEuler.pitch * 180 / Math.PI) + orientationOffset.pitch,
+        yaw: (currentEuler.yaw * 180 / Math.PI) + orientationOffset.yaw
+      });
+    }
   };
 
   // Calculate reachability (rough estimate)
@@ -200,12 +234,18 @@ export const useIK = () => {
     };
   };
 
+  // Set target orientation
+  const setTargetOrientationValues = useCallback((orientation) => {
+    setTargetOrientation(orientation);
+  }, []);
+
   return {
     // State - enhanced with TCP data and joint integration
     currentPosition: currentEndEffectorPoint,
     currentOrientation: currentEndEffectorOrientation,
     currentEulerAngles: getEndEffectorEulerAngles(),
     targetPosition,
+    targetOrientation,
     isAnimating: isAnimating || isJointAnimating, // Combined animation state
     animationProgress,
     solverStatus,
@@ -224,9 +264,11 @@ export const useIK = () => {
     
     // Enhanced methods
     setTargetPosition,
+    setTargetOrientation: setTargetOrientationValues,
     setCurrentSolver,
     moveToTarget,
     moveRelative,
+    rotateRelative,
     syncTargetToCurrent,
     syncTargetToCurrentWithOffset,
     stopAnimation,
@@ -253,6 +295,7 @@ export const useIK = () => {
       return executeIK(target, {
         ...options,
         currentPosition: currentEndEffectorPoint,
+        currentOrientation: currentEndEffectorOrientation,
         ikData,
         jointDistances: calculateJointDistances()
       });
