@@ -170,9 +170,7 @@ class RobotLoader {
         // Only focus if it's the first robot being loaded
         if (this.robots.size === 1 && this.sceneSetup.robotRoot.children.length === 1) {
             setTimeout(() => {
-                if (this.sceneSetup && this.sceneSetup.focusOnObject) {
-                    this.sceneSetup.focusOnObject(robot);
-                }
+                this.sceneSetup.focusOnObject(robot);
             }, 100);
         }
         

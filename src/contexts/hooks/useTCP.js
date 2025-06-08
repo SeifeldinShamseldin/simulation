@@ -18,10 +18,10 @@ export const useTCP = (robotId = null) => {
     setToolVisibility,
     getToolInfo,
     getCurrentEndEffectorPoint,
-    getCurrentEndEffectorOrientation,
+    getCurrentEndEffectorOrientation, // New method from TCPContext
     recalculateEndEffector,
     getRobotEndEffectorPosition,
-    getRobotEndEffectorOrientation,
+    getRobotEndEffectorOrientation, // New method from TCPContext
     hasToolAttached,
     clearError
   } = useTCPContext();

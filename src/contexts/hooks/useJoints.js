@@ -1,9 +1,7 @@
 // src/contexts/hooks/useJoints.js - Simple data transfer hook
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback } from 'react';
 import { useJointContext } from '../JointContext';
-import { useViewer } from '../ViewerContext';
 import { useRobot } from '../RobotContext';
-import EventBus from '../../utils/EventBus';
 
 export const useJoints = (robotId = null) => {
   const {

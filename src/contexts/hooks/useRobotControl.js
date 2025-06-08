@@ -1,17 +1,20 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useViewer } from '../ViewerContext';
-import { useTCPContext } from '../TCPContext';
 import { useRobot } from '../RobotContext';
-import EventBus from '../../utils/EventBus';
+import { useViewer } from '../ViewerContext';
+import { useTCP } from './useTCP';
+import EventBus from '@/utils/EventBus';
 
 export const useRobotControl = () => {
-  const { isViewerReady, getRobotManager } = useViewer();
   const { activeRobotId } = useRobot();
+  const { isViewerReady, getRobotManager } = useViewer();
   const { 
-    getCurrentEndEffectorPoint,
-    hasToolAttached,
-    getToolInfo
-  } = useTCPContext();
+    currentEndEffectorPoint,
+    hasValidEndEffector,
+    isUsingTCP,
+    isUsingRobotEndEffector,
+    getEndEffectorInfo,
+    getEndEffectorType
+  } = useTCP();
 
   const [robot, setRobot] = useState(null);
   const [robotManager, setRobotManager] = useState(null);
@@ -59,35 +62,35 @@ export const useRobotControl = () => {
     if (!robotManager || !activeRobotId) return false;
     const success = robotManager.setJointValue(activeRobotId, jointName, value);
     
-    if (success && hasToolAttached && hasToolAttached(activeRobotId)) {
+    if (success && isUsingTCP) {
       // Force TCP end effector recalculation after joint change
       EventBus.emit('tcp:force-recalculate', { robotId: activeRobotId });
     }
     
     return success;
-  }, [robotManager, activeRobotId, hasToolAttached]);
+  }, [robotManager, activeRobotId, isUsingTCP]);
 
   const setJointValues = useCallback((values) => {
     if (!robotManager || !activeRobotId) return false;
     const success = robotManager.setJointValues(activeRobotId, values);
     
-    if (success && hasToolAttached && hasToolAttached(activeRobotId)) {
+    if (success && isUsingTCP) {
       // Force TCP end effector recalculation after joint changes
       EventBus.emit('tcp:force-recalculate', { robotId: activeRobotId });
     }
     
     return success;
-  }, [robotManager, activeRobotId, hasToolAttached]);
+  }, [robotManager, activeRobotId, isUsingTCP]);
 
   const resetJoints = useCallback(() => {
     if (!robotManager || !activeRobotId) return;
     robotManager.resetJoints(activeRobotId);
     
-    if (hasToolAttached && hasToolAttached(activeRobotId)) {
+    if (isUsingTCP) {
       // Force TCP end effector recalculation after reset
       EventBus.emit('tcp:force-recalculate', { robotId: activeRobotId });
     }
-  }, [robotManager, activeRobotId, hasToolAttached]);
+  }, [robotManager, activeRobotId, isUsingTCP]);
 
   const getJointValues = useCallback(() => {
     if (!robotManager || !activeRobotId) return {};
@@ -101,11 +104,6 @@ export const useRobotControl = () => {
     return robotData?.model || null;
   }, [robotManager, activeRobotId]);
 
-  // Get current end effector point (with TCP awareness)
-  const currentEndEffectorPoint = getCurrentEndEffectorPoint && activeRobotId ? 
-    getCurrentEndEffectorPoint(activeRobotId) : 
-    { x: 0, y: 0, z: 0 };
-
   return {
     // Robot state
     activeRobotId,
@@ -115,9 +113,9 @@ export const useRobotControl = () => {
     
     // TCP awareness
     currentEndEffectorPoint,
-    hasValidEndEffector: !!(currentEndEffectorPoint.x !== 0 || currentEndEffectorPoint.y !== 0 || currentEndEffectorPoint.z !== 0),
-    isUsingTCP: hasToolAttached ? hasToolAttached(activeRobotId) : false,
-    isUsingRobotEndEffector: activeRobotId && (!hasToolAttached || !hasToolAttached(activeRobotId)),
+    hasValidEndEffector,
+    isUsingTCP,
+    isUsingRobotEndEffector,
     
     // Robot control methods
     setJointValue,
@@ -127,10 +125,7 @@ export const useRobotControl = () => {
     getRobot,
     
     // TCP-specific methods
-    getEndEffectorInfo: () => getToolInfo ? getToolInfo(activeRobotId) : null,
-    getEndEffectorType: () => {
-      if (!activeRobotId) return 'none';
-      return (hasToolAttached && hasToolAttached(activeRobotId)) ? 'tcp' : 'robot';
-    }
+    getEndEffectorInfo,
+    getEndEffectorType
   };
 }; 

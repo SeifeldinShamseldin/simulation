@@ -1,4 +1,4 @@
-// src/App.jsx - Updated with WorkspaceProvider and clean separation
+// src/App.jsx - Fixed architecture with proper separation
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
@@ -7,14 +7,13 @@ import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import ResizablePanel from './components/common/ResizablePanel';
 import { SceneProvider } from './contexts/SceneContext';
-import { WorkspaceProvider } from './contexts/WorkspaceContext';
+import { RobotProvider, useRobot } from './contexts/RobotContext';
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
 import { JointProvider } from './contexts/JointContext';
 import WorldManager from './components/World/WorldManager';
-import { RobotProvider } from './contexts/RobotContext';
 import './App.css';
 
 const RobotPanel = ({ onClose, viewerRef }) => {
@@ -23,16 +22,14 @@ const RobotPanel = ({ onClose, viewerRef }) => {
 
   // Handle when a robot is selected for controls
   const handleRobotSelected = (robotId) => {
-    console.log('[App] Robot selected for controls:', robotId);
     setSelectedRobotId(robotId);
     setShowControls(true);
   };
 
   // Handle going back to robot selection
   const handleBackToRobots = () => {
-    console.log('[App] Going back to robot selection');
     setShowControls(false);
-    // Don't clear selectedRobotId - keep it for potential return
+    setSelectedRobotId(null);
   };
 
   if (showControls && selectedRobotId) {
@@ -53,7 +50,7 @@ const RobotPanel = ({ onClose, viewerRef }) => {
           >
             ← Back to Robots
           </button>
-          <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Controls</h2>
+          <h2 style={{ margin: 0, fontSize: '1.2rem' }}>Controls - {selectedRobotId}</h2>
           <button
             onClick={onClose}
             style={{
@@ -74,10 +71,7 @@ const RobotPanel = ({ onClose, viewerRef }) => {
         
         {/* Robot controls */}
         <div style={{ flex: '1', overflowY: 'auto' }}>
-          <Controls 
-            viewerRef={viewerRef} 
-            onClose={onClose}
-          />
+          <Controls viewerRef={viewerRef} />
         </div>
       </div>
     );
@@ -98,19 +92,17 @@ const AppContent = () => {
   const viewerRef = useRef(null);
 
   useEffect(() => {
-    console.log('[App] Active panel changed:', activePanel);
+    console.log('Active panel:', activePanel);
   }, [activePanel]);
 
   useEffect(() => {
     if (viewerRef.current) {
-      console.log('[App] Setting viewer instance');
       setViewerInstance(viewerRef.current);
       window.viewerInstance = viewerRef.current;
     }
   }, [setViewerInstance]);
 
   const handlePanelToggle = (panel) => {
-    console.log('[App] Panel toggle requested:', panel);
     setActivePanel(prevPanel => prevPanel === panel ? null : panel);
   };
 
@@ -190,26 +182,24 @@ const AppContent = () => {
   );
 };
 
-// Main App component with proper provider hierarchy
+// Provider architecture with proper flow
 const App = () => {
   return (
-    <ViewerProvider>
-      <SceneProvider>
-        <WorkspaceProvider>
-          <RobotProvider>
+    <SceneProvider>
+      <ViewerProvider>
+        <RobotProvider>
+          <TCPProvider>
             <JointProvider>
-              <TCPProvider>
-                <IKProvider>
-                  <WorldProvider>
-                    <AppContent />
-                  </WorldProvider>
-                </IKProvider>
-              </TCPProvider>
+              <IKProvider>
+                <WorldProvider>
+                  <AppContent />
+                </WorldProvider>
+              </IKProvider>
             </JointProvider>
-          </RobotProvider>
-        </WorkspaceProvider>
-      </SceneProvider>
-    </ViewerProvider>
+          </TCPProvider>
+        </RobotProvider>
+      </ViewerProvider>
+    </SceneProvider>
   );
 };
 

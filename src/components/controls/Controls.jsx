@@ -1,14 +1,14 @@
 // src/components/controls/Controls.jsx - Control components only
 import React from 'react';
-import { useRobot } from '../../contexts/RobotContext';
 import ControlJoints from './ControlJoints/ControlJoints';
 import IKController from './IKController/IKController';
 import Reposition from './Reposition/Reposition';
 import TrajectoryViewer from './RecordMap/TrajectoryViewer';
 import TCPController from './TCP/TCPController';
+import { useRobot } from '../../contexts/RobotContext';
 
 const Controls = ({ viewerRef, onClose }) => {
-  const { activeRobotId, getLoadedRobots } = useRobot();
+  const { activeRobotId } = useRobot();
 
   if (!activeRobotId) {
     return (
