@@ -1,3 +1,4 @@
+// src/components/robot/Robot.jsx
 import React, { useState, useEffect } from 'react';
 import RobotManager from './RobotManager/RobotManager';
 import LoadedRobots from './LoadedRobots/LoadedRobots';
@@ -5,6 +6,7 @@ import ControlJoints from '../controls/ControlJoints/ControlJoints';
 import IKController from '../controls/IKController/IKController';
 import Reposition from '../controls/Reposition/Reposition';
 import TrajectoryViewer from '../controls/RecordMap/TrajectoryViewer';
+import TCPController from '../controls/TCP/TCPController';
 import AddRobot from './AddRobot/AddRobot';
 import { useViewer } from '../../contexts/ViewerContext';
 
