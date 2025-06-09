@@ -1,14 +1,29 @@
 // src/components/controls/Controls.jsx - Control components only
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { useViewer } from '../../contexts/ViewerContext';
+import { useRobotSelection, useRobotManagement } from '../../contexts/hooks/useRobot';
+import { useTCP } from '../../contexts/hooks/useTCP';
+import { useJoints } from '../../contexts/hooks/useJoints';
+import { useIK } from '../../contexts/hooks/useIK';
+import EventBus from '../../utils/EventBus';
 import ControlJoints from './ControlJoints/ControlJoints';
 import IKController from './IKController/IKController';
 import Reposition from './Reposition/Reposition';
 import TrajectoryViewer from './RecordMap/TrajectoryViewer';
 import TCPController from './TCP/TCPController';
-import { useRobot } from '../../contexts/RobotContext';
 
 const Controls = ({ viewerRef, onClose }) => {
-  const { activeRobotId } = useRobot();
+  const { isViewerReady } = useViewer();
+  const { activeId: activeRobotId } = useRobotSelection();
+  const { getRobot } = useRobotManagement();
+  const { 
+    currentEndEffectorPoint,
+    hasValidEndEffector,
+    isUsingTCP,
+    isUsingRobotEndEffector,
+    getEndEffectorInfo,
+    getEndEffectorType
+  } = useTCP();
 
   if (!activeRobotId) {
     return (

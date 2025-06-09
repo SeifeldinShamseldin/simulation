@@ -1,5 +1,5 @@
-// src/contexts/RobotContext.jsx - Fixed active robot synchronization
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+// src/contexts/RobotContext.jsx - UNIFIED BRAIN (Same as Environment Pattern)
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { useViewer } from './ViewerContext';
 import EventBus from '../utils/EventBus';
 
@@ -8,20 +8,176 @@ const RobotContext = createContext(null);
 export const RobotProvider = ({ children }) => {
   const { isViewerReady, viewerInstance } = useViewer();
   
-  // Available robots from server
+  // ========== UNIFIED STATE (All Robot Data) ==========
+  
+  // Robot Discovery State (from old RobotContext)
   const [availableRobots, setAvailableRobots] = useState([]);
   const [categories, setCategories] = useState([]);
   
-  // Active robot management
+  // Workspace State (from old WorkspaceContext)
+  const [workspaceRobots, setWorkspaceRobots] = useState([]);
+  
+  // Active Robot Management 
   const [activeRobotId, setActiveRobotIdState] = useState(null);
   const [activeRobot, setActiveRobot] = useState(null);
   const [loadedRobots, setLoadedRobots] = useState(new Map());
   
-  // Loading states
+  // Loading & Error States
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState('');
   
-  // 🚨 FIX: Synchronized setActiveRobotId that also updates activeRobot
+  // ========== ROBOT DISCOVERY OPERATIONS ==========
+  
+  const discoverRobots = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      // Add timeout and better error handling
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const response = await fetch('http://localhost:3000/robots/list', {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      clearTimeout(timeout);
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        setCategories(data);
+        
+        const allRobots = [];
+        data.forEach(category => {
+          category.robots.forEach(robot => {
+            allRobots.push({
+              ...robot,
+              category: category.id,
+              categoryName: category.name
+            });
+          });
+        });
+        
+        setAvailableRobots(allRobots);
+        console.log('[RobotContext] Discovered robots:', allRobots.length);
+      } else {
+        throw new Error('Failed to load robots');
+      }
+    } catch (err) {
+      console.error('[RobotContext] Failed to discover robots:', err);
+      // Better error messages
+      if (err.name === 'AbortError') {
+        setError('Request timed out. Please check if the server is running.');
+      } else if (err.message.includes('fetch')) {
+        setError('Cannot connect to server. Please ensure the server is running on port 3000.');
+      } else {
+        setError(`Discovery failed: ${err.message}`);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // ========== WORKSPACE MANAGEMENT OPERATIONS ==========
+  
+  // Load workspace robots from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedRobots = localStorage.getItem('workspaceRobots');
+      if (savedRobots) {
+        const robots = JSON.parse(savedRobots);
+        setWorkspaceRobots(robots);
+        console.log('[RobotContext] Loaded workspace robots from localStorage:', robots.length);
+      }
+    } catch (error) {
+      console.error('[RobotContext] Error loading saved robots:', error);
+      setError('Failed to load saved robots');
+    }
+  }, []);
+
+  // Save workspace robots to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('workspaceRobots', JSON.stringify(workspaceRobots));
+      console.log('[RobotContext] Saved workspace robots to localStorage:', workspaceRobots.length);
+    } catch (error) {
+      console.error('[RobotContext] Error saving robots:', error);
+      setError('Failed to save robots');
+    }
+  }, [workspaceRobots]);
+
+  // Add robot to workspace
+  const addRobotToWorkspace = useCallback((robotData) => {
+    const newRobot = {
+      id: `${robotData.id}_${Date.now()}`,
+      robotId: robotData.id,
+      name: robotData.name,
+      manufacturer: robotData.manufacturer,
+      urdfPath: robotData.urdfPath,
+      icon: '🤖',
+      addedAt: new Date().toISOString()
+    };
+    
+    setWorkspaceRobots(prev => {
+      // Check if robot already exists
+      const exists = prev.some(r => r.robotId === robotData.id);
+      if (exists) {
+        console.log('[RobotContext] Robot already in workspace:', robotData.name);
+        return prev;
+      }
+      
+      console.log('[RobotContext] Adding robot to workspace:', newRobot);
+      return [...prev, newRobot];
+    });
+    
+    setSuccessMessage(`${robotData.name} added to workspace!`);
+    setTimeout(() => setSuccessMessage(''), 3000);
+    
+    return newRobot;
+  }, []);
+
+  // Remove robot from workspace
+  const removeRobotFromWorkspace = useCallback((workspaceRobotId) => {
+    setWorkspaceRobots(prev => {
+      const robotToRemove = prev.find(r => r.id === workspaceRobotId);
+      const updated = prev.filter(r => r.id !== workspaceRobotId);
+      console.log('[RobotContext] Removing robot from workspace:', robotToRemove?.name);
+      return updated;
+    });
+    
+    setSuccessMessage('Robot removed from workspace');
+    setTimeout(() => setSuccessMessage(''), 3000);
+  }, []);
+
+  // Check if robot is in workspace
+  const isRobotInWorkspace = useCallback((robotId) => {
+    return workspaceRobots.some(r => r.robotId === robotId);
+  }, [workspaceRobots]);
+
+  // Get workspace robot by ID
+  const getWorkspaceRobot = useCallback((workspaceRobotId) => {
+    return workspaceRobots.find(r => r.id === workspaceRobotId);
+  }, [workspaceRobots]);
+
+  // Clear workspace
+  const clearWorkspace = useCallback(() => {
+    if (window.confirm('Clear all robots from workspace?')) {
+      setWorkspaceRobots([]);
+      console.log('[RobotContext] Cleared all robots from workspace');
+      setSuccessMessage('Workspace cleared');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    }
+  }, []);
+
+  // ========== ROBOT LOADING OPERATIONS ==========
+  
+  // 🚨 FIXED: Synchronized setActiveRobotId that also updates activeRobot
   const setActiveRobotId = useCallback((robotId) => {
     console.log(`[RobotContext] Setting active robot ID to: ${robotId}`);
     setActiveRobotIdState(robotId);
@@ -45,41 +201,6 @@ export const RobotProvider = ({ children }) => {
       setActiveRobot(null);
     }
   }, [loadedRobots]);
-  
-  // Discover robots from server
-  const discoverRobots = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      const response = await fetch('/robots/list');
-      const data = await response.json();
-      
-      if (response.ok) {
-        setCategories(data);
-        
-        const allRobots = [];
-        data.forEach(category => {
-          category.robots.forEach(robot => {
-            allRobots.push({
-              ...robot,
-              category: category.id,
-              categoryName: category.name
-            });
-          });
-        });
-        
-        setAvailableRobots(allRobots);
-      } else {
-        throw new Error('Failed to load robots');
-      }
-    } catch (err) {
-      console.error('Failed to discover robots:', err);
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
   
   // Load robot using viewer
   const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
@@ -108,7 +229,7 @@ export const RobotProvider = ({ children }) => {
         return newMap;
       });
       
-      // Set as active if requested (use the new synchronized method)
+      // Set as active if requested (use the synchronized method)
       if (options.makeActive !== false) {
         // Use setTimeout to ensure loadedRobots state is updated first
         setTimeout(() => {
@@ -116,11 +237,15 @@ export const RobotProvider = ({ children }) => {
         }, 0);
       }
       
+      setSuccessMessage(`${robotId} loaded successfully!`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+      
       EventBus.emit('robot:loaded', { robotId, robot });
       
       return robot;
     } catch (err) {
-      setError(err.message);
+      console.error('[RobotContext] Error loading robot:', err);
+      setError('Failed to load robot: ' + err.message);
       throw err;
     } finally {
       setIsLoading(false);
@@ -158,11 +283,66 @@ export const RobotProvider = ({ children }) => {
         setActiveRobotId(null);
       }
       
+      setSuccessMessage(`${robotId} unloaded`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+      
       EventBus.emit('robot:unloaded', { robotId });
     } catch (err) {
+      console.error('[RobotContext] Error unloading robot:', err);
       setError(err.message);
     }
   }, [viewerInstance, activeRobotId, setActiveRobotId]);
+
+  // ========== ROBOT STATUS OPERATIONS ==========
+  
+  const getRobotLoadStatus = useCallback((robot) => {
+    const loaded = isRobotLoaded(robot.id);
+    return {
+      isLoaded: loaded,
+      statusText: loaded ? 'Loaded' : 'Click to Load'
+    };
+  }, [isRobotLoaded]);
+
+  // ========== IMPORT/EXPORT OPERATIONS ==========
+  
+  // Import robots (from file)
+  const importRobots = useCallback((robotsData) => {
+    try {
+      setWorkspaceRobots(robotsData);
+      setSuccessMessage(`Imported ${robotsData.length} robots`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+      console.log('[RobotContext] Imported robots:', robotsData.length);
+    } catch (error) {
+      console.error('[RobotContext] Error importing robots:', error);
+      setError('Failed to import robots');
+    }
+  }, []);
+
+  // Export robots (to file)
+  const exportRobots = useCallback(() => {
+    try {
+      const dataStr = JSON.stringify(workspaceRobots, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `workspace_robots_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      URL.revokeObjectURL(url);
+      setSuccessMessage('Robots exported successfully');
+      setTimeout(() => setSuccessMessage(''), 3000);
+      console.log('[RobotContext] Exported robots to file');
+    } catch (error) {
+      console.error('[RobotContext] Error exporting robots:', error);
+      setError('Failed to export robots');
+    }
+  }, [workspaceRobots]);
+
+  // ========== EVENT LISTENERS ==========
   
   // Listen for robot events
   useEffect(() => {
@@ -185,33 +365,83 @@ export const RobotProvider = ({ children }) => {
     };
   }, [activeRobotId, setActiveRobotId]);
   
+  // ========== INITIALIZATION ==========
+  
   // Initialize on mount
   useEffect(() => {
     if (isViewerReady) {
+      console.log('[RobotContext] Viewer ready, discovering robots...');
       discoverRobots();
     }
   }, [isViewerReady]);
 
+  // ========== ERROR HANDLING ==========
+  
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  const clearSuccess = useCallback(() => {
+    setSuccessMessage('');
+  }, []);
+
+  // ========== CONTEXT VALUE ==========
+  
   const value = {
-    // Data
+    // ========== STATE ==========
+    // Robot Discovery
     availableRobots,
     categories,
+    
+    // Workspace Management
+    workspaceRobots,
+    
+    // Active Robot Management
     activeRobotId,
     activeRobot,
     loadedRobots,
+    
+    // Loading & Error States
     isLoading,
     error,
+    successMessage,
     
-    // Functions
+    // ========== ROBOT DISCOVERY OPERATIONS ==========
+    discoverRobots,
+    refresh: discoverRobots,
+    
+    // ========== WORKSPACE OPERATIONS ==========
+    addRobotToWorkspace,
+    removeRobotFromWorkspace,
+    isRobotInWorkspace,
+    getWorkspaceRobot,
+    clearWorkspace,
+    importRobots,
+    exportRobots,
+    
+    // ========== ROBOT LOADING OPERATIONS ==========
     loadRobot,
     unloadRobot,
-    setActiveRobotId, // Now synchronized with activeRobot
-    setActiveRobot,   // Keep for backward compatibility
-    refresh: discoverRobots,
-    getRobot,
     isRobotLoaded,
+    getRobot,
+    setActiveRobotId,
+    setActiveRobot,
+    getRobotLoadStatus,
+    
+    // ========== CONVENIENCE METHODS ==========
     getLoadedRobots: () => loadedRobots,
-    clearError: () => setError(null)
+    
+    // ========== COMPUTED PROPERTIES ==========
+    robotCount: workspaceRobots.length,
+    isEmpty: workspaceRobots.length === 0,
+    hasWorkspaceRobots: workspaceRobots.length > 0,
+    hasAvailableRobots: availableRobots.length > 0,
+    hasLoadedRobots: loadedRobots.size > 0,
+    hasActiveRobot: !!activeRobotId,
+    
+    // ========== ERROR HANDLING ==========
+    clearError,
+    clearSuccess
   };
   
   return (
@@ -221,10 +451,10 @@ export const RobotProvider = ({ children }) => {
   );
 };
 
-export const useRobot = () => {
+export const useRobotContext = () => {
   const context = useContext(RobotContext);
   if (!context) {
-    throw new Error('useRobot must be used within a RobotProvider');
+    throw new Error('useRobotContext must be used within a RobotProvider');
   }
   return context;
 };

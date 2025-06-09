@@ -1,61 +1,52 @@
+// src/components/robot/AddRobot/AddRobot.jsx - PURE UI COMPONENT
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import { useRobotWorkspace, useRobotDiscovery, useRobotLoading } from '../../../contexts/hooks/useRobot';
 
 const AddRobot = ({ isOpen, onClose, onSuccess }) => {
-  const { addRobotToWorkspace, isRobotInWorkspace } = useWorkspace();
-  const [availableRobots, setAvailableRobots] = useState([]);
-  const [categories, setCategories] = useState([]);
+  // ========== HOOK USAGE (Data Only) ==========
+  const { 
+    addRobot: addRobotToWorkspace, 
+    isInWorkspace: isRobotInWorkspace 
+  } = useRobotWorkspace();
+  
+  const { 
+    robots: availableRobots,
+    categories,
+    discover: scanLocalRobots,
+    hasRobots: hasAvailableRobots
+  } = useRobotDiscovery();
+  
+  const { 
+    isLoading, 
+    error, 
+    success: successMessage 
+  } = useRobotLoading();
+
+  // ========== UI-ONLY STATE ==========
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState('');
+  const [localError, setLocalError] = useState(null);
+  const [localSuccess, setLocalSuccess] = useState('');
 
+  // ========== UI EFFECTS ==========
   // Reset state when modal opens/closes
   useEffect(() => {
     if (isOpen) {
       setCurrentStep(1);
       setSelectedCategory(null);
-      setError(null);
-      setSuccessMessage('');
+      setLocalError(null);
+      setLocalSuccess('');
       scanLocalRobots();
     }
-  }, [isOpen]);
+  }, [isOpen, scanLocalRobots]);
 
-  const scanLocalRobots = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch('/robots/list');
-      const data = await response.json();
-      setCategories(data);
-      
-      // Flatten all robots for easy access
-      const allRobots = [];
-      data.forEach(category => {
-        category.robots.forEach(robot => {
-          allRobots.push({
-            ...robot,
-            manufacturer: category.name,
-            manufacturerId: category.id
-          });
-        });
-      });
-      setAvailableRobots(allRobots);
-    } catch (err) {
-      console.error('Error scanning robots:', err);
-      setError('Failed to scan robots');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // ========== UI EVENT HANDLERS ==========
   const handleSelectRobot = async (robot) => {
     try {
       // Check if robot is already in workspace
       if (isRobotInWorkspace(robot.id)) {
-        setError(`${robot.name} is already in your workspace`);
+        setLocalError(`${robot.name} is already in your workspace`);
         return;
       }
 
@@ -70,7 +61,7 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
       // Add to workspace
       const workspaceRobot = addRobotToWorkspace(robotData);
       
-      setSuccessMessage(`${robot.name} added to workspace!`);
+      setLocalSuccess(`${robot.name} added to workspace!`);
       
       // Call success callback
       if (onSuccess) {
@@ -84,10 +75,11 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
       
     } catch (error) {
       console.error('Error adding robot to workspace:', error);
-      setError('Failed to add robot to workspace');
+      setLocalError('Failed to add robot to workspace');
     }
   };
 
+  // ========== UI HELPER FUNCTIONS ==========
   const getIconForManufacturer = (name) => {
     const iconMap = {
       'kuka': '🤖',
@@ -99,8 +91,10 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
     return iconMap[name.toLowerCase()] || '🤖';
   };
 
+  // ========== RENDER CONDITIONS ==========
   if (!isOpen) return null;
 
+  // ========== PURE UI RENDER ==========
   return createPortal(
     <div className="controls-modal-overlay">
       <div className="controls-modal" style={{ maxWidth: '800px', maxHeight: '600px' }}>
@@ -133,15 +127,15 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
         
         <div className="controls-modal-body" style={{ padding: '2rem', overflowY: 'auto', maxHeight: '500px' }}>
           {/* Messages */}
-          {error && (
+          {(error || localError) && (
             <div className="controls-alert controls-alert-danger controls-mb-3">
-              {error}
+              {error || localError}
             </div>
           )}
           
-          {successMessage && (
+          {(successMessage || localSuccess) && (
             <div className="controls-alert controls-alert-success controls-mb-3">
-              {successMessage}
+              {successMessage || localSuccess}
             </div>
           )}
           
@@ -265,4 +259,4 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
   );
 };
 
-export default AddRobot; 
+export default AddRobot;

@@ -1,6 +1,6 @@
+// src/components/robot/RobotManager/RobotManager.jsx - PURE UI COMPONENT
 import React, { useState } from 'react';
-import { useRobot } from '../../../contexts/RobotContext';
-import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import { useRobotWorkspace, useRobotManagement, useRobotLoading } from '../../../contexts/hooks/useRobot';
 import EventBus from '../../../utils/EventBus';
 
 const RobotManager = ({ 
@@ -9,27 +9,38 @@ const RobotManager = ({
   setShowAddModal,
   onRobotSelected
 }) => {
-  const { loadRobot, isLoading, isRobotLoaded, setActiveRobotId, getRobot } = useRobot();
-  const { workspaceRobots, removeRobotFromWorkspace } = useWorkspace();
-  const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState('');
+  // ========== HOOK USAGE (Data Only) ==========
+  const { 
+    robots: workspaceRobots, 
+    removeRobot: removeRobotFromWorkspace 
+  } = useRobotWorkspace();
+  
+  const { 
+    load: loadRobot, 
+    isLoaded: isRobotLoaded,
+    getRobot,
+    getStatus: getRobotLoadStatus 
+  } = useRobotManagement();
+  
+  const { 
+    isLoading, 
+    error, 
+    success: successMessage,
+    clearError 
+  } = useRobotLoading();
 
+  // ========== UI-ONLY STATE ==========
+  const [localError, setLocalError] = useState(null);
+  const [localSuccess, setLocalSuccess] = useState('');
+
+  // ========== UI EVENT HANDLERS ==========
   const handleLoadRobot = async (robot) => {
     try {
-      setError(null);
+      setLocalError(null);
       
       // Check if robot is already loaded in the viewer
       if (isRobotLoaded(robot.id)) {
         console.log('[RobotManager] Robot already loaded, just selecting it:', robot.id);
-        
-        // 🚨 FIX: Make the already-loaded robot active
-        setActiveRobotId(robot.id);
-        
-        // Get the robot object to update active robot state
-        const robotObject = getRobot(robot.id);
-        if (robotObject) {
-          console.log('[RobotManager] Set active robot to:', robot.id);
-        }
         
         // Navigate to controls
         if (onRobotSelected) {
@@ -47,8 +58,8 @@ const RobotManager = ({
         clearOthers: false
       });
       
-      setSuccessMessage(`${robot.name} loaded successfully!`);
-      setTimeout(() => setSuccessMessage(''), 3000);
+      setLocalSuccess(`${robot.name} loaded successfully!`);
+      setTimeout(() => setLocalSuccess(''), 3000);
       
       // Navigate to robot controls
       if (onRobotSelected) {
@@ -62,19 +73,19 @@ const RobotManager = ({
       
     } catch (error) {
       console.error('[RobotManager] Error loading robot:', error);
-      setError('Failed to load robot: ' + error.message);
+      setLocalError('Failed to load robot: ' + error.message);
     }
   };
 
   const handleRemoveRobot = (robotId) => {
     if (window.confirm('Remove this robot from your workspace?')) {
       removeRobotFromWorkspace(robotId);
-      setSuccessMessage('Robot removed from workspace');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      setLocalSuccess('Robot removed from workspace');
+      setTimeout(() => setLocalSuccess(''), 3000);
     }
   };
 
-  const getRobotLoadStatus = (robot) => {
+  const getDisplayRobotLoadStatus = (robot) => {
     const loaded = isRobotLoaded(robot.id);
     return {
       isLoaded: loaded,
@@ -82,6 +93,7 @@ const RobotManager = ({
     };
   };
 
+  // ========== PURE UI RENDER ==========
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
@@ -117,15 +129,15 @@ const RobotManager = ({
       </div>
       
       {/* Messages */}
-      {error && (
+      {(error || localError) && (
         <div className="controls-alert controls-alert-danger controls-mb-3">
-          {error}
+          {error || localError}
         </div>
       )}
       
-      {successMessage && (
+      {(successMessage || localSuccess) && (
         <div className="controls-alert controls-alert-success controls-mb-3">
-          {successMessage}
+          {successMessage || localSuccess}
         </div>
       )}
       
@@ -134,7 +146,7 @@ const RobotManager = ({
         <div className="controls-grid controls-grid-cols-2 controls-gap-3">
           {/* Show workspace robots */}
           {workspaceRobots.map(robot => {
-            const status = getRobotLoadStatus(robot);
+            const status = getDisplayRobotLoadStatus(robot);
             
             return (
               <div 

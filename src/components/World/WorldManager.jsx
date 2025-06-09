@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useWorld } from '../../contexts/WorldContext';
-import { useRobot } from '../../contexts/RobotContext';
 import { useScene } from '../../contexts/hooks/useScene';
 import EventBus from '../../utils/EventBus';
 import * as THREE from 'three';

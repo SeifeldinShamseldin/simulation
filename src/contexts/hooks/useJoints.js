@@ -1,7 +1,7 @@
 // src/contexts/hooks/useJoints.js - Simple data transfer hook
 import { useCallback } from 'react';
 import { useJointContext } from '../JointContext';
-import { useRobot } from '../RobotContext';
+import { useRobotSelection } from './useRobot';
 
 export const useJoints = (robotId = null) => {
   const {
@@ -20,7 +20,7 @@ export const useJoints = (robotId = null) => {
     stopAnimation
   } = useJointContext();
   
-  const { activeRobotId } = useRobot();
+  const { activeId: activeRobotId } = useRobotSelection();
   
   // Use provided robotId or fall back to active robot
   const targetRobotId = robotId || activeRobotId;

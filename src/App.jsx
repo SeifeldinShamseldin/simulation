@@ -1,4 +1,4 @@
-// src/App.jsx - CORRECTED Provider Chain
+// src/App.jsx - UPDATED Provider Chain (Same UI, Clean Architecture)
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
@@ -7,8 +7,7 @@ import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import ResizablePanel from './components/common/ResizablePanel';
 import { SceneProvider } from './contexts/SceneContext';
-import { RobotProvider } from './contexts/RobotContext';
-import { WorkspaceProvider } from './contexts/WorkspaceContext';
+import { RobotProvider } from './contexts/RobotContext'; // ← 🎯 UNIFIED ROBOT PROVIDER
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
@@ -188,24 +187,22 @@ const AppContent = () => {
   );
 };
 
-// 🚨 CRITICAL FIX: Correct Provider Order
+// 🚨 UPDATED: Clean Provider Chain (Unified RobotProvider)
 const App = () => {
   return (
     <SceneProvider>
       <ViewerProvider>
-        <RobotProvider>
+        <RobotProvider>          {/* ← 🎯 UNIFIED ROBOT PROVIDER (No WorkspaceProvider) */}
           <EnvironmentProvider>
-            <WorkspaceProvider>
-              <TCPProvider>
-                <JointProvider>
-                  <IKProvider>
-                    <WorldProvider>
-                      <AppContent />
-                    </WorldProvider>
-                  </IKProvider>
-                </JointProvider>
-              </TCPProvider>
-            </WorkspaceProvider>
+            <TCPProvider>
+              <JointProvider>
+                <IKProvider>
+                  <WorldProvider>
+                    <AppContent />
+                  </WorldProvider>
+                </IKProvider>
+              </JointProvider>
+            </TCPProvider>
           </EnvironmentProvider>
         </RobotProvider>
       </ViewerProvider>

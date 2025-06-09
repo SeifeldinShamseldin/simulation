@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useRobot } from '../RobotContext';
+import { useRobotSelection } from './useRobot';
 import { useViewer } from '../ViewerContext';
 import { useTCP } from './useTCP';
 import EventBus from '@/utils/EventBus';
 
 export const useRobotControl = () => {
-  const { activeRobotId } = useRobot();
+  const { activeId: activeRobotId } = useRobotSelection();
   const { isViewerReady, getRobotManager } = useViewer();
   const { 
     currentEndEffectorPoint,

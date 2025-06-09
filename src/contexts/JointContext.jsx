@@ -1,14 +1,14 @@
 // src/contexts/JointContext.jsx - Fixed animation state management
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useViewer } from './ViewerContext';
-import { useRobot } from './RobotContext';
+import { useRobotSelection } from './hooks/useRobot';
 import EventBus from '../utils/EventBus';
 
 const JointContext = createContext(null);
 
 export const JointProvider = ({ children }) => {
   const { isViewerReady, getRobotManager } = useViewer();
-  const { activeRobotId } = useRobot();
+  const { activeId: activeRobotId } = useRobotSelection();
   
   // State for all robots' joint data
   const [robotJoints, setRobotJoints] = useState(new Map()); // robotId -> joint info

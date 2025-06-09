@@ -1,11 +1,22 @@
-// src/components/robot/Robot.jsx - Robot management only
+// src/components/robot/Robot.jsx - PURE UI ORCHESTRATOR
 import React, { useState } from 'react';
 import RobotManager from './RobotManager/RobotManager';
 import AddRobot from './AddRobot/AddRobot';
 
 const Robot = ({ isPanel = false, onClose, onRobotSelected }) => {
+  // ========== UI-ONLY STATE ==========
   const [showAddModal, setShowAddModal] = useState(false);
 
+  // ========== UI EVENT HANDLERS ==========
+  const handleAddModalClose = () => {
+    setShowAddModal(false);
+  };
+
+  const handleAddModalSuccess = () => {
+    setShowAddModal(false);
+  };
+
+  // ========== PURE UI RENDER ==========
   return (
     <div className="controls" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -21,8 +32,8 @@ const Robot = ({ isPanel = false, onClose, onRobotSelected }) => {
       
       <AddRobot
         isOpen={showAddModal}
-        onClose={() => setShowAddModal(false)}
-        onSuccess={() => setShowAddModal(false)}
+        onClose={handleAddModalClose}
+        onSuccess={handleAddModalSuccess}
       />
     </div>
   );
