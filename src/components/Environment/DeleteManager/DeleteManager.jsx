@@ -1,59 +1,15 @@
 // src/components/Environment/DeleteManager/DeleteManager.jsx
 import React from 'react';
 import { createPortal } from 'react-dom';
+import { useEnvironment } from '../../../contexts/hooks/useEnvironment';
 
 const DeleteManager = ({
   showDeleteConfirm,
   setShowDeleteConfirm,
   deleteConfirmData,
-  setDeleteConfirmData,
-  categories,
-  setCategories,
-  selectedCategory,
-  setSelectedCategory,
-  setCurrentView
+  setDeleteConfirmData
 }) => {
-  
-  const deleteObject = async (objectPath, objectName) => {
-    try {
-      const response = await fetch('/api/environment/delete', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: objectPath })
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        // Update UI
-        return { success: true, message: `${objectName} deleted successfully` };
-      } else {
-        throw new Error(result.message || 'Failed to delete object');
-      }
-    } catch (error) {
-      throw error;
-    }
-  };
-
-  const deleteCategory = async (categoryId, categoryName) => {
-    try {
-      const response = await fetch(`/api/environment/category/${categoryId}`, {
-        method: 'DELETE'
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        setCurrentView('categories');
-        setSelectedCategory(null);
-        return { success: true, message: `Category "${categoryName}" deleted successfully` };
-      } else {
-        throw new Error(result.message || 'Failed to delete category');
-      }
-    } catch (error) {
-      throw error;
-    }
-  };
+  const { deleteObject, deleteCategory } = useEnvironment();
 
   const DeleteConfirmModal = () => {
     if (!showDeleteConfirm) return null;
@@ -125,15 +81,7 @@ const DeleteManager = ({
     );
   };
 
-  // Export the functions for use in EnvironmentManager
-  React.useEffect(() => {
-    window.environmentDeleteAPI = {
-      deleteObject,
-      deleteCategory
-    };
-  }, []);
-
   return <DeleteConfirmModal />;
 };
 
-export default DeleteManager; 
+export default DeleteManager;

@@ -1,3 +1,4 @@
+// src/components/Environment/Grid/Grid.jsx  
 import React from 'react';
 import { createPortal } from 'react-dom';
 
@@ -203,4 +204,4 @@ const Grid = ({
   );
 };
 
-export default Grid; 
+export default Grid;

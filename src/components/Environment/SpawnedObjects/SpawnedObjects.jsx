@@ -1,19 +1,30 @@
-import React, { useState } from 'react';
+// src/components/Environment/SpawnedObjects/SpawnedObjects.jsx
+import React from 'react';
+import {
+  useEnvironmentObjects,
+  useEnvironmentHumans
+} from '../../../contexts/hooks/useEnvironment';
 import humanManager from '../Human/HumanController';
 
 const SpawnedObjects = ({ 
   viewerRef, 
-  loadedObjects, 
-  setLoadedObjects,
-  spawnedHumans,
-  setSpawnedHumans,
-  selectedHuman,
-  setSelectedHuman,
-  setSuccessMessage
+  expandedObjects, 
+  setExpandedObjects,
+  rotationAxis,
+  setRotationAxis
 }) => {
-  const [expandedObjects, setExpandedObjects] = useState(new Set());
-  const [rotationAxis, setRotationAxis] = useState('y');
-  const [humanPositions, setHumanPositions] = useState({});
+  const { 
+    objects: loadedObjects, 
+    updateObject, 
+    removeObject, 
+    clearAll 
+  } = useEnvironmentObjects();
+  
+  const { 
+    humans: spawnedHumans, 
+    moveHuman: handleMoveHuman, 
+    positions: humanPositions 
+  } = useEnvironmentHumans();
 
   const toggleObjectExpanded = (instanceId) => {
     setExpandedObjects(prev => {
@@ -25,64 +36,6 @@ const SpawnedObjects = ({
       }
       return newSet;
     });
-  };
-
-  const updateObject = (instanceId, updates) => {
-    if (!viewerRef?.current) return;
-    
-    const sceneSetup = viewerRef.current.getSceneSetup();
-    if (!sceneSetup) return;
-    
-    const human = humanManager.getHuman(instanceId);
-    if (human) {
-      if (updates.position) {
-        human.setPosition(
-          updates.position.x,
-          updates.position.y,
-          updates.position.z
-        );
-      }
-      return;
-    }
-    
-    const object = sceneSetup.environmentObjects.get(instanceId);
-    if (!object) {
-      console.error('Object not found:', instanceId);
-      return;
-    }
-    
-    if (updates.position) {
-      object.position.set(
-        updates.position.x ?? object.position.x,
-        updates.position.y ?? object.position.y,
-        updates.position.z ?? object.position.z
-      );
-    }
-    
-    if (updates.rotation) {
-      object.rotation.set(
-        updates.rotation.x ?? object.rotation.x,
-        updates.rotation.y ?? object.rotation.y,
-        updates.rotation.z ?? object.rotation.z
-      );
-    }
-    
-    if (updates.scale) {
-      object.scale.set(
-        updates.scale.x ?? object.scale.x,
-        updates.scale.y ?? object.scale.y,
-        updates.scale.z ?? object.scale.z
-      );
-    }
-    
-    if (updates.visible !== undefined) {
-      object.visible = updates.visible;
-    }
-    
-    object.updateMatrix();
-    object.updateMatrixWorld(true);
-    
-    sceneSetup.updateEnvironmentObject(instanceId, updates);
   };
 
   const rotateObject = (instanceId, degrees) => {
@@ -106,60 +59,19 @@ const SpawnedObjects = ({
     updateObject(instanceId, { rotation: newRotation });
   };
 
-  const removeObject = (instanceId) => {
-    if (!viewerRef?.current) return;
-    
-    const human = humanManager.getHuman(instanceId);
-    if (human) {
-      if (human._unsubscribePosition) {
-        human._unsubscribePosition();
-      }
-      
-      humanManager.removeHuman(instanceId);
-      setSpawnedHumans(prev => prev.filter(h => h.id !== instanceId));
-      setSelectedHuman(null);
-      
-      setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
-      
-      setHumanPositions(prev => {
-        const newPositions = { ...prev };
-        delete newPositions[instanceId];
-        return newPositions;
-      });
-      
-      return;
-    }
-    
-    const sceneSetup = viewerRef.current.getSceneSetup();
-    if (!sceneSetup) return;
-    
-    sceneSetup.removeEnvironmentObject(instanceId);
-    setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
-  };
-
-  const handleMoveHuman = (humanId) => {
-    humanManager.setActiveHuman(humanId);
-    setSelectedHuman(humanId);
-    
-    setSpawnedHumans(prev => prev.map(h => ({
-      ...h,
-      isActive: h.id === humanId
-    })));
-    
-    setSuccessMessage('Human movement enabled! Use WASD to move, Shift to run.');
-    setTimeout(() => setSuccessMessage(''), 3000);
-  };
-
   if (loadedObjects.length === 0) return null;
   
   return (
-    <div className="controls-section">
-      <div className="controls-section-header">
-        <h3 className="controls-section-title">Spawned Objects ({loadedObjects.length})</h3>
+    <div style={{ marginTop: '2rem' }}>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '1rem'
+      }}>
+        <h3 style={{ margin: 0 }}>Spawned Objects ({loadedObjects.length})</h3>
         <button
-          onClick={() => {
-            loadedObjects.forEach(obj => removeObject(obj.instanceId));
-          }}
+          onClick={clearAll}
           className="controls-btn controls-btn-danger controls-btn-sm"
         >
           Clear All
@@ -237,8 +149,7 @@ const SpawnedObjects = ({
                                   const pos = humanPositions[obj.instanceId] || { x: 0, y: 0, z: 0 };
                                   return pos[axis].toFixed(2);
                                 }
-                                const currentObj = viewerRef.current?.getSceneSetup()?.environmentObjects.get(obj.instanceId);
-                                return currentObj ? currentObj.position[axis].toFixed(2) : 0;
+                                return objectData ? objectData.position[axis].toFixed(2) : 0;
                               })()}
                               onChange={(e) => {
                                 const value = e.target.value;
@@ -324,12 +235,16 @@ const SpawnedObjects = ({
                         </button>
                       ))}
                     </div>
-                    <div className="controls-btn-group controls-btn-group-sm controls-flex-wrap">
+                    <div className="controls-btn-group controls-btn-group-sm controls-d-flex controls-flex-wrap controls-gap-1">
                       {[0, 45, 90, 135, 180, 225, 270, 315, 360].map(deg => (
                         <button
                           key={deg}
                           className="controls-btn controls-btn-outline-secondary"
                           onClick={() => rotateObject(obj.instanceId, deg)}
+                          style={{
+                            minWidth: '60px',
+                            padding: '0.25rem 0.5rem'
+                          }}
                         >
                           {deg}°
                         </button>
@@ -362,4 +277,4 @@ const SpawnedObjects = ({
   );
 };
 
-export default SpawnedObjects; 
+export default SpawnedObjects;

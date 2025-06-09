@@ -14,6 +14,7 @@ import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
 import { JointProvider } from './contexts/JointContext';
+import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import WorldManager from './components/World/WorldManager';
 import './App.css';
 
@@ -193,17 +194,19 @@ const App = () => {
     <SceneProvider>
       <ViewerProvider>
         <RobotProvider>
-          <WorkspaceProvider>
-            <TCPProvider>
-              <JointProvider>
-                <IKProvider>
-                  <WorldProvider>
-                    <AppContent />
-                  </WorldProvider>
-                </IKProvider>
-              </JointProvider>
-            </TCPProvider>
-          </WorkspaceProvider>
+          <EnvironmentProvider>
+            <WorkspaceProvider>
+              <TCPProvider>
+                <JointProvider>
+                  <IKProvider>
+                    <WorldProvider>
+                      <AppContent />
+                    </WorldProvider>
+                  </IKProvider>
+                </JointProvider>
+              </TCPProvider>
+            </WorkspaceProvider>
+          </EnvironmentProvider>
         </RobotProvider>
       </ViewerProvider>
     </SceneProvider>
