@@ -8,6 +8,10 @@ const RobotContext = createContext(null);
 export const RobotProvider = ({ children }) => {
   const { isViewerReady, viewerInstance } = useViewer();
   
+  // Request deduplication
+  const isDiscoveringRef = useRef(false);
+  const hasInitializedRef = useRef(false);
+  
   // ========== UNIFIED STATE (All Robot Data) ==========
   
   // Robot Discovery State (from old RobotContext)
@@ -30,15 +34,22 @@ export const RobotProvider = ({ children }) => {
   // ========== ROBOT DISCOVERY OPERATIONS ==========
   
   const discoverRobots = async () => {
+    // Prevent multiple simultaneous requests
+    if (isDiscoveringRef.current) {
+      console.log('[RobotContext] Discovery already in progress, skipping...');
+      return;
+    }
+    
     try {
+      isDiscoveringRef.current = true;
       setIsLoading(true);
       setError(null);
       
       // Add timeout and better error handling
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeout = setTimeout(() => controller.abort(), 10000);
       
-      const response = await fetch('http://localhost:3000/robots/list', {
+      const response = await fetch('/robots/list', {
         signal: controller.signal,
         headers: {
           'Accept': 'application/json',
@@ -71,16 +82,16 @@ export const RobotProvider = ({ children }) => {
       }
     } catch (err) {
       console.error('[RobotContext] Failed to discover robots:', err);
-      // Better error messages
       if (err.name === 'AbortError') {
         setError('Request timed out. Please check if the server is running.');
       } else if (err.message.includes('fetch')) {
-        setError('Cannot connect to server. Please ensure the server is running on port 3000.');
+        setError('Cannot connect to server. Please ensure the server is running on port 3001.');
       } else {
         setError(`Discovery failed: ${err.message}`);
       }
     } finally {
       setIsLoading(false);
+      isDiscoveringRef.current = false;
     }
   };
   
@@ -367,10 +378,11 @@ export const RobotProvider = ({ children }) => {
   
   // ========== INITIALIZATION ==========
   
-  // Initialize on mount
+  // Initialize on mount with deduplication
   useEffect(() => {
-    if (isViewerReady) {
+    if (isViewerReady && !hasInitializedRef.current) {
       console.log('[RobotContext] Viewer ready, discovering robots...');
+      hasInitializedRef.current = true;
       discoverRobots();
     }
   }, [isViewerReady]);

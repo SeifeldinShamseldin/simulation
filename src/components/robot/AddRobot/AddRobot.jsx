@@ -23,11 +23,23 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
     success: successMessage 
   } = useRobotLoading();
 
+  // Debug logging
+  console.log('[AddRobot] State:', { 
+    isLoading, 
+    hasAvailableRobots, 
+    categoriesLength: categories.length,
+    availableRobotsLength: availableRobots.length 
+  });
+
   // ========== UI-ONLY STATE ==========
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [localError, setLocalError] = useState(null);
   const [localSuccess, setLocalSuccess] = useState('');
+
+  // Debug logging for category state
+  console.log('[AddRobot] Current selectedCategory:', selectedCategory);
+  console.log('[AddRobot] Categories available:', categories.length);
 
   // ========== UI EFFECTS ==========
   // Reset state when modal opens/closes
@@ -139,7 +151,7 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
             </div>
           )}
           
-          {isLoading ? (
+          {isLoading && categories.length === 0 ? (
             <div className="controls-text-center controls-p-5">
               <div className="controls-spinner-border" role="status">
                 <span className="controls-sr-only">Scanning robots...</span>
@@ -155,7 +167,12 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
                   <div
                     key={category.id}
                     className="controls-card"
-                    onClick={() => setSelectedCategory(category)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      console.log('[AddRobot] Selecting category:', category.name);
+                      setSelectedCategory(category);
+                    }}
                     style={{
                       cursor: 'pointer',
                       transition: 'all 0.2s'
