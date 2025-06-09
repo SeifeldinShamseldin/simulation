@@ -1,4 +1,4 @@
-// src/contexts/RobotContext.jsx - Complete implementation
+// src/contexts/RobotContext.jsx - Fixed active robot synchronization
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { useViewer } from './ViewerContext';
 import EventBus from '../utils/EventBus';
@@ -13,13 +13,38 @@ export const RobotProvider = ({ children }) => {
   const [categories, setCategories] = useState([]);
   
   // Active robot management
-  const [activeRobotId, setActiveRobotId] = useState(null);
+  const [activeRobotId, setActiveRobotIdState] = useState(null);
   const [activeRobot, setActiveRobot] = useState(null);
   const [loadedRobots, setLoadedRobots] = useState(new Map());
   
   // Loading states
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  
+  // 🚨 FIX: Synchronized setActiveRobotId that also updates activeRobot
+  const setActiveRobotId = useCallback((robotId) => {
+    console.log(`[RobotContext] Setting active robot ID to: ${robotId}`);
+    setActiveRobotIdState(robotId);
+    
+    if (robotId) {
+      const robotData = loadedRobots.get(robotId);
+      if (robotData) {
+        console.log(`[RobotContext] Setting active robot object for: ${robotId}`);
+        setActiveRobot(robotData.robot);
+        
+        // Emit event for other components
+        EventBus.emit('robot:active-changed', { 
+          robotId, 
+          robot: robotData.robot 
+        });
+      } else {
+        console.warn(`[RobotContext] Robot ${robotId} not found in loaded robots`);
+        setActiveRobot(null);
+      }
+    } else {
+      setActiveRobot(null);
+    }
+  }, [loadedRobots]);
   
   // Discover robots from server
   const discoverRobots = async () => {
@@ -83,10 +108,12 @@ export const RobotProvider = ({ children }) => {
         return newMap;
       });
       
-      // Set as active if requested
+      // Set as active if requested (use the new synchronized method)
       if (options.makeActive !== false) {
-        setActiveRobotId(robotId);
-        setActiveRobot(robot);
+        // Use setTimeout to ensure loadedRobots state is updated first
+        setTimeout(() => {
+          setActiveRobotId(robotId);
+        }, 0);
       }
       
       EventBus.emit('robot:loaded', { robotId, robot });
@@ -98,7 +125,7 @@ export const RobotProvider = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [viewerInstance]);
+  }, [viewerInstance, setActiveRobotId]);
   
   // Check if robot is loaded
   const isRobotLoaded = useCallback((robotId) => {
@@ -129,21 +156,19 @@ export const RobotProvider = ({ children }) => {
       
       if (activeRobotId === robotId) {
         setActiveRobotId(null);
-        setActiveRobot(null);
       }
       
       EventBus.emit('robot:unloaded', { robotId });
     } catch (err) {
       setError(err.message);
     }
-  }, [viewerInstance, activeRobotId]);
+  }, [viewerInstance, activeRobotId, setActiveRobotId]);
   
   // Listen for robot events
   useEffect(() => {
     const handleRobotRemoved = (data) => {
       if (data.robotName === activeRobotId) {
         setActiveRobotId(null);
-        setActiveRobot(null);
       }
       
       setLoadedRobots(prev => {
@@ -158,7 +183,7 @@ export const RobotProvider = ({ children }) => {
     return () => {
       unsubscribeRemoved();
     };
-  }, [activeRobotId]);
+  }, [activeRobotId, setActiveRobotId]);
   
   // Initialize on mount
   useEffect(() => {
@@ -180,8 +205,8 @@ export const RobotProvider = ({ children }) => {
     // Functions
     loadRobot,
     unloadRobot,
-    setActiveRobotId,
-    setActiveRobot,
+    setActiveRobotId, // Now synchronized with activeRobot
+    setActiveRobot,   // Keep for backward compatibility
     refresh: discoverRobots,
     getRobot,
     isRobotLoaded,
@@ -204,4 +229,4 @@ export const useRobot = () => {
   return context;
 };
 
-export default RobotContext;  
+export default RobotContext;

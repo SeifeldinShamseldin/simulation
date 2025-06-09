@@ -9,7 +9,7 @@ const RobotManager = ({
   setShowAddModal,
   onRobotSelected
 }) => {
-  const { loadRobot, isLoading, isRobotLoaded } = useRobot();
+  const { loadRobot, isLoading, isRobotLoaded, setActiveRobotId, getRobot } = useRobot();
   const { workspaceRobots, removeRobotFromWorkspace } = useWorkspace();
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
@@ -21,7 +21,17 @@ const RobotManager = ({
       // Check if robot is already loaded in the viewer
       if (isRobotLoaded(robot.id)) {
         console.log('[RobotManager] Robot already loaded, just selecting it:', robot.id);
-        // Robot already loaded, just navigate to controls
+        
+        // 🚨 FIX: Make the already-loaded robot active
+        setActiveRobotId(robot.id);
+        
+        // Get the robot object to update active robot state
+        const robotObject = getRobot(robot.id);
+        if (robotObject) {
+          console.log('[RobotManager] Set active robot to:', robot.id);
+        }
+        
+        // Navigate to controls
         if (onRobotSelected) {
           onRobotSelected(robot.id);
         }
