@@ -755,7 +755,8 @@ class SceneSetup {
             material = null,
             castShadow = true,
             receiveShadow = true,
-            isDynamic = false // Whether object should have physics
+            isDynamic = false, // Whether object should have physics
+            name
         } = config;
         
         // Determine file type
@@ -833,6 +834,7 @@ class SceneSetup {
                 
                 // Store the object
                 object.userData.environmentId = id;
+                object.userData.name = name;
                 object.userData.category = config.category;
                 object.userData.path = config.path; // Store the path
                 object.userData.modelPath = config.path; // Store as backup
