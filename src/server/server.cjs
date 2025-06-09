@@ -295,7 +295,7 @@ function generateRobotIndex() {
   }
 }
 
-// Get available robots with category structure
+// Get available robots with category structure (FIXED)
 app.get('/robots/list', (req, res) => {
   try {
     const robotsDir = path.join(__dirname, '..', '..', 'public', 'robots');
@@ -304,60 +304,73 @@ app.get('/robots/list', (req, res) => {
     // Check if directory exists
     if (!fs.existsSync(robotsDir)) {
       console.log('Robots directory does not exist');
-      return res.json([]);
+      return res.json({ success: true, categories: [] });
     }
     
-    // Get all directories (categories) in the robots directory
-    const categories = fs.readdirSync(robotsDir, { withFileTypes: true })
-      .filter(dirent => dirent.isDirectory())
-      .map(dirent => {
-        const categoryName = dirent.name;
-        const categoryDir = path.join(robotsDir, categoryName);
+    const categories = [];
+    
+    try {
+      // Get all directories (categories) in the robots directory  
+      const categoryDirs = fs.readdirSync(robotsDir, { withFileTypes: true })
+        .filter(dirent => dirent.isDirectory());
+      
+      for (const categoryDir of categoryDirs) {
+        const categoryName = categoryDir.name;
+        const categoryPath = path.join(robotsDir, categoryName);
         
         try {
           // Get all robot directories in this category
-          const robotDirs = fs.readdirSync(categoryDir, { withFileTypes: true })
-            .filter(dirent => dirent.isDirectory())
-            .map(robotDirent => {
-              const robotId = robotDirent.name;
-              const robotDir = path.join(categoryDir, robotId);
-              
-              try {
-                // Check if this directory contains a URDF file and mesh files
-                const files = fs.readdirSync(robotDir);
-                const urdfFile = files.find(file => file.endsWith('.urdf'));
-                const hasMeshes = files.some(file => file.endsWith('.stl') || file.endsWith('.dae'));
-                
-                if (urdfFile && hasMeshes) {
-                  return {
-                    id: robotId.toLowerCase().replace(/\s+/g, '_'),
-                    name: robotId.charAt(0).toUpperCase() + robotId.slice(1),
-                    urdfPath: `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}/${encodeURIComponent(urdfFile)}`,
-                    packagePath: `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}`,
-                    meshFiles: files.filter(file => file.endsWith('.stl') || file.endsWith('.dae'))
-                  };
-                }
-              } catch (error) {
-                console.warn(`Error reading robot directory ${robotDir}:`, error.message);
-              }
-              return null;
-            })
-            .filter(Boolean);
+          const robotDirs = fs.readdirSync(categoryPath, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory());
+          
+          const robots = [];
+          
+          for (const robotDir of robotDirs) {
+            const robotId = robotDir.name;
+            const robotPath = path.join(categoryPath, robotId);
             
-          return {
-            id: categoryName.toLowerCase().replace(/\s+/g, '_'),
-            name: categoryName,
-            robots: robotDirs
-          };
+            try {
+              // Check if this directory contains a URDF file and mesh files
+              const files = fs.readdirSync(robotPath);
+              const urdfFile = files.find(file => file.endsWith('.urdf'));
+              const hasMeshes = files.some(file => file.endsWith('.stl') || file.endsWith('.dae'));
+              
+              if (urdfFile && hasMeshes) {
+                robots.push({
+                  id: robotId.toLowerCase().replace(/\s+/g, '_'),
+                  name: robotId.charAt(0).toUpperCase() + robotId.slice(1),
+                  urdfPath: `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}/${encodeURIComponent(urdfFile)}`,
+                  packagePath: `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}`,
+                  meshFiles: files.filter(file => file.endsWith('.stl') || file.endsWith('.dae'))
+                });
+              }
+            } catch (error) {
+              console.warn(`Error reading robot directory ${robotPath}:`, error.message);
+            }
+          }
+          
+          if (robots.length > 0) {
+            categories.push({
+              id: categoryName.toLowerCase().replace(/\s+/g, '_'),
+              name: categoryName,
+              robots: robots
+            });
+          }
         } catch (error) {
-          console.warn(`Error reading category directory ${categoryDir}:`, error.message);
-          return null;
+          console.warn(`Error reading category directory ${categoryPath}:`, error.message);
         }
-      })
-      .filter(Boolean)
-      .filter(category => category.robots.length > 0);
+      }
+      
+      console.log(`Found ${categories.length} robot categories with ${categories.reduce((sum, cat) => sum + cat.robots.length, 0)} total robots`);
+      
+      // CRITICAL: Return consistent format with success flag
+      res.json({ success: true, categories });
+      
+    } catch (dirError) {
+      console.error('Error reading robots directory:', dirError);
+      res.json({ success: true, categories: [] });
+    }
     
-    res.json(categories);
   } catch (error) {
     console.error('Error listing robots:', error);
     res.status(500).json({ 
@@ -715,46 +728,75 @@ app.listen(PORT, () => {
 
 module.exports = app; 
 
-// Get available TCP tools by scanning the tcp directory
+// Helper function to check if a file is a supported mesh format
+function isSupportedMeshFormat(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  return ['.stl', '.dae', '.obj', '.glb', '.gltf'].includes(ext);
+}
+
+// Helper function to format tool names
+function formatToolName(name) {
+  return name
+    .replace(/_/g, ' ')
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, str => str.toUpperCase())
+    .trim();
+}
+
+// Get available TCP tools by scanning the tcp directory (FIXED - robust like environment)
 app.get('/api/tcp/scan', (req, res) => {
   try {
     const tcpDir = path.join(__dirname, '..', '..', 'public', 'tcp');
     
     if (!fs.existsSync(tcpDir)) {
+      console.log('TCP directory does not exist');
       return res.json({ success: true, tools: [] });
     }
     
     const tools = [];
     
-    // Scan for tool directories and files
-    const items = fs.readdirSync(tcpDir, { withFileTypes: true });
-    
-    items.forEach(item => {
-      if (item.isDirectory()) {
-        // Scan directory for tools
-        const toolsInDir = scanToolDirectory(path.join(tcpDir, item.name), item.name);
-        tools.push(...toolsInDir);
-      } else {
-        // Check if it's a supported mesh file
-        const toolInfo = analyzeSingleToolFile(path.join(tcpDir, item.name), item.name);
-        if (toolInfo) {
-          tools.push(toolInfo);
+    try {
+      // Scan for tool directories and files
+      const items = fs.readdirSync(tcpDir, { withFileTypes: true });
+      
+      for (const item of items) {
+        try {
+          if (item.isDirectory()) {
+            // Scan directory for tools
+            const toolsInDir = scanToolDirectory(path.join(tcpDir, item.name), item.name);
+            tools.push(...toolsInDir);
+          } else {
+            // Check if it's a supported mesh file
+            const toolInfo = analyzeSingleToolFile(path.join(tcpDir, item.name), item.name);
+            if (toolInfo) {
+              tools.push(toolInfo);
+            }
+          }
+        } catch (itemError) {
+          console.warn(`Error processing TCP item ${item.name}:`, itemError.message);
+          // Continue with next item instead of failing entirely
         }
       }
-    });
-    
-    res.json({ success: true, tools });
+      
+      console.log(`Found ${tools.length} TCP tools`);
+      res.json({ success: true, tools });
+      
+    } catch (scanError) {
+      console.error('Error scanning TCP directory:', scanError);
+      res.json({ success: true, tools: [] }); // Graceful fallback
+    }
     
   } catch (error) {
-    console.error('Error scanning TCP directory:', error);
+    console.error('Error in TCP scan endpoint:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Error scanning TCP directory' 
+      message: 'Error scanning TCP directory',
+      error: error.message 
     });
   }
 });
 
-// Helper function to scan a tool directory
+// Helper function to scan a tool directory (made more robust)
 function scanToolDirectory(dirPath, dirName) {
   const tools = [];
   
@@ -766,11 +808,15 @@ function scanToolDirectory(dirPath, dirName) {
     
     if (subDirs.length > 0) {
       // Scan subdirectories
-      subDirs.forEach(subDir => {
-        const subDirPath = path.join(dirPath, subDir.name);
-        const subDirTools = scanSingleToolDirectory(subDirPath, `${dirName}/${subDir.name}`);
-        tools.push(...subDirTools);
-      });
+      for (const subDir of subDirs) {
+        try {
+          const subDirPath = path.join(dirPath, subDir.name);
+          const subDirTools = scanSingleToolDirectory(subDirPath, `${dirName}/${subDir.name}`);
+          tools.push(...subDirTools);
+        } catch (subDirError) {
+          console.warn(`Error scanning subdirectory ${subDir.name}:`, subDirError.message);
+        }
+      }
     } else {
       // Scan current directory
       const dirTools = scanSingleToolDirectory(dirPath, dirName);
@@ -784,7 +830,7 @@ function scanToolDirectory(dirPath, dirName) {
   return tools;
 }
 
-// Helper function to scan a single tool directory
+// Helper function to scan a single tool directory (made more robust)
 function scanSingleToolDirectory(dirPath, toolPath) {
   try {
     const files = fs.readdirSync(dirPath);
@@ -850,7 +896,7 @@ function scanSingleToolDirectory(dirPath, toolPath) {
   }
 }
 
-// Helper function to analyze a single tool file
+// Helper function to analyze a single tool file (made more robust)
 function analyzeSingleToolFile(filePath, fileName) {
   try {
     if (!isSupportedMeshFormat(fileName)) {
@@ -876,195 +922,4 @@ function analyzeSingleToolFile(filePath, fileName) {
     console.warn(`Error analyzing tool file ${filePath}:`, error.message);
     return null;
   }
-}
-
-// Helper function to check if file format is supported
-function isSupportedMeshFormat(fileName) {
-  const supportedFormats = ['.stl', '.dae', '.obj', '.fbx', '.gltf', '.glb', '.ply'];
-  const ext = path.extname(fileName).toLowerCase();
-  return supportedFormats.includes(ext);
-}
-
-// Helper function to format tool name for display
-function formatToolName(name) {
-  return name
-    .replace(/[_-]/g, ' ')
-    .replace(/\b\w/g, l => l.toUpperCase())
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-// Add TCP tool endpoint with file upload
-const tcpStorage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const category = req.body.category || 'custom';
-    const safeCategory = category.toLowerCase().replace(/[^a-zA-Z0-9]/g, '');
-    
-    const uploadPath = path.join(__dirname, '..', '..', 'public', 'tcp', safeCategory);
-    
-    console.log('Creating TCP upload path:', uploadPath);
-    
-    try {
-      fs.mkdirSync(uploadPath, { recursive: true });
-      cb(null, uploadPath);
-    } catch (error) {
-      console.error('Error creating directory:', error);
-      cb(error);
-    }
-  },
-  filename: function (req, file, cb) {
-    const toolName = req.body.toolName || 'tool';
-    const safeName = toolName.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
-    const timestamp = Date.now();
-    const ext = path.extname(file.originalname).toLowerCase();
-    const filename = `${safeName}_${timestamp}${ext}`;
-    
-    console.log('Saving TCP file:', filename);
-    cb(null, filename);
-  }
-});
-
-const tcpUpload = multer({
-  storage: tcpStorage,
-  fileFilter: function (req, file, cb) {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const allowedExtensions = ['.urdf', '.stl', '.dae', '.obj', '.fbx', '.gltf', '.glb', '.ply'];
-    
-    if (allowedExtensions.includes(ext)) {
-      cb(null, true);
-    } else {
-      cb(new Error(`File type ${ext} not allowed. Allowed types: ${allowedExtensions.join(', ')}`), false);
-    }
-  },
-  limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB limit
-    files: 20 // Max 20 files for URDF packages
-  }
-});
-
-// Add TCP tool endpoint
-app.post('/api/tcp/add', (req, res) => {
-  console.log('=== ADD TCP TOOL REQUEST ===');
-  
-  tcpUpload.array('toolFiles', 20)(req, res, function (err) {
-    if (err) {
-      console.error('TCP upload error:', err);
-      return res.status(400).json({ 
-        success: false, 
-        message: `Upload error: ${err.message}` 
-      });
-    }
-    
-    try {
-      const { category, toolName, description } = req.body;
-      
-      console.log('Processing TCP tool:', { category, toolName });
-      
-      if (!category || !toolName) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Category and tool name are required' 
-        });
-      }
-      
-      if (!req.files || req.files.length === 0) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'At least one tool file is required' 
-        });
-      }
-      
-      const uploadedFiles = req.files;
-      const safeCategory = category.toLowerCase().replace(/[^a-zA-Z0-9]/g, '');
-      
-      // Determine tool type
-      const hasUrdf = uploadedFiles.some(file => file.originalname.toLowerCase().endsWith('.urdf'));
-      const meshFiles = uploadedFiles.filter(file => isSupportedMeshFormat(file.originalname));
-      
-      let toolType = 'Single Mesh';
-      if (hasUrdf) {
-        toolType = 'URDF Package';
-      } else if (meshFiles.length > 1) {
-        toolType = 'Multi-Mesh';
-      }
-      
-      console.log(`Successfully added TCP tool: ${toolName} (${toolType})`);
-      console.log(`Files: ${uploadedFiles.map(f => f.originalname).join(', ')}`);
-      
-      res.json({
-        success: true,
-        message: 'TCP tool added successfully',
-        tool: {
-          id: `${safeCategory}_${toolName.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`,
-          name: toolName,
-          type: toolType,
-          category: safeCategory,
-          fileCount: uploadedFiles.length,
-          files: uploadedFiles.map(f => f.originalname),
-          description: description || ''
-        }
-      });
-      
-    } catch (error) {
-      console.error('Error processing TCP tool upload:', error);
-      // Clean up any uploaded files if there was an error
-      if (req.files) {
-        req.files.forEach(file => {
-          if (fs.existsSync(file.path)) {
-            fs.unlinkSync(file.path);
-          }
-        });
-      }
-      res.status(500).json({ 
-        success: false, 
-        message: `Server error: ${error.message}` 
-      });
-    }
-  });
-});
-
-// Delete TCP tool
-app.delete('/api/tcp/delete', express.json(), (req, res) => {
-  try {
-    const { path: toolPath } = req.body;
-    
-    if (!toolPath || !toolPath.startsWith('/tcp/')) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid path' 
-      });
-    }
-    
-    const fullPath = path.join(__dirname, '..', '..', 'public', toolPath);
-    
-    if (!fs.existsSync(fullPath)) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Tool not found' 
-      });
-    }
-    
-    const stats = fs.statSync(fullPath);
-    if (stats.isDirectory()) {
-      // Remove directory and all contents
-      fs.rmSync(fullPath, { recursive: true, force: true });
-    } else {
-      // Remove single file
-      fs.unlinkSync(fullPath);
-    }
-    
-    console.log(`Deleted TCP tool: ${toolPath}`);
-    
-    res.json({ 
-      success: true, 
-      message: 'TCP tool deleted successfully' 
-    });
-    
-  } catch (error) {
-    console.error('Error deleting TCP tool:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: `Error deleting tool: ${error.message}` 
-    });
-  }
-}); 
+} 

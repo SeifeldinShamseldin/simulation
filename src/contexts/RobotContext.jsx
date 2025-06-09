@@ -18,6 +18,9 @@ export const RobotProvider = ({ children }) => {
   const [availableRobots, setAvailableRobots] = useState([]);
   const [categories, setCategories] = useState([]);
   
+  // TCP Tool Discovery State
+  const [availableTools, setAvailableTools] = useState([]);
+  
   // Workspace State (from old WorkspaceContext)
   const [workspaceRobots, setWorkspaceRobots] = useState([]);
   
@@ -31,9 +34,9 @@ export const RobotProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   
-  // ========== ROBOT DISCOVERY OPERATIONS ==========
+  // ========== ROBOT DISCOVERY OPERATIONS (Fixed like EnvironmentContext) ==========
   
-  const discoverRobots = async () => {
+  const discoverRobots = useCallback(async () => {
     // Prevent multiple simultaneous requests
     if (isDiscoveringRef.current) {
       console.log('[RobotContext] Discovery already in progress, skipping...');
@@ -45,28 +48,18 @@ export const RobotProvider = ({ children }) => {
       setIsLoading(true);
       setError(null);
       
-      // Add timeout and better error handling
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
+      console.log('[RobotContext] Discovering robots...');
       
-      const response = await fetch('/robots/list', {
-        signal: controller.signal,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await fetch('/robots/list');
+      const result = await response.json();
       
-      clearTimeout(timeout);
-      
-      const data = await response.json();
-      
-      if (response.ok) {
+      if (result.success) {
+        const data = result.categories || [];
         setCategories(data);
         
         const allRobots = [];
         data.forEach(category => {
-          category.robots.forEach(robot => {
+          (category.robots || []).forEach(robot => {
             allRobots.push({
               ...robot,
               category: category.id,
@@ -77,23 +70,18 @@ export const RobotProvider = ({ children }) => {
         
         setAvailableRobots(allRobots);
         console.log('[RobotContext] Discovered robots:', allRobots.length);
+        console.log('[RobotContext] Categories:', data.length);
       } else {
-        throw new Error('Failed to load robots');
+        setError(result.message || 'Failed to scan robots directory');
       }
     } catch (err) {
-      console.error('[RobotContext] Failed to discover robots:', err);
-      if (err.name === 'AbortError') {
-        setError('Request timed out. Please check if the server is running.');
-      } else if (err.message.includes('fetch')) {
-        setError('Cannot connect to server. Please ensure the server is running on port 3001.');
-      } else {
-        setError(`Discovery failed: ${err.message}`);
-      }
+      console.error('[RobotContext] Robot discovery error:', err);
+      setError('Error connecting to server. Please ensure the server is running on port 3001.');
     } finally {
       setIsLoading(false);
       isDiscoveringRef.current = false;
     }
-  };
+  }, []);
   
   // ========== WORKSPACE MANAGEMENT OPERATIONS ==========
   
@@ -376,16 +364,55 @@ export const RobotProvider = ({ children }) => {
     };
   }, [activeRobotId, setActiveRobotId]);
   
+  // ========== TCP TOOL DISCOVERY (Fixed like EnvironmentContext) ==========
+  
+  // Load available tools (simplified like environment pattern)
+  const loadAvailableTools = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      console.log('[RobotContext] Scanning available tools...');
+      
+      const response = await fetch('/api/tcp/scan');
+      const result = await response.json();
+      
+      if (result.success) {
+        const tools = result.tools || [];
+        setAvailableTools(tools);
+        console.log(`[RobotContext] Found ${tools.length} available tools`);
+      } else {
+        setError(result.message || 'Failed to scan TCP tools');
+      }
+    } catch (err) {
+      console.error('[RobotContext] Error scanning tools:', err);
+      setError('Error connecting to server. Please ensure the server is running.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+  
+  // Initialize tools on mount
+  useEffect(() => {
+    if (isViewerReady && !hasInitializedRef.current) {
+      console.log('[RobotContext] Viewer ready, discovering robots and tools...');
+      hasInitializedRef.current = true;
+      discoverRobots();
+      loadAvailableTools();
+    }
+  }, [isViewerReady, discoverRobots, loadAvailableTools]);
+
   // ========== INITIALIZATION ==========
   
   // Initialize on mount with deduplication
   useEffect(() => {
     if (isViewerReady && !hasInitializedRef.current) {
-      console.log('[RobotContext] Viewer ready, discovering robots...');
+      console.log('[RobotContext] Viewer ready, discovering robots and tools...');
       hasInitializedRef.current = true;
       discoverRobots();
+      loadAvailableTools();
     }
-  }, [isViewerReady]);
+  }, [isViewerReady, discoverRobots, loadAvailableTools]);
 
   // ========== ERROR HANDLING ==========
   
@@ -405,6 +432,9 @@ export const RobotProvider = ({ children }) => {
     availableRobots,
     categories,
     
+    // TCP Tool Discovery
+    availableTools,
+    
     // Workspace Management
     workspaceRobots,
     
@@ -421,6 +451,9 @@ export const RobotProvider = ({ children }) => {
     // ========== ROBOT DISCOVERY OPERATIONS ==========
     discoverRobots,
     refresh: discoverRobots,
+    
+    // ========== TCP TOOL OPERATIONS ==========
+    loadAvailableTools,
     
     // ========== WORKSPACE OPERATIONS ==========
     addRobotToWorkspace,
@@ -450,6 +483,7 @@ export const RobotProvider = ({ children }) => {
     hasAvailableRobots: availableRobots.length > 0,
     hasLoadedRobots: loadedRobots.size > 0,
     hasActiveRobot: !!activeRobotId,
+    hasAvailableTools: availableTools.length > 0,
     
     // ========== ERROR HANDLING ==========
     clearError,
