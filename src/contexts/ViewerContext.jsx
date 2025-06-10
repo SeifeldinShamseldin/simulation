@@ -78,13 +78,14 @@ export const ViewerProvider = ({ children }) => {
     }
   }, []);
   
-  // Load robot - basic implementation
+  // Load robot - integrated with robot manager context
   const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
     if (!viewerInstanceRef.current) {
       throw new Error('Viewer not initialized');
     }
 
     try {
+      // Use viewer's loadRobot method which should integrate with robot manager context
       const result = await viewerInstanceRef.current.loadRobot(robotId, urdfPath, options);
       EventBus.emit('viewer:robot-loaded', { robotId, options });
       return result;

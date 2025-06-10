@@ -201,7 +201,7 @@ export const RobotProvider = ({ children }) => {
     }
   }, [loadedRobots]);
   
-  // Load robot using viewer
+  // Load robot using viewer with proper robot name mapping
   const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
     if (!viewerInstance) {
       throw new Error('Viewer not initialized');
@@ -213,13 +213,21 @@ export const RobotProvider = ({ children }) => {
       
       console.log(`[RobotContext] Loading robot ${robotId} from ${urdfPath}`);
       
-      const robot = await viewerInstance.loadRobot(robotId, urdfPath, options);
+      // 🎯 CRITICAL FIX: Extract base robot name from workspace robot ID
+      // Workspace robot ID format: "crx10ial_1749533150114"
+      // Robot manager expects: "crx10ial"
+      const baseRobotName = robotId.includes('_') ? robotId.split('_')[0] : robotId;
       
-      // Update loaded robots map
+      console.log(`[RobotContext] Using robot name: ${baseRobotName} for loading`);
+      
+      const robot = await viewerInstance.loadRobot(baseRobotName, urdfPath, options);
+      
+      // Update loaded robots map using the WORKSPACE robot ID for tracking
       setLoadedRobots(prev => {
         const newMap = new Map(prev);
-        newMap.set(robotId, {
+        newMap.set(robotId, { // Use workspace robot ID for tracking
           id: robotId,
+          robotName: baseRobotName, // Store the actual robot name used in robot manager
           robot: robot,
           urdfPath,
           isActive: options.makeActive !== false,
@@ -228,18 +236,17 @@ export const RobotProvider = ({ children }) => {
         return newMap;
       });
       
-      // Set as active if requested (use the synchronized method)
+      // Set as active if requested (use the workspace robot ID)
       if (options.makeActive !== false) {
-        // Use setTimeout to ensure loadedRobots state is updated first
         setTimeout(() => {
-          setActiveRobotId(robotId);
+          setActiveRobotId(robotId); // Use workspace robot ID
         }, 0);
       }
       
-      setSuccessMessage(`${robotId} loaded successfully!`);
+      setSuccessMessage(`${baseRobotName} loaded successfully!`);
       setTimeout(() => setSuccessMessage(''), 3000);
       
-      EventBus.emit('robot:loaded', { robotId, robot });
+      EventBus.emit('robot:loaded', { robotId: baseRobotName, robot }); // Use base name for robot manager events
       
       return robot;
     } catch (err) {
