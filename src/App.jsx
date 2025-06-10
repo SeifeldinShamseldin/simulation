@@ -6,7 +6,6 @@ import Robot from './components/robot/Robot';
 import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import ResizablePanel from './components/common/ResizablePanel';
-import { SceneProvider } from './contexts/SceneContext';
 import { RobotProvider } from './contexts/RobotContext'; // ← 🎯 UNIFIED ROBOT PROVIDER
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
@@ -197,7 +196,6 @@ const AppContent = () => {
 // 🚨 UPDATED: Clean Provider Chain (Unified RobotProvider)
 const App = () => {
   return (
-    <SceneProvider>
       <ViewerProvider>
         <RobotProvider>          {/* ← 🎯 UNIFIED ROBOT PROVIDER (No WorkspaceProvider) */}
           <EnvironmentProvider>
@@ -213,7 +211,6 @@ const App = () => {
           </EnvironmentProvider>
         </RobotProvider>
       </ViewerProvider>
-    </SceneProvider>
   );
 };
 
