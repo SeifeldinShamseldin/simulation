@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import SceneSetup from '../../core/Scene/SceneSetup';
-import { useRobotManager } from '../../contexts/hooks/useRobotManager'; // ← 🎯 USE CONTEXT HOOK
+import { useRobot } from '../../contexts/hooks/useRobot'; // ← 🎯 UNIFIED ROBOT HOOK
 import { PointerURDFDragControls } from '../../core/Loader/URDFControls';
 import EventBus from '../../utils/EventBus';
 
@@ -49,8 +49,8 @@ const URDFViewer = ({
   const sceneRef = useRef(null);
   const dragControlsRef = useRef(null);
   
-  // 🎯 USE ROBOT MANAGER CONTEXT INSTEAD OF CLASS
-  const robotManager = useRobotManager();
+  // 🎯 USE UNIFIED ROBOT HOOK
+  const robotManager = useRobot();
   
   // State for tracking loading status and joint info
   const [loadedRobot, setLoadedRobot] = useState(null);
@@ -328,13 +328,13 @@ const URDFViewer = ({
       // Force a better camera view after loading
       setTimeout(() => {
         if (sceneRef.current) {
-          const robot = robotManager.getCurrentRobot();
+          const robotModel = robotManager.getCurrentRobot();
           // Apply custom focusing with reduced padding
-          sceneRef.current.focusOnObject(robot, 0.8);
+          sceneRef.current.focusOnObject(robotModel, 0.8);
           
           // Hide any fallback geometries (red cubes)
-          if (robot) {
-            robot.traverse((child) => {
+          if (robotModel) {
+            robotModel.traverse((child) => {
               if (child.isMesh && child.material) {
                 // Check if this is likely a fallback geometry
                 if (child.geometry instanceof THREE.BoxGeometry) {
@@ -440,10 +440,10 @@ const URDFViewer = ({
         // Only focus if explicitly requested (forceRefocus = true)
         if (!forceRefocus) return;
         
-        const robot = robotName 
+        const robotModel = robotName 
           ? robotManager.getRobot(robotName)
           : robotManager.getCurrentRobot();
-        if (robot) sceneRef.current?.focusOnObject(robot);
+        if (robotModel) sceneRef.current?.focusOnObject(robotModel);
       },
       
       // General methods
