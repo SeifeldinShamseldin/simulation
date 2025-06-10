@@ -15,22 +15,79 @@ class SimpleTCPManager {
     this.attachedTools = new Map(); // robotId -> { toolObject, toolContainer, tipOffset }
     this.availableTools = [];
     this.urdfLoader = null;
+    this._notFoundWarnings = new Set(); // Track robots not found to avoid spam
+  }
+
+  /**
+   * Enhanced robot lookup with fallback methods
+   * @param {string} robotId - The robot ID to find
+   * @returns {Object|null} The robot object or null if not found
+   */
+  findRobotWithFallbacks(robotId) {
+    if (!robotId) return null;
+    
+    // Method 1: Try robot manager first
+    if (this.robotManager && this.robotManager.getRobot) {
+      const robot = this.robotManager.getRobot(robotId);
+      if (robot) {
+        return robot;
+      }
+    }
+    
+    // Method 2: Try robot manager robots map
+    if (this.robotManager && this.robotManager.robots && this.robotManager.robots.has) {
+      const robotData = this.robotManager.robots.get(robotId);
+      if (robotData && robotData.robot) {
+        return robotData.robot;
+      }
+    }
+    
+    // Method 3: Try scene traversal as last resort
+    if (this.sceneSetup && this.sceneSetup.scene) {
+      let foundRobot = null;
+      this.sceneSetup.scene.traverse((child) => {
+        if (child.isURDFRobot && (child.name === robotId || child.robotName === robotId)) {
+          foundRobot = child;
+        }
+      });
+      if (foundRobot) {
+        console.log(`[TCP] Found robot ${robotId} via scene traversal`);
+        return foundRobot;
+      }
+    }
+    
+    return null;
   }
 
   /**
    * Calculate normal robot end effector position and orientation (base calculation)
+   * Enhanced with better robot lookup
    */
   calculateRobotEndEffector(robotId) {
     console.log(`[TCP Context] calculateRobotEndEffector for ${robotId}`);
     
-    const robot = this.robotManager.getRobot(robotId);
+    // Use enhanced robot lookup
+    const robot = this.findRobotWithFallbacks(robotId);
     if (!robot) {
-      console.warn(`[TCP Context] Robot ${robotId} not found`);
+      // Only warn once per robot to avoid spam
+      if (!this._notFoundWarnings.has(robotId)) {
+        console.warn(`[TCP Context] Robot ${robotId} not found`);
+        this._notFoundWarnings.add(robotId);
+        
+        // Clear the warning after some time
+        setTimeout(() => {
+          this._notFoundWarnings.delete(robotId);
+        }, 5000);
+      }
+      
       return { 
         position: { x: 0, y: 0, z: 0 },
         orientation: { x: 0, y: 0, z: 0, w: 1 }
       };
     }
+
+    // Clear any previous warnings for this robot since we found it
+    this._notFoundWarnings.delete(robotId);
 
     // Find the actual end effector link in the robot
     const endEffectorNames = [
@@ -693,34 +750,219 @@ export const TCPProvider = ({ children }) => {
 
   // Listen for joint changes to recalculate end effector
   useEffect(() => {
-    if (!isInitialized || !tcpManagerRef.current) return;
+    if (!isInitialized || !tcpManagerRef.current) {
+      console.log('[TCP Context] Not initialized or no TCP manager');
+      return;
+    }
 
     const handleJointChanged = (data) => {
-      if (data.robotName && tcpManagerRef.current) {
-        tcpManagerRef.current.recalculateEndEffector(data.robotName);
+      const robotId = data.robotId || data.robotName;
+      if (!robotId || !tcpManagerRef.current) {
+        console.warn('[TCP Context] Invalid joint change data:', data);
+        return;
       }
+
+      console.log(`[TCP Context] Joint changed for robot ${robotId}`);
+      
+      // Add a small delay to ensure joint changes are applied
+      setTimeout(() => {
+        try {
+          tcpManagerRef.current.recalculateEndEffector(robotId);
+        } catch (error) {
+          console.error(`[TCP Context] Error recalculating end effector for robot ${robotId}:`, error);
+        }
+      }, 10);
     };
 
     const handleJointsChanged = (data) => {
-      if (data.robotName && tcpManagerRef.current) {
-        tcpManagerRef.current.recalculateEndEffector(data.robotName);
+      const robotId = data.robotId || data.robotName;
+      if (!robotId || !tcpManagerRef.current) {
+        console.warn('[TCP Context] Invalid joints change data:', data);
+        return;
       }
+
+      console.log(`[TCP Context] Multiple joints changed for robot ${robotId}`);
+      
+      // Add a small delay to ensure joint changes are applied
+      setTimeout(() => {
+        try {
+          tcpManagerRef.current.recalculateEndEffector(robotId);
+        } catch (error) {
+          console.error(`[TCP Context] Error recalculating end effector for robot ${robotId}:`, error);
+        }
+      }, 10);
     };
 
     const handleForceRecalculate = (data) => {
-      if (data.robotId && tcpManagerRef.current) {
+      if (!data.robotId || !tcpManagerRef.current) {
+        console.warn('[TCP Context] Invalid force recalculate data:', data);
+        return;
+      }
+
+      console.log(`[TCP Context] Force recalculating end effector for robot ${data.robotId}`);
+      
+      try {
         tcpManagerRef.current.recalculateEndEffector(data.robotId);
+      } catch (error) {
+        console.error(`[TCP Context] Error force recalculating end effector for robot ${data.robotId}:`, error);
       }
     };
 
+    // 🚨 FIXED: Listen for robot registration to handle newly loaded robots
+    const handleRobotRegistered = (data) => {
+      const robotId = data.robotId || data.robotName;
+      if (!robotId || !tcpManagerRef.current || !data.robot) {
+        console.warn('[TCP Context] Invalid robot registration data:', data);
+        return;
+      }
+
+      console.log(`[TCP Context] Robot registered: ${robotId}`);
+      
+      // Ensure the robot manager has the robot
+      const manager = tcpManagerRef.current.robotManager;
+      if (!manager) {
+        console.warn('[TCP Context] No robot manager available');
+        return;
+      }
+
+      // Check if robot is already in manager
+      let hasRobot = false;
+      try {
+        hasRobot = !!manager.getRobot(robotId);
+      } catch (error) {
+        console.log(`[TCP Context] getRobot check failed, assuming robot not present`);
+      }
+      
+      if (!hasRobot) {
+        console.log(`[TCP Context] Adding robot ${robotId} to robot manager for TCP`);
+        
+        try {
+          // Try multiple ways to register the robot in the robot manager
+          // Method 1: If robot manager has a robots Map
+          if (manager.robots && manager.robots instanceof Map) {
+            manager.robots.set(robotId, {
+              name: robotId,
+              robot: data.robot,
+              isActive: true
+            });
+            console.log(`[TCP Context] Added robot to manager.robots Map`);
+          }
+          
+          // Method 2: If robot manager has an addRobot method
+          if (typeof manager.addRobot === 'function') {
+            manager.addRobot(robotId, data.robot);
+            console.log(`[TCP Context] Called manager.addRobot`);
+          }
+          
+          // Method 3: If robot manager has a setRobot method
+          if (typeof manager.setRobot === 'function') {
+            manager.setRobot(robotId, data.robot);
+            console.log(`[TCP Context] Called manager.setRobot`);
+          }
+          
+          // Method 4: Direct property assignment (fallback)
+          if (!manager.robots) {
+            manager.robots = new Map();
+          }
+          if (manager.robots instanceof Map) {
+            manager.robots.set(robotId, {
+              name: robotId,
+              robot: data.robot,
+              isActive: true
+            });
+          }
+          
+          // Method 5: Create a getRobot method if it doesn't exist
+          if (!manager.getRobot) {
+            manager.getRobot = (id) => {
+              if (manager.robots && manager.robots.has(id)) {
+                return manager.robots.get(id).robot;
+              }
+              return null;
+            };
+            console.log(`[TCP Context] Created getRobot method for manager`);
+          }
+          
+          // Method 6: Create joint control methods if they don't exist
+          if (!manager.setJointValue) {
+            manager.setJointValue = (id, jointName, value) => {
+              const robot = manager.getRobot(id);
+              if (robot && robot.setJointValue) {
+                return robot.setJointValue(jointName, value);
+              }
+              return false;
+            };
+            console.log(`[TCP Context] Created setJointValue method for manager`);
+          }
+          
+          if (!manager.setJointValues) {
+            manager.setJointValues = (id, values) => {
+              const robot = manager.getRobot(id);
+              if (robot && robot.setJointValues) {
+                return robot.setJointValues(values);
+              }
+              return false;
+            };
+            console.log(`[TCP Context] Created setJointValues method for manager`);
+          }
+          
+          if (!manager.getJointValues) {
+            manager.getJointValues = (id) => {
+              const robot = manager.getRobot(id);
+              if (robot && robot.joints) {
+                const values = {};
+                Object.values(robot.joints).forEach(joint => {
+                  if (joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
+                    values[joint.name] = joint.angle;
+                  }
+                });
+                return values;
+              }
+              return {};
+            };
+            console.log(`[TCP Context] Created getJointValues method for manager`);
+          }
+          
+          // Verify the robot is now accessible
+          const testRobot = manager.getRobot(robotId);
+          if (testRobot) {
+            console.log(`[TCP Context] SUCCESS: Robot ${robotId} is now accessible via robot manager`);
+          } else {
+            console.warn(`[TCP Context] FAILED: Robot ${robotId} still not accessible via robot manager`);
+          }
+          
+        } catch (syncError) {
+          console.error(`[TCP Context] Error syncing robot to manager:`, syncError);
+        }
+      }
+      
+      // Recalculate end effector for newly registered robot
+      setTimeout(() => {
+        try {
+          if (tcpManagerRef.current) {
+            tcpManagerRef.current.recalculateEndEffector(robotId);
+            console.log(`[TCP Context] Recalculated end effector for newly registered robot ${robotId}`);
+          }
+        } catch (error) {
+          console.error(`[TCP Context] Error recalculating end effector for newly registered robot ${robotId}:`, error);
+        }
+      }, 100);
+    };
+
+    // Subscribe to events
     const unsubscribeJoint = EventBus.on('robot:joint-changed', handleJointChanged);
     const unsubscribeJoints = EventBus.on('robot:joints-changed', handleJointsChanged);
     const unsubscribeForce = EventBus.on('tcp:force-recalculate', handleForceRecalculate);
+    const unsubscribeRegistered = EventBus.on('robot:registered', handleRobotRegistered);
+
+    console.log('[TCP Context] Subscribed to joint change events');
 
     return () => {
       unsubscribeJoint();
       unsubscribeJoints();
       unsubscribeForce();
+      unsubscribeRegistered();
+      console.log('[TCP Context] Unsubscribed from joint change events');
     };
   }, [isInitialized]);
 
