@@ -1,12 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRobotSelection } from './useRobot';
-import { useViewer } from '../ViewerContext';
+import { useViewer } from '../contexts/ViewerContext';
+import { useRobotManager } from './useRobotManager'; // ← 🎯 USE ROBOT MANAGER CONTEXT
 import { useTCP } from './useTCP';
 import EventBus from '@/utils/EventBus';
 
 export const useRobotControl = () => {
   const { activeId: activeRobotId } = useRobotSelection();
-  const { isViewerReady, viewerInstance } = useViewer();
+  const { isViewerReady } = useViewer();
+  const robotManager = useRobotManager(); // ← 🎯 USE CONTEXT INSTEAD OF REF
   const { 
     currentEndEffectorPoint,
     hasValidEndEffector,
@@ -17,25 +19,17 @@ export const useRobotControl = () => {
   } = useTCP();
 
   const [robot, setRobot] = useState(null);
-  const [robotManager, setRobotManager] = useState(null);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    if (!isViewerReady || !activeRobotId || !viewerInstance) {
+    if (!isViewerReady || !activeRobotId || !robotManager) {
       setRobot(null);
-      setRobotManager(null);
       setIsReady(false);
       return;
     }
 
-    // Get robot manager from viewer instance (compatibility)
-    const manager = viewerInstance?.robotLoaderRef?.current;
-    if (!manager) return;
-
-    setRobotManager(manager);
-
-    // Get the specific robot
-    const robotModel = manager.getRobot ? manager.getRobot(activeRobotId) : null;
+    // Get the specific robot using context
+    const robotModel = robotManager.getRobot(activeRobotId);
     
     if (robotModel) {
       setRobot(robotModel);
@@ -45,7 +39,7 @@ export const useRobotControl = () => {
     // Listen for updates
     const handleUpdate = (data) => {
       if (data.robotId === activeRobotId || data.robotName === activeRobotId) {
-        const updatedRobot = manager.getRobot ? manager.getRobot(activeRobotId) : null;
+        const updatedRobot = robotManager.getRobot(activeRobotId);
         if (updatedRobot) {
           setRobot(updatedRobot);
           setIsReady(true);
@@ -55,12 +49,11 @@ export const useRobotControl = () => {
 
     const unsubscribe = EventBus.on('robot:updated', handleUpdate);
     return () => unsubscribe();
-  }, [isViewerReady, activeRobotId, viewerInstance]);
+  }, [isViewerReady, activeRobotId, robotManager]);
 
   const setJointValue = useCallback((jointName, value) => {
     if (!robotManager || !activeRobotId) return false;
-    const success = robotManager.setJointValue ? 
-      robotManager.setJointValue(activeRobotId, jointName, value) : false;
+    const success = robotManager.setJointValue(activeRobotId, jointName, value);
     
     if (success && isUsingTCP) {
       // Force TCP end effector recalculation after joint change
@@ -72,8 +65,7 @@ export const useRobotControl = () => {
 
   const setJointValues = useCallback((values) => {
     if (!robotManager || !activeRobotId) return false;
-    const success = robotManager.setJointValues ? 
-      robotManager.setJointValues(activeRobotId, values) : false;
+    const success = robotManager.setJointValues(activeRobotId, values);
     
     if (success && isUsingTCP) {
       // Force TCP end effector recalculation after joint changes
@@ -85,9 +77,7 @@ export const useRobotControl = () => {
 
   const resetJoints = useCallback(() => {
     if (!robotManager || !activeRobotId) return;
-    if (robotManager.resetJoints) {
-      robotManager.resetJoints(activeRobotId);
-    }
+    robotManager.resetJoints(activeRobotId);
     
     if (isUsingTCP) {
       // Force TCP end effector recalculation after reset
@@ -97,20 +87,19 @@ export const useRobotControl = () => {
 
   const getJointValues = useCallback(() => {
     if (!robotManager || !activeRobotId) return {};
-    return robotManager.getJointValues ? 
-      robotManager.getJointValues(activeRobotId) : {};
+    return robotManager.getJointValues(activeRobotId);
   }, [robotManager, activeRobotId]);
 
   const getRobot = useCallback((robotId = activeRobotId) => {
     if (!robotManager || !robotId) return null;
-    return robotManager.getRobot ? robotManager.getRobot(robotId) : null;
+    return robotManager.getRobot(robotId);
   }, [robotManager, activeRobotId]);
 
   return {
     // Robot state
     activeRobotId,
     robot,
-    robotManager,
+    robotManager, // ← 🎯 PROVIDE CONTEXT INSTEAD OF REF
     isReady,
     
     // TCP awareness
@@ -130,4 +119,4 @@ export const useRobotControl = () => {
     getEndEffectorInfo,
     getEndEffectorType
   };
-};
+}; 

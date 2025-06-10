@@ -55,25 +55,30 @@ export const ViewerProvider = ({ children }) => {
            viewerInstanceRef.current?.sceneRef?.current;
   }, []);
   
-  // Get robot manager
+  // Get robot manager - DEPRECATED: Now using context
   const getRobotManager = useCallback(() => {
+    console.warn('[ViewerContext] getRobotManager is deprecated. Use useRobotManager hook instead.');
     if (!viewerInstanceRef.current) {
       console.warn('[ViewerContext] Attempted to get robot manager before viewer initialization');
       return null;
     }
+    // Return compatibility object
     return viewerInstanceRef.current?.robotLoaderRef?.current;
   }, []);
   
-  // Focus on robot
+  // Focus on robot - basic implementation without robot manager dependency
   const focusOnRobot = useCallback((robotId, forceRefocus = false) => {
     if (!viewerInstanceRef.current) {
       console.warn('[ViewerContext] Attempted to focus robot before viewer initialization');
       return;
     }
-    viewerInstanceRef.current.focusOnRobot?.(robotId, forceRefocus);
+    // Use viewer's focusOnRobot method directly
+    if (viewerInstanceRef.current.focusOnRobot) {
+      viewerInstanceRef.current.focusOnRobot(robotId, forceRefocus);
+    }
   }, []);
   
-  // Load robot
+  // Load robot - basic implementation
   const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
     if (!viewerInstanceRef.current) {
       throw new Error('Viewer not initialized');
@@ -90,13 +95,15 @@ export const ViewerProvider = ({ children }) => {
     }
   }, []);
   
-  // Reset joints
+  // Reset joints - basic implementation
   const resetJoints = useCallback((robotId) => {
     if (!viewerInstanceRef.current) {
       console.warn('[ViewerContext] Attempted to reset joints before viewer initialization');
       return;
     }
-    viewerInstanceRef.current.resetJoints(robotId);
+    if (viewerInstanceRef.current.resetJoints) {
+      viewerInstanceRef.current.resetJoints(robotId);
+    }
     EventBus.emit('viewer:joints-reset', { robotId });
   }, []);
   
@@ -104,7 +111,7 @@ export const ViewerProvider = ({ children }) => {
     isViewerReady,
     setViewerInstance,
     getSceneSetup,
-    getRobotManager,
+    getRobotManager, // Keep for compatibility but deprecated
     focusOnRobot,
     loadRobot,
     resetJoints,
@@ -130,4 +137,4 @@ export const useViewer = () => {
     throw new Error('useViewer must be used within ViewerProvider');
   }
   return context;
-}; 
+};

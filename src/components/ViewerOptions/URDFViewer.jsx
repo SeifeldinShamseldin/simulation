@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import SceneSetup from '../../core/Scene/SceneSetup';
-import RobotLoader from '../robot/RobotManager/RobotLoader';
+import { useRobotManager } from '../../contexts/hooks/useRobotManager'; // ← 🎯 USE CONTEXT HOOK
 import { PointerURDFDragControls } from '../../core/Loader/URDFControls';
 import EventBus from '../../utils/EventBus';
 
@@ -47,12 +47,12 @@ const URDFViewer = ({
   // References for DOM elements and classes
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
-  const robotLoaderRef = useRef(null);
   const dragControlsRef = useRef(null);
   
+  // 🎯 USE ROBOT MANAGER CONTEXT INSTEAD OF CLASS
+  const robotManager = useRobotManager();
+  
   // State for tracking loading status and joint info
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [loadedRobot, setLoadedRobot] = useState(null);
   const [jointValues, setJointValues] = useState({});
   
@@ -84,10 +84,6 @@ const URDFViewer = ({
     
     sceneRef.current = sceneSetup;
     
-    // Create robot manager
-    const robotLoader = new RobotLoader(sceneSetup);
-    robotLoaderRef.current = robotLoader;
-    
     // Configure UI options
     sceneSetup.setUpAxis(upAxis);
     
@@ -114,11 +110,6 @@ const URDFViewer = ({
         dragControlsRef.current = null;
       }
       
-      if (robotLoaderRef.current) {
-        robotLoaderRef.current.dispose();
-        robotLoaderRef.current = null;
-      }
-      
       if (sceneRef.current) {
         sceneRef.current.dispose();
         sceneRef.current = null;
@@ -132,14 +123,14 @@ const URDFViewer = ({
   
   // Load the robot model when robotName or urdfPath changes
   useEffect(() => {
-    if (!robotLoaderRef.current || !urdfPath || !robotName) return;
+    if (!robotManager || !urdfPath || !robotName) return;
     
     loadRobot(robotName, urdfPath);
-  }, [robotName, urdfPath]);
+  }, [robotName, urdfPath, robotManager]);
   
   // Set up drag controls when enableDragging or highlightColor changes
   useEffect(() => {
-    if (!sceneRef.current || !robotLoaderRef.current) return;
+    if (!sceneRef.current || !robotManager) return;
     
     if (enableDragging) {
       setupDragControls();
@@ -147,7 +138,7 @@ const URDFViewer = ({
       dragControlsRef.current.dispose();
       dragControlsRef.current = null;
     }
-  }, [enableDragging, highlightColor, loadedRobot]);
+  }, [enableDragging, highlightColor, loadedRobot, robotManager]);
   
   // Add resize handling effect
   useEffect(() => {
@@ -163,11 +154,10 @@ const URDFViewer = ({
         sceneRef.current.camera.updateProjectionMatrix();
         
         // Force re-focus on first active robot if available
-        if (robotLoaderRef.current) {
-          const robots = robotLoaderRef.current.getAllRobots();
-          const activeRobots = Array.from(robots.values()).filter(r => r.isActive);
-          if (activeRobots.length > 0 && activeRobots[0].model) {
-            sceneRef.current.focusOnObject(activeRobots[0].model);
+        if (robotManager.hasActiveRobots) {
+          const currentRobot = robotManager.getCurrentRobot();
+          if (currentRobot) {
+            sceneRef.current.focusOnObject(currentRobot);
           }
         }
       }
@@ -186,7 +176,7 @@ const URDFViewer = ({
     return () => {
       window.removeEventListener('resize', handleResize);
     };
-  }, []);
+  }, [robotManager]);
   
   /**
    * Set up event handlers for robot loading and joint changes
@@ -195,13 +185,10 @@ const URDFViewer = ({
     // Register load events
     EVENTS.onLoadStart = (name) => {
       Logger.info(`Loading robot: ${name}`);
-      setIsLoading(true);
-      setError(null);
     };
     
     EVENTS.onLoadComplete = (name, robot) => {
       Logger.info(`Robot loaded: ${name}`);
-      setIsLoading(false);
       setLoadedRobot(robot);
       setJointValues(robot.jointValues);
       
@@ -212,8 +199,6 @@ const URDFViewer = ({
     
     EVENTS.onLoadError = (name, err) => {
       Logger.error(`Error loading robot ${name}:`, err);
-      setIsLoading(false);
-      setError(err.message || 'Failed to load robot');
     };
     
     // Register joint change events
@@ -309,7 +294,7 @@ const URDFViewer = ({
       
       // Important: Update joint values in the UI after manual manipulation
       if (onJointChange) {
-        const updatedValues = robotLoaderRef.current.getJointValues();
+        const updatedValues = robotManager.getJointValues(robotManager.getCurrentRobotName());
         onJointChange(joint.name, updatedValues);
       }
     };
@@ -334,19 +319,16 @@ const URDFViewer = ({
    */
   const loadRobot = async (name, path) => {
     try {
-      if (!robotLoaderRef.current) {
+      if (!robotManager) {
         throw new Error('Robot manager not initialized');
       }
       
-      setIsLoading(true);
-      setError(null);
-      
-      await robotLoaderRef.current.loadRobot(name, path);
+      await robotManager.loadRobot(name, path);
       
       // Force a better camera view after loading
       setTimeout(() => {
         if (sceneRef.current) {
-          const robot = robotLoaderRef.current.getCurrentRobot();
+          const robot = robotManager.getCurrentRobot();
           // Apply custom focusing with reduced padding
           sceneRef.current.focusOnObject(robot, 0.8);
           
@@ -369,60 +351,7 @@ const URDFViewer = ({
       }, 100);
     } catch (err) {
       Logger.error('Error loading robot:', err);
-      setError(err.message || 'Failed to load robot');
-    } finally {
-      setIsLoading(false);
     }
-  };
-  
-  /**
-   * Set a joint value
-   * @param {string} jointName - The name of the joint
-   * @param {number} value - The value to set
-   */
-  const setJointValue = (jointName, value) => {
-    if (!robotLoaderRef.current) return;
-    
-    robotLoaderRef.current.setJointValue(jointName, value);
-  };
-  
-  /**
-   * Set multiple joint values
-   * @param {Object} values - Map of joint names to values
-   */
-  const updateJointValues = (values) => {
-    if (!robotLoaderRef.current) return;
-    
-    robotLoaderRef.current.setJointValues(values);
-  };
-  
-  /**
-   * Reset all joints to their zero position
-   */
-  const resetJoints = () => {
-    if (!robotLoaderRef.current) return;
-    
-    robotLoaderRef.current.resetJoints();
-  };
-  
-  /**
-   * Get the current robot state
-   * @returns {Object|null} The current robot state
-   */
-  const getRobotState = () => {
-    if (!robotLoaderRef.current) return null;
-    
-    return robotLoaderRef.current.saveState();
-  };
-  
-  /**
-   * Get information about the current robot
-   * @returns {Object|null} Information about the robot
-   */
-  const getRobotInfo = () => {
-    if (!robotLoaderRef.current) return null;
-    
-    return robotLoaderRef.current.getRobotInfo();
   };
   
   /**
@@ -458,73 +387,73 @@ const URDFViewer = ({
   React.useImperativeHandle(
     ref,
     () => ({
-      // Multi-robot methods
-      loadRobot: (robotName, urdfPath, options) => robotLoaderRef.current?.loadRobot(robotName, urdfPath, options),
-      getAllRobots: () => robotLoaderRef.current?.getAllRobots(),
-      getRobot: (robotName) => robotLoaderRef.current?.getRobot(robotName),
-      setRobotActive: (robotName, isActive) => robotLoaderRef.current?.setRobotActive(robotName, isActive),
-      removeRobot: (robotName) => robotLoaderRef.current?.removeRobot(robotName),
+      // Multi-robot methods (using context)
+      loadRobot: (robotName, urdfPath, options) => robotManager.loadRobot(robotName, urdfPath, options),
+      getAllRobots: () => robotManager.getAllRobots(),
+      getRobot: (robotName) => robotManager.getRobot(robotName),
+      setRobotActive: (robotName, isActive) => robotManager.setRobotActive(robotName, isActive),
+      removeRobot: (robotName) => robotManager.removeRobot(robotName),
       
-      // Joint control methods (updated for multi-robot)
+      // Joint control methods (updated for multi-robot using context)
       setJointValue: (robotNameOrJointName, jointNameOrValue, value) => {
         // Handle both old API (jointName, value) and new API (robotName, jointName, value)
         if (value === undefined) {
           // Old API: use current robot
-          const currentRobotName = robotLoaderRef.current?.getCurrentRobotName();
+          const currentRobotName = robotManager.getCurrentRobotName();
           if (currentRobotName) {
-            return robotLoaderRef.current?.setJointValue(currentRobotName, robotNameOrJointName, jointNameOrValue);
+            return robotManager.setJointValue(currentRobotName, robotNameOrJointName, jointNameOrValue);
           }
         } else {
           // New API: robot name specified
-          return robotLoaderRef.current?.setJointValue(robotNameOrJointName, jointNameOrValue, value);
+          return robotManager.setJointValue(robotNameOrJointName, jointNameOrValue, value);
         }
       },
       updateJointValues: (robotNameOrValues, values) => {
         // Handle both old API (values) and new API (robotName, values)
         if (values === undefined) {
           // Old API: use current robot
-          const currentRobotName = robotLoaderRef.current?.getCurrentRobotName();
+          const currentRobotName = robotManager.getCurrentRobotName();
           if (currentRobotName) {
-            return robotLoaderRef.current?.setJointValues(currentRobotName, robotNameOrValues);
+            return robotManager.setJointValues(currentRobotName, robotNameOrValues);
           }
         } else {
           // New API: robot name specified
-          return robotLoaderRef.current?.setJointValues(robotNameOrValues, values);
+          return robotManager.setJointValues(robotNameOrValues, values);
         }
       },
       resetJoints: (robotName) => {
         // If no robot name specified, reset current robot
-        const targetRobot = robotName || robotLoaderRef.current?.getCurrentRobotName();
+        const targetRobot = robotName || robotManager.getCurrentRobotName();
         if (targetRobot) {
-          robotLoaderRef.current?.resetJoints(targetRobot);
+          robotManager.resetJoints(targetRobot);
         }
       },
       getJointValues: (robotName) => {
         // If no robot name specified, get current robot's values
-        const targetRobot = robotName || robotLoaderRef.current?.getCurrentRobotName();
-        return targetRobot ? robotLoaderRef.current?.getJointValues(targetRobot) : {};
+        const targetRobot = robotName || robotManager.getCurrentRobotName();
+        return targetRobot ? robotManager.getJointValues(targetRobot) : {};
       },
       
       // Backward compatibility methods
-      getCurrentRobot: () => robotLoaderRef.current?.getCurrentRobot(),
+      getCurrentRobot: () => robotManager.getCurrentRobot(),
       focusOnRobot: (robotName, forceRefocus = false) => {
         // Only focus if explicitly requested (forceRefocus = true)
         if (!forceRefocus) return;
         
         const robot = robotName 
-          ? robotLoaderRef.current?.getRobot(robotName)
-          : robotLoaderRef.current?.getCurrentRobot();
+          ? robotManager.getRobot(robotName)
+          : robotManager.getCurrentRobot();
         if (robot) sceneRef.current?.focusOnObject(robot);
       },
       
       // General methods
-      getRobotState: () => robotLoaderRef.current?.getAllRobots(),
+      getRobotState: () => robotManager.getAllRobots(),
       getRobotInfo: () => ({
-        totalRobots: robotLoaderRef.current?.getAllRobots()?.size || 0,
-        activeRobots: robotLoaderRef.current?.getActiveRobots() || []
+        totalRobots: robotManager.robotCount,
+        activeRobots: robotManager.getActiveRobots()
       }),
       getSceneSetup: () => sceneRef.current,
-      robotLoaderRef, // Expose the robot manager ref
+      robotLoaderRef: { current: robotManager }, // Expose robot manager for compatibility
       
       // Table-related methods
       loadTable,
@@ -532,7 +461,7 @@ const URDFViewer = ({
       isTableLoaded: () => tableLoaded,
       isTableVisible: () => tableVisible,
     }),
-    [tableLoaded, tableVisible]
+    [tableLoaded, tableVisible, robotManager]
   );
   
   const handleOptionChange = (name, value) => {
@@ -562,7 +491,7 @@ const URDFViewer = ({
         backgroundColor: backgroundColor || DEFAULT_CONFIG.backgroundColor
       }}
     >
-      {isLoading && (
+      {robotManager.isLoading && (
         <div style={{
           position: 'absolute',
           top: '50%',
@@ -578,7 +507,7 @@ const URDFViewer = ({
         </div>
       )}
       
-      {error && (
+      {robotManager.error && (
         <div style={{
           position: 'absolute',
           bottom: '20px',
@@ -589,7 +518,7 @@ const URDFViewer = ({
           borderRadius: '4px',
           zIndex: 1000
         }}>
-          {error}
+          {robotManager.error}
         </div>
       )}
     </div>

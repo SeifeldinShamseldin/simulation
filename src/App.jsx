@@ -6,7 +6,7 @@ import Robot from './components/robot/Robot';
 import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import ResizablePanel from './components/common/ResizablePanel';
-import { RobotProvider } from './contexts/RobotContext'; // ← 🎯 UNIFIED ROBOT PROVIDER
+import { RobotProvider } from './contexts/RobotContext';
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
@@ -14,6 +14,7 @@ import { TCPProvider } from './contexts/TCPContext';
 import { JointProvider } from './contexts/JointContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobot';
+import { RobotManagerProvider } from './contexts/RobotManagerContext';
 import WorldManager from './components/World/WorldManager';
 import './App.css';
 
@@ -193,11 +194,12 @@ const AppContent = () => {
   );
 };
 
-// 🚨 UPDATED: Clean Provider Chain (Unified RobotProvider)
+// 🚨 UPDATED: Clean Provider Chain (Unified RobotProvider + RobotManagerProvider)
 const App = () => {
   return (
-      <ViewerProvider>
-        <RobotProvider>          {/* ← 🎯 UNIFIED ROBOT PROVIDER (No WorkspaceProvider) */}
+    <ViewerProvider>
+      <RobotManagerProvider>
+        <RobotProvider>
           <EnvironmentProvider>
             <TCPProvider>
               <JointProvider>
@@ -210,7 +212,8 @@ const App = () => {
             </TCPProvider>
           </EnvironmentProvider>
         </RobotProvider>
-      </ViewerProvider>
+      </RobotManagerProvider>
+    </ViewerProvider>
   );
 };
 
