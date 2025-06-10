@@ -254,31 +254,33 @@ export const RobotManagerProvider = ({ children }) => {
    * Set a joint value for a specific robot
    */
   const setJointValue = useCallback((robotName, jointName, value) => {
-    const robotData = robots.get(robotName);
-    if (!robotData) {
-      console.warn(`Robot ${robotName} not found for joint update`);
+    const robot = getRobot(robotName);
+    if (!robot) {
+      console.warn(`[RobotManager] Robot ${robotName} not found for joint control`);
       return false;
     }
     
-    if (robotData.model.joints && robotData.model.joints[jointName]) {
-      try {
-        const success = robotData.model.setJointValue(jointName, value);
-        if (success) {
-          EventBus.emit('robot:joint-changed', { 
-            robotName, 
-            robotId: robotName,
-            jointName, 
-            value
-          });
-          
-          console.log(`[RobotManagerContext] Set joint ${jointName} = ${value} for robot ${robotName}`);
-          return true;
-        }
-      } catch (error) {
-        console.error(`Error setting joint ${jointName} on robot ${robotName}:`, error);
-      }
+    if (!robot.joints) {
+      console.warn(`[RobotManager] Robot ${robotName} has no joints`);
+      return false;
     }
-    return false;
+    
+    if (!robot.joints[jointName]) {
+      console.warn(`[RobotManager] Joint ${jointName} not found in robot ${robotName}`);
+      return false;
+    }
+    
+    try {
+      robot.joints[jointName].angle = value;
+      if (robot.joints[jointName].setPosition) {
+        robot.joints[jointName].setPosition(value);
+      }
+      robot.updateMatrixWorld(true);
+      return true;
+    } catch (error) {
+      console.error(`[RobotManager] Error setting joint ${jointName}:`, error);
+      return false;
+    }
   }, [robots]);
   
   /**

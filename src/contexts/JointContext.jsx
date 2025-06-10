@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useViewer } from './ViewerContext';
 import { useRobotSelection } from './hooks/useRobot';
+import { useRobotContext } from './RobotContext'; // ADD: Use RobotContext directly
 import EventBus from '../utils/EventBus';
 
 const JointContext = createContext(null);
@@ -9,6 +10,9 @@ const JointContext = createContext(null);
 export const JointProvider = ({ children }) => {
   const { isViewerReady, getRobotManager } = useViewer();
   const { activeId: activeRobotId } = useRobotSelection();
+  
+  // ADD: Use RobotContext directly
+  const { getRobot: getRobotFromContext } = useRobotContext();
   
   // State for all robots' joint data
   const [robotJoints, setRobotJoints] = useState(new Map()); // robotId -> joint info
@@ -161,111 +165,79 @@ export const JointProvider = ({ children }) => {
     };
   }, [stopAnimation]);
 
-  // Internal method to set joint values via robot manager (ENHANCED)
+  // REPLACE: The setRobotJointValues_Internal method with direct robot access
   const setRobotJointValues_Internal = useCallback((robotId, values) => {
-    if (!robotManagerRef.current) {
-      console.warn(`[JointContext] Robot manager not available`);
-      return false;
-    }
+    console.log(`[JointContext] Setting joint values for ${robotId}:`, values);
     
-    try {
-      // Enhanced: Try multiple approaches to set joint values
+    // Method 1: Try RobotContext first (most reliable)
+    const robot = getRobotFromContext(robotId);
+    if (robot) {
+      console.log(`[JointContext] Found robot in RobotContext: ${robotId}`);
+      
       let success = false;
       
-      // Method 1: Use robot manager's setJointValues if it exists
-      if (robotManagerRef.current.setJointValues) {
+      // Try robot's setJointValues method
+      if (robot.setJointValues && typeof robot.setJointValues === 'function') {
         try {
-          success = robotManagerRef.current.setJointValues(robotId, values);
-          console.log(`[JointContext] Robot manager setJointValues result: ${success}`);
+          success = robot.setJointValues(values);
+          console.log(`[JointContext] Robot setJointValues result: ${success}`);
         } catch (error) {
-          console.warn(`[JointContext] Robot manager setJointValues failed:`, error);
+          console.warn(`[JointContext] Robot setJointValues failed:`, error);
         }
       }
       
-      // Method 2: Try direct robot access if manager method failed or doesn't exist
+      // Fallback: set individual joints
       if (!success) {
-        const robot = robotManagerRef.current.getRobot ? 
-          robotManagerRef.current.getRobot(robotId) : null;
+        console.log(`[JointContext] Falling back to individual joint setting`);
+        success = true;
         
-        if (robot) {
-          console.log(`[JointContext] Trying direct robot joint control for ${robotId}`);
-          
-          // Method 2a: Try robot's setJointValues method
-          if (robot.setJointValues && typeof robot.setJointValues === 'function') {
-            try {
-              success = robot.setJointValues(values);
-              console.log(`[JointContext] Direct robot setJointValues result: ${success}`);
-            } catch (error) {
-              console.warn(`[JointContext] Robot setJointValues failed:`, error);
+        Object.entries(values).forEach(([jointName, value]) => {
+          try {
+            if (robot.setJointValue && typeof robot.setJointValue === 'function') {
+              robot.setJointValue(jointName, value);
+            } else if (robot.joints && robot.joints[jointName]) {
+              robot.joints[jointName].angle = value;
+              if (robot.joints[jointName].setPosition) {
+                robot.joints[jointName].setPosition(value);
+              }
+            } else {
+              console.warn(`[JointContext] Joint ${jointName} not found`);
+              success = false;
             }
+          } catch (error) {
+            console.warn(`[JointContext] Failed to set joint ${jointName}:`, error);
+            success = false;
           }
-          
-          // Method 2b: Set individual joints as fallback
-          if (!success && robot.setJointValue && typeof robot.setJointValue === 'function') {
-            console.log(`[JointContext] Falling back to individual joint setting`);
-            let individualSuccess = true;
-            
-            Object.entries(values).forEach(([jointName, value]) => {
-              try {
-                const result = robot.setJointValue(jointName, value);
-                if (!result) individualSuccess = false;
-              } catch (error) {
-                console.warn(`[JointContext] Failed to set joint ${jointName}:`, error);
-                individualSuccess = false;
-              }
-            });
-            
-            success = individualSuccess;
-            console.log(`[JointContext] Individual joint setting result: ${success}`);
-          }
-          
-          // Method 2c: Direct joint manipulation as last resort
-          if (!success && robot.joints) {
-            console.log(`[JointContext] Falling back to direct joint manipulation`);
-            let directSuccess = true;
-            
-            Object.entries(values).forEach(([jointName, value]) => {
-              try {
-                if (robot.joints[jointName]) {
-                  robot.joints[jointName].angle = value;
-                  // Also try setting rotation if it exists
-                  if (robot.joints[jointName].setPosition) {
-                    robot.joints[jointName].setPosition(value);
-                  }
-                } else {
-                  console.warn(`[JointContext] Joint ${jointName} not found in robot`);
-                  directSuccess = false;
-                }
-              } catch (error) {
-                console.warn(`[JointContext] Direct joint manipulation failed for ${jointName}:`, error);
-                directSuccess = false;
-              }
-            });
-            
-            success = directSuccess;
-            console.log(`[JointContext] Direct joint manipulation result: ${success}`);
-          }
-          
-          // Force update matrices after any joint changes
-          if (success && robot.updateMatrixWorld) {
-            robot.updateMatrixWorld(true);
-          }
-          
-        } else {
-          console.warn(`[JointContext] Robot ${robotId} not found in robot manager`);
-        }
+        });
       }
       
-      if (!success) {
-        console.warn(`[JointContext] Failed to set joint values for ${robotId}`);
+      // Update matrices
+      if (success && robot.updateMatrixWorld) {
+        robot.updateMatrixWorld(true);
       }
       
+      console.log(`[JointContext] Direct robot control result: ${success}`);
       return success;
-    } catch (error) {
-      console.error(`[JointContext] Error setting joint values:`, error);
-      return false;
     }
-  }, []);
+    
+    // Method 2: Fallback to robot manager (legacy)
+    if (robotManagerRef.current) {
+      console.log(`[JointContext] Robot not found in context, trying robot manager`);
+      
+      try {
+        if (robotManagerRef.current.setJointValues) {
+          const success = robotManagerRef.current.setJointValues(robotId, values);
+          console.log(`[JointContext] Robot manager setJointValues result: ${success}`);
+          return success;
+        }
+      } catch (error) {
+        console.warn(`[JointContext] Robot manager setJointValues failed:`, error);
+      }
+    }
+    
+    console.error(`[JointContext] Failed to set joint values for ${robotId} - robot not found`);
+    return false;
+  }, [getRobotFromContext]);
 
   // Animate to target joint values (MOVED AFTER setRobotJointValues_Internal)
   const animateToJointValues = useCallback(async (robotId, targetValues, duration = 1000) => {
@@ -359,12 +331,46 @@ export const JointProvider = ({ children }) => {
     });
   }, [robotJointValues, setRobotJointValues_Internal]);
 
-  // Public method to set a single joint value
+  // REPLACE: The setJointValue method with direct robot access
   const setJointValue = useCallback((robotId, jointName, value) => {
-    if (!robotManagerRef.current) return false;
+    console.log(`[JointContext] Setting joint ${jointName} = ${value} for robot ${robotId}`);
     
-    try {
-      const success = robotManagerRef.current.setJointValue(robotId, jointName, value);
+    // Method 1: Try RobotContext first (most reliable)
+    const robot = getRobotFromContext(robotId);
+    if (robot) {
+      console.log(`[JointContext] Found robot in RobotContext: ${robotId}`);
+      
+      let success = false;
+      
+      // Try robot's setJointValue method
+      if (robot.setJointValue && typeof robot.setJointValue === 'function') {
+        try {
+          success = robot.setJointValue(jointName, value);
+          console.log(`[JointContext] Robot setJointValue result: ${success}`);
+        } catch (error) {
+          console.warn(`[JointContext] Robot setJointValue failed:`, error);
+        }
+      }
+      
+      // Fallback: direct joint manipulation
+      if (!success && robot.joints && robot.joints[jointName]) {
+        try {
+          robot.joints[jointName].angle = value;
+          if (robot.joints[jointName].setPosition) {
+            robot.joints[jointName].setPosition(value);
+          }
+          success = true;
+          console.log(`[JointContext] Direct joint manipulation succeeded`);
+        } catch (error) {
+          console.warn(`[JointContext] Direct joint manipulation failed:`, error);
+        }
+      }
+      
+      // Update matrices
+      if (success && robot.updateMatrixWorld) {
+        robot.updateMatrixWorld(true);
+      }
+      
       if (success) {
         // Update local state
         setRobotJointValues(prev => {
@@ -374,13 +380,42 @@ export const JointProvider = ({ children }) => {
           newMap.set(robotId, robotValues);
           return newMap;
         });
+        
+        console.log(`[JointContext] Successfully set joint ${jointName} = ${value} for robot ${robotId}`);
       }
+      
       return success;
-    } catch (error) {
-      console.error(`[JointContext] Error setting joint value:`, error);
-      return false;
     }
-  }, []);
+    
+    // Method 2: Fallback to robot manager (legacy)
+    if (robotManagerRef.current) {
+      console.log(`[JointContext] Robot not found in context, trying robot manager`);
+      
+      try {
+        if (robotManagerRef.current.setJointValue) {
+          const success = robotManagerRef.current.setJointValue(robotId, jointName, value);
+          console.log(`[JointContext] Robot manager setJointValue result: ${success}`);
+          
+          if (success) {
+            setRobotJointValues(prev => {
+              const newMap = new Map(prev);
+              const robotValues = newMap.get(robotId) || {};
+              robotValues[jointName] = value;
+              newMap.set(robotId, robotValues);
+              return newMap;
+            });
+          }
+          
+          return success;
+        }
+      } catch (error) {
+        console.warn(`[JointContext] Robot manager setJointValue failed:`, error);
+      }
+    }
+    
+    console.error(`[JointContext] Failed to set joint ${jointName} for robot ${robotId} - robot not found`);
+    return false;
+  }, [getRobotFromContext]);
 
   // Public method to set multiple joint values
   const setJointValues = useCallback((robotId, values) => {
