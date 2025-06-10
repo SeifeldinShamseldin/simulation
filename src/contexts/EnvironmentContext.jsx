@@ -1,273 +1,944 @@
 // src/contexts/EnvironmentContext.jsx
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import * as THREE from 'three';
+import * as CANNON from 'cannon-es';
 import { useViewer } from './ViewerContext';
+import humanManager from '../components/Environment/Human/HumanController';
 import EventBus from '../utils/EventBus';
 
 const EnvironmentContext = createContext(null);
 
-/**
- * Provider component for environment management
- * ✅ Updated: Focuses only on environment management
- * ❌ Removed: Robot-specific functionality (now handled by RobotContext)
- */
 export const EnvironmentProvider = ({ children }) => {
-  const { getSceneSetup } = useViewer();
+  const { isViewerReady, getSceneSetup, getRobotManager } = useViewer();
   
-  // Environment state
-  const [environment, setEnvironment] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
-  
-  // Object state
+  // State
+  const [categories, setCategories] = useState([]);
   const [loadedObjects, setLoadedObjects] = useState([]);
-  const [sceneObjects] = useState(new Map());
-  const [objectRegistries] = useState(new Map());
-  
-  // Human state
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [currentView, setCurrentView] = useState('categories');
   const [spawnedHumans, setSpawnedHumans] = useState([]);
   const [selectedHuman, setSelectedHuman] = useState(null);
   const [humanPositions, setHumanPositions] = useState({});
-  
-  // Category state
-  const [categories, setCategories] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState(null);
-  const [currentView, setCurrentView] = useState('categories');
-  
-  // Load environment
-  const loadEnvironment = useCallback(async () => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState('');
+
+  // Scene object registries (from useScene)
+  const [sceneObjects, setSceneObjects] = useState(new Map());
+  const [objectRegistries, setObjectRegistries] = useState({
+    robots: new Map(),
+    environment: new Map(),
+    trajectories: new Map(),
+    humans: new Map(),
+    custom: new Map()
+  });
+
+  // Refs
+  const sceneSetupRef = useRef(null);
+  const robotManagerRef = useRef(null);
+  const physicsBodyMapRef = useRef(new Map());
+
+  // Initialize scene setup and robot manager references
+  useEffect(() => {
+    if (isViewerReady) {
+      sceneSetupRef.current = getSceneSetup();
+      robotManagerRef.current = getRobotManager();
+    }
+  }, [isViewerReady, getSceneSetup, getRobotManager]);
+
+  // ========== MERGED SCENE FUNCTIONS FROM useScene.js ==========
+
+  // Register object with scene context (from useScene)
+  const registerObject = useCallback((type, id, object, metadata = {}) => {
+    if (!sceneSetupRef.current || !object) return;
+    
+    try {
+      // Store in registry
+      setObjectRegistries(prev => {
+        const newRegistries = { ...prev };
+        if (!newRegistries[type]) {
+          newRegistries[type] = new Map();
+        }
+        newRegistries[type].set(id, {
+          object,
+          metadata,
+          timestamp: Date.now()
+        });
+        return newRegistries;
+      });
+
+      // Add to scene if it's a 3D object
+      if (object && object.isObject3D && sceneSetupRef.current.scene) {
+        sceneSetupRef.current.scene.add(object);
+      }
+
+      // Store metadata on the object
+      object.userData = {
+        ...object.userData,
+        environmentId: id,
+        type: type,
+        ...metadata
+      };
+      
+      EventBus.emit('scene:object-registered', { type, id, object, metadata });
+      console.log(`Registered ${type} object: ${id}`);
+    } catch (error) {
+      console.error('Error registering object:', error);
+    }
+  }, []);
+
+  // Unregister object (from useScene)
+  const unregisterObject = useCallback((type, id) => {
+    if (!sceneSetupRef.current) return;
+    
+    try {
+      const registry = objectRegistries[type];
+      if (!registry) return;
+      
+      const entry = registry.get(id);
+      if (!entry) return;
+      
+      // Remove from scene
+      if (entry.object && entry.object.isObject3D && sceneSetupRef.current.scene) {
+        sceneSetupRef.current.scene.remove(entry.object);
+      }
+      
+      // Dispose resources
+      if (entry.object) {
+        if (entry.object.geometry) entry.object.geometry.dispose();
+        if (entry.object.material) {
+          if (Array.isArray(entry.object.material)) {
+            entry.object.material.forEach(m => m.dispose());
+          } else {
+            entry.object.material.dispose();
+          }
+        }
+      }
+      
+      // Remove from registry
+      setObjectRegistries(prev => {
+        const newRegistries = { ...prev };
+        newRegistries[type].delete(id);
+        return newRegistries;
+      });
+      
+      EventBus.emit('scene:object-unregistered', { type, id });
+      console.log(`Unregistered ${type} object: ${id}`);
+    } catch (error) {
+      console.error('Error unregistering object:', error);
+    }
+  }, [objectRegistries]);
+
+  // Get objects by type (from useScene)
+  const getObjectsByType = useCallback((type) => {
+    const registry = objectRegistries[type];
+    if (!registry) return [];
+    
+    return Array.from(registry.entries()).map(([id, entry]) => ({
+      id,
+      ...entry
+    }));
+  }, [objectRegistries]);
+
+  // Scene object management (from useSceneObject)
+  const addObject = useCallback((type, id, obj, metadata = {}) => {
+    if (!obj || !id) return;
+    
+    const cleanup = registerObject(type, id, obj, metadata);
+    setSceneObjects(prev => new Map(prev).set(id, obj));
+    
+    return cleanup;
+  }, [registerObject]);
+
+  const removeObject = useCallback((instanceId) => {
+    if (!sceneSetupRef.current) return;
+    
+    const human = humanManager.getHuman(instanceId);
+    if (human) {
+      if (human._unsubscribePosition) {
+        human._unsubscribePosition();
+      }
+      
+      humanManager.removeHuman(instanceId);
+      setSpawnedHumans(prev => prev.filter(h => h.id !== instanceId));
+      setSelectedHuman(null);
+      
+      setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
+      
+      setHumanPositions(prev => {
+        const newPositions = { ...prev };
+        delete newPositions[instanceId];
+        return newPositions;
+      });
+      
+      EventBus.emit('human:removed', { id: instanceId });
+      return;
+    }
+    
+    const sceneSetup = sceneSetupRef.current;
+    if (!sceneSetup) return;
+    
+    // Remove from scene
+    sceneSetup.removeEnvironmentObject(instanceId);
+    
+    // Remove from our state
+    setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
+    setSceneObjects(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(instanceId);
+      return newMap;
+    });
+    
+    // Unregister from all registries
+    Object.keys(objectRegistries).forEach(type => {
+      unregisterObject(type, instanceId);
+    });
+  }, [unregisterObject, objectRegistries]);
+
+  const updateObject = useCallback((instanceId, updates) => {
+    if (!sceneSetupRef.current) return;
+    
+    const sceneSetup = sceneSetupRef.current;
+    
+    const human = humanManager.getHuman(instanceId);
+    if (human) {
+      if (updates.position) {
+        human.setPosition(
+          updates.position.x,
+          updates.position.y,
+          updates.position.z
+        );
+      }
+      return;
+    }
+    
+    const object = sceneSetup.environmentObjects.get(instanceId);
+    if (!object) {
+      console.error('Object not found:', instanceId);
+      return;
+    }
+    
+    if (updates.position) {
+      object.position.set(
+        updates.position.x ?? object.position.x,
+        updates.position.y ?? object.position.y,
+        updates.position.z ?? object.position.z
+      );
+    }
+    
+    if (updates.rotation) {
+      object.rotation.set(
+        updates.rotation.x ?? object.rotation.x,
+        updates.rotation.y ?? object.rotation.y,
+        updates.rotation.z ?? object.rotation.z
+      );
+    }
+    
+    if (updates.scale) {
+      object.scale.set(
+        updates.scale.x ?? object.scale.x,
+        updates.scale.y ?? object.scale.y,
+        updates.scale.z ?? object.scale.z
+      );
+    }
+    
+    if (updates.visible !== undefined) {
+      object.visible = updates.visible;
+    }
+    
+    object.updateMatrix();
+    object.updateMatrixWorld(true);
+    
+    sceneSetup.updateEnvironmentObject(instanceId, updates);
+    
+    EventBus.emit('scene:object-updated', { type: 'environment', id: instanceId, updates });
+  }, []);
+
+  // Smart placement calculation (from useSmartPlacement)
+  const calculateSmartPosition = useCallback((category, basePosition = { x: 0, y: 0, z: 0 }) => {
+    const sceneSetup = sceneSetupRef.current;
+    const robotManager = robotManagerRef.current;
+    
+    if (!sceneSetup) {
+      return {
+        position: basePosition,
+        rotation: { x: 0, y: 0, z: 0 }
+      };
+    }
+
+    // Get robot information
+    let robotCenter = new THREE.Vector3(basePosition.x, basePosition.y, basePosition.z);
+    let robotRadius = 1;
+
+    // Try to find robot from robot manager
+    if (robotManager) {
+      const allRobots = robotManager.getAllRobots();
+      if (allRobots && allRobots.size > 0) {
+        const firstRobot = Array.from(allRobots.values())[0];
+        if (firstRobot && firstRobot.model) {
+          try {
+            const robotBox = new THREE.Box3().setFromObject(firstRobot.model);
+            robotCenter = robotBox.getCenter(new THREE.Vector3());
+            robotRadius = robotBox.getSize(new THREE.Vector3()).length() / 2;
+          } catch (error) {
+            console.warn('Could not calculate robot bounds, using defaults');
+          }
+        }
+      }
+    }
+
+    // Fallback: try to find robot in scene
+    if (!robotManager || robotRadius === 1) {
+      try {
+        const robotRoot = sceneSetup.robotRoot;
+        if (robotRoot && robotRoot.children.length > 0) {
+          const robot = robotRoot.children.find(child => child.isURDFRobot);
+          if (robot) {
+            const robotBox = new THREE.Box3().setFromObject(robot);
+            robotCenter = robotBox.getCenter(new THREE.Vector3());
+            robotRadius = robotBox.getSize(new THREE.Vector3()).length() / 2;
+          }
+        }
+      } catch (error) {
+        console.warn('Could not find robot in scene, using defaults');
+      }
+    }
+
+    // Get existing environment objects
+    const existingObjects = Array.from(sceneSetup.environmentObjects?.values() || []);
+
+    // Smart placement rules by category
+    const placements = {
+      furniture: { distance: robotRadius + 1.5, angle: Math.PI },
+      electricalhazard: { distance: robotRadius + 2, angle: Math.PI / 2 },
+      mechanicalhazard: { distance: robotRadius + 2, angle: Math.PI / 3 },
+      industrial: { distance: robotRadius + 2, angle: Math.PI / 2 },
+      storage: { distance: robotRadius + 2.5, angle: -Math.PI / 2 },
+      safety: { distance: robotRadius + 3, angle: 0 },
+      safetysign: { distance: robotRadius + 3, angle: 0 },
+      controls: { distance: robotRadius + 2, angle: Math.PI / 4 },
+      machinery: { distance: robotRadius + 2.5, angle: Math.PI * 0.75 },
+      tools: { distance: robotRadius + 1.8, angle: -Math.PI / 4 },
+      vehicle: { distance: robotRadius + 4, angle: Math.PI * 1.5 },
+      barrier: { distance: robotRadius + 2.8, angle: Math.PI / 6 }
+    };
+
+    const placement = placements[category] || { distance: robotRadius + 2, angle: 0 };
+
+    // Find non-overlapping position
+    let angle = placement.angle;
+    let attempts = 0;
+    let position = new THREE.Vector3();
+    let foundValidPosition = false;
+
+    while (attempts < 32 && !foundValidPosition) {
+      position.set(
+        robotCenter.x + Math.cos(angle) * placement.distance,
+        0,
+        robotCenter.z + Math.sin(angle) * placement.distance
+      );
+
+      // Check for overlaps with existing objects
+      let hasOverlap = false;
+      for (const obj of existingObjects) {
+        if (!obj || !obj.position) continue;
+
+        const distance2D = Math.sqrt(
+          Math.pow(position.x - obj.position.x, 2) +
+          Math.pow(position.z - obj.position.z, 2)
+        );
+
+        let minSpacing = 1.5;
+        
+        try {
+          const objBox = new THREE.Box3().setFromObject(obj);
+          const objSize = objBox.getSize(new THREE.Vector3());
+          minSpacing = Math.max(objSize.x, objSize.z) / 2 + 1.0;
+        } catch (error) {
+          // Use default spacing
+        }
+
+        if (distance2D < minSpacing) {
+          hasOverlap = true;
+          break;
+        }
+      }
+
+      // Check overlap with loaded objects from state
+      if (!hasOverlap) {
+        for (const obj of loadedObjects) {
+          if (!obj.position) continue;
+
+          const distance2D = Math.sqrt(
+            Math.pow(position.x - obj.position.x, 2) +
+            Math.pow(position.z - obj.position.z, 2)
+          );
+
+          if (distance2D < 1.5) {
+            hasOverlap = true;
+            break;
+          }
+        }
+      }
+
+      if (!hasOverlap) {
+        foundValidPosition = true;
+      } else {
+        angle += Math.PI / 16;
+        attempts++;
+
+        if (attempts % 32 === 0) {
+          placement.distance += 0.5;
+        }
+      }
+    }
+
+    // Align to grid for certain categories
+    const alignToGrid = ['furniture', 'storage', 'controls', 'machinery'].includes(category);
+    if (alignToGrid) {
+      const gridSize = 0.25;
+      position.x = Math.round(position.x / gridSize) * gridSize;
+      position.z = Math.round(position.z / gridSize) * gridSize;
+    }
+
+    // Calculate rotation
+    let lookAngle = Math.atan2(
+      robotCenter.x - position.x,
+      robotCenter.z - position.z
+    );
+
+    // Special rotation rules
+    if (category === 'safety' || category === 'safetysign') {
+      lookAngle += Math.PI;
+    } else if (category === 'barrier') {
+      lookAngle += Math.PI / 2;
+    } else if (category === 'industrial' || category === 'machinery') {
+      lookAngle += Math.PI / 4;
+    }
+
+    return {
+      position: {
+        x: position.x,
+        y: position.y,
+        z: position.z
+      },
+      rotation: { x: 0, y: lookAngle, z: 0 }
+    };
+  }, [loadedObjects]);
+
+  // Camera controls (from useCameraControls)
+  const setCameraPosition = useCallback((position) => {
+    if (!sceneSetupRef.current?.camera) return;
+    sceneSetupRef.current.camera.position.set(position.x, position.y, position.z);
+    if (sceneSetupRef.current.controls) sceneSetupRef.current.controls.update();
+  }, []);
+
+  const setCameraTarget = useCallback((target) => {
+    if (!sceneSetupRef.current?.controls) return;
+    sceneSetupRef.current.controls.target.set(target.x, target.y, target.z);
+    sceneSetupRef.current.controls.update();
+  }, []);
+
+  const resetCamera = useCallback(() => {
+    setCameraPosition({ x: 2, y: 2, z: 2 });
+    setCameraTarget({ x: 0, y: 0, z: 0 });
+  }, [setCameraPosition, setCameraTarget]);
+
+  const focusOnObject = useCallback((objectId) => {
+    if (!sceneSetupRef.current) return;
+    
+    const obj = sceneObjects.get(objectId);
+    if (!obj) return;
+    
+    sceneSetupRef.current.focusOnObject(obj);
+  }, [sceneObjects]);
+
+  // Physics functions (from usePhysics)
+  const createPhysicsBody = useCallback((id, shape, options = {}) => {
+    if (!sceneSetupRef.current?.world) return null;
+    
+    const body = new CANNON.Body({
+      mass: options.mass ?? 1,
+      shape,
+      position: new CANNON.Vec3(
+        options.position?.x ?? 0,
+        options.position?.y ?? 0,
+        options.position?.z ?? 0
+      ),
+      ...options
+    });
+    
+    sceneSetupRef.current.world.addBody(body);
+    physicsBodyMapRef.current.set(id, body);
+    
+    return body;
+  }, []);
+
+  const removePhysicsBody = useCallback((id) => {
+    if (!sceneSetupRef.current?.world) return;
+    
+    const body = physicsBodyMapRef.current.get(id);
+    if (body) {
+      sceneSetupRef.current.world.removeBody(body);
+      physicsBodyMapRef.current.delete(id);
+    }
+  }, []);
+
+  const syncWithObject = useCallback((id, object) => {
+    const body = physicsBodyMapRef.current.get(id);
+    if (!body || !object) return;
+    
+    object.position.copy(body.position);
+    object.quaternion.copy(body.quaternion);
+  }, []);
+
+  // Check if object is in scene
+  const isInScene = useCallback((objectId) => {
+    return sceneObjects.has(objectId) && 
+           sceneSetupRef.current?.scene?.children.includes(sceneObjects.get(objectId));
+  }, [sceneObjects]);
+
+  // ========== ORIGINAL ENVIRONMENT FUNCTIONS ==========
+
+  // Listen for human events
+  useEffect(() => {
+    const unsubscribeSpawned = EventBus.on('human:spawned', (data) => {
+      setSpawnedHumans(prev => [...prev, data]);
+      if (data.isActive) {
+        setSelectedHuman(data.id);
+      }
+    });
+    
+    const unsubscribeRemoved = EventBus.on('human:removed', (data) => {
+      setSpawnedHumans(prev => prev.filter(h => h.id !== data.id));
+      if (selectedHuman === data.id) {
+        setSelectedHuman(null);
+      }
+    });
+    
+    const unsubscribeSelected = EventBus.on('human:selected', (data) => {
+      setSelectedHuman(data.id);
+    });
+
+    const unsubscribePositions = [];
+    const handlePositionUpdate = (humanId) => (data) => {
+      if (data.position) {
+        setHumanPositions(prev => ({
+          ...prev,
+          [humanId]: {
+            x: data.position[0],
+            y: data.position[1],
+            z: data.position[2]
+          }
+        }));
+      }
+    };
+
+    spawnedHumans.forEach(human => {
+      const unsubscribe = EventBus.on(`human:position-update:${human.id}`, handlePositionUpdate(human.id));
+      unsubscribePositions.push(unsubscribe);
+    });
+    
+    return () => {
+      unsubscribeSpawned();
+      unsubscribeRemoved();
+      unsubscribeSelected();
+      unsubscribePositions.forEach(unsubscribe => unsubscribe());
+    };
+  }, [selectedHuman, spawnedHumans]);
+
+  // Listen for world fully loaded event
+  useEffect(() => {
+    const handleWorldFullyLoaded = (data) => {
+      if (data.environment && data.environment.length > 0) {
+        const newLoadedObjects = data.environment.map(obj => {
+          const name = obj.path.split('/').pop().replace(/\.[^/.]+$/, '');
+          return {
+            instanceId: obj.id,
+            objectId: obj.id,
+            name: name,
+            path: obj.path,
+            category: obj.category,
+            position: obj.position,
+            rotation: obj.rotation,
+            scale: obj.scale
+          };
+        });
+        setLoadedObjects(newLoadedObjects);
+      }
+    };
+    
+    const unsubscribe = EventBus.on('world:fully-loaded', handleWorldFullyLoaded);
+    return () => unsubscribe();
+  }, []);
+
+  // Restore spawned objects on mount
+  useEffect(() => {
+    if (!sceneSetupRef.current) return;
+    
+    const sceneSetup = sceneSetupRef.current;
+    
+    // Restore environment objects
+    const environmentObjects = Array.from(sceneSetup.environmentObjects || new Map());
+    const restoredObjects = environmentObjects.map(([id, obj]) => ({
+      instanceId: id,
+      objectId: id,
+      name: obj.userData?.name || 'Unknown Object',
+      category: obj.userData?.category || 'uncategorized',
+      path: obj.userData?.path || obj.userData?.modelPath || '',
+      position: {
+        x: obj.position.x,
+        y: obj.position.y,
+        z: obj.position.z
+      },
+      rotation: {
+        x: obj.rotation.x,
+        y: obj.rotation.y,
+        z: obj.rotation.z
+      },
+      scale: {
+        x: obj.scale.x,
+        y: obj.scale.y,
+        z: obj.scale.z
+      }
+    }));
+    
+    // Restore human objects
+    const allHumans = humanManager.getAllHumans();
+    const restoredHumans = allHumans.map(human => ({
+      id: human.id,
+      name: 'Soldier',
+      isActive: human.movementEnabled
+    }));
+    
+    // Add human entries to loaded objects
+    const humanObjects = allHumans.map(human => ({
+      instanceId: human.id,
+      objectId: human.id,
+      name: 'Soldier',
+      category: 'human',
+      path: '/hazard/human/Soldier.glb'
+    }));
+    
+    setLoadedObjects([...restoredObjects, ...humanObjects]);
+    setSpawnedHumans(restoredHumans);
+    
+    // Find active human
+    const activeHuman = allHumans.find(h => h.movementEnabled);
+    if (activeHuman) {
+      setSelectedHuman(activeHuman.id);
+    }
+  }, [isViewerReady]);
+
+  // Scan environment directory
+  const scanEnvironment = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const sceneSetup = getSceneSetup();
-      if (!sceneSetup) {
-        throw new Error('Scene setup not available');
-      }
+      const response = await fetch('/api/environment/scan');
+      const result = await response.json();
       
-      // Load environment logic here
-      setEnvironment(sceneSetup);
+      if (result.success) {
+        setCategories(result.categories);
+      } else {
+        setError('Failed to scan environment directory');
+      }
     } catch (err) {
-      setError(err.message);
-      console.error('[EnvironmentContext] Failed to load environment:', err);
+      console.error('Error scanning environment:', err);
+      setError('Error scanning environment directory');
     } finally {
       setIsLoading(false);
     }
-  }, [getSceneSetup]);
-  
-  // Object management
-  const loadObject = useCallback((object) => {
-    setLoadedObjects(prev => [...prev, object]);
   }, []);
-  
-  const updateObject = useCallback((objectId, updates) => {
-    setLoadedObjects(prev => prev.map(obj => 
-      obj.id === objectId ? { ...obj, ...updates } : obj
-    ));
-  }, []);
-  
-  const removeObject = useCallback((objectId) => {
-    setLoadedObjects(prev => prev.filter(obj => obj.id !== objectId));
-  }, []);
-  
-  const clearAllObjects = useCallback(() => {
-    setLoadedObjects([]);
-  }, []);
-  
+
+  // Load object
+  const loadObject = useCallback(async (objectConfig) => {
+    if (!sceneSetupRef.current) return;
+    
+    if (objectConfig.category === 'human' || objectConfig.path?.includes('/human/')) {
+      const sceneSetup = sceneSetupRef.current;
+      
+      setIsLoading(true);
+      try {
+        const position = {
+          x: (Math.random() - 0.5) * 4,
+          y: 0,
+          z: (Math.random() - 0.5) * 4
+        };
+        
+        const result = await humanManager.spawnHuman(
+          sceneSetup.scene, 
+          sceneSetup.world,
+          position
+        );
+        
+        if (result) {
+          const { id, human } = result;
+          
+          const unsubscribe = EventBus.on(`human:position-update:${id}`, (data) => {
+            if (data.position) {
+              setHumanPositions(prev => ({
+                ...prev,
+                [id]: {
+                  x: data.position[0],
+                  y: data.position[1],
+                  z: data.position[2]
+                }
+              }));
+            }
+          });
+          
+          human._unsubscribePosition = unsubscribe;
+          
+          const humanInstance = {
+            instanceId: id,
+            objectId: objectConfig.id,
+            name: objectConfig.name,
+            category: 'human',
+            path: objectConfig.path
+          };
+          
+          setLoadedObjects(prev => [...prev, humanInstance]);
+          
+          setSpawnedHumans(prev => [...prev, {
+            id: id,
+            name: objectConfig.name,
+            isActive: false
+          }]);
+          
+          setSuccessMessage('Human spawned! Click "Move Human" to control.');
+          setTimeout(() => setSuccessMessage(''), 5000);
+          
+          EventBus.emit('human:spawned', {
+            id: id,
+            name: objectConfig.name,
+            isActive: false
+          });
+        }
+      } catch (error) {
+        setError('Failed to spawn human: ' + error.message);
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const sceneSetup = sceneSetupRef.current;
+      if (!sceneSetup) throw new Error('Scene not initialized');
+      
+      const instanceId = `${objectConfig.id}_${Date.now()}`;
+      
+      // Use our smart placement calculation
+      const placement = calculateSmartPosition(objectConfig.category);
+      const updatedConfig = {
+        ...objectConfig,
+        ...placement,
+        id: instanceId,
+        castShadow: true
+      };
+      
+      const object3D = await sceneSetup.loadEnvironmentObject(updatedConfig);
+      
+      registerObject('environment', instanceId, object3D, {
+        category: objectConfig.category,
+        name: objectConfig.name
+      });
+      
+      const newObject = {
+        instanceId,
+        objectId: objectConfig.id,
+        name: objectConfig.name,
+        category: objectConfig.category,
+        path: objectConfig.path,
+        position: placement.position || { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: objectConfig.defaultScale || { x: 1, y: 1, z: 1 }
+      };
+      
+      setLoadedObjects(prev => [...prev, newObject]);
+      setSuccessMessage(`${objectConfig.name} added to scene!`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+      
+    } catch (error) {
+      console.error('Error loading object:', error);
+      setError('Failed to load object: ' + error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [calculateSmartPosition, registerObject]);
+
   // Human management
-  const handleMoveHuman = useCallback((humanId, position) => {
-    setHumanPositions(prev => ({
-      ...prev,
-      [humanId]: position
-    }));
+  const handleMoveHuman = useCallback((humanId) => {
+    const human = humanManager.getHuman(humanId);
+    if (!human) return;
+
+    const newState = !human.movementEnabled;
+    humanManager.setActiveHuman(newState ? humanId : null);
+    setSelectedHuman(newState ? humanId : null);
+    
+    setSpawnedHumans(prev => prev.map(h => ({
+      ...h,
+      isActive: h.id === humanId && newState
+    })));
+    
+    setSuccessMessage(newState ? 'Human movement enabled! Use WASD to move, Shift to run.' : 'Human movement disabled.');
+    setTimeout(() => setSuccessMessage(''), 3000);
   }, []);
-  
-  // Category management
+
+  // Delete operations
+  const deleteObject = useCallback(async (objectPath, objectName) => {
+    try {
+      const response = await fetch('/api/environment/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ path: objectPath })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setSuccessMessage(`${objectName} deleted successfully`);
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        setError(result.message || 'Failed to delete object');
+      }
+    } catch (error) {
+      setError('Error deleting object: ' + error.message);
+    }
+  }, []);
+
+  const deleteCategory = useCallback(async (categoryId, categoryName) => {
+    try {
+      const response = await fetch(`/api/environment/category/${categoryId}`, {
+        method: 'DELETE'
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setSuccessMessage(`Category "${categoryName}" deleted successfully`);
+        setTimeout(() => setSuccessMessage(''), 3000);
+        setCurrentView('categories');
+        setSelectedCategory(null);
+      } else {
+        setError(result.message || 'Failed to delete category');
+      }
+    } catch (error) {
+      setError('Error deleting category: ' + error.message);
+    }
+  }, []);
+
+  // View management
   const selectCategory = useCallback((category) => {
     setSelectedCategory(category);
     setCurrentView('objects');
   }, []);
-  
-  const deleteCategory = useCallback((categoryId) => {
-    setCategories(prev => prev.filter(cat => cat.id !== categoryId));
-    if (selectedCategory?.id === categoryId) {
-      setSelectedCategory(null);
-    }
-  }, [selectedCategory]);
-  
-  // View management
+
   const goBackToCategories = useCallback(() => {
     setCurrentView('categories');
     setSelectedCategory(null);
   }, []);
-  
-  // Scene object management
-  const registerObject = useCallback((objectId, object) => {
-    sceneObjects.set(objectId, object);
-  }, [sceneObjects]);
-  
-  const unregisterObject = useCallback((objectId) => {
-    sceneObjects.delete(objectId);
-  }, [sceneObjects]);
-  
-  const getObjectsByType = useCallback((type) => {
-    return Array.from(sceneObjects.values()).filter(obj => obj.type === type);
-  }, [sceneObjects]);
-  
-  const addObject = useCallback((object) => {
-    sceneObjects.set(object.id, object);
-  }, [sceneObjects]);
-  
-  // Camera management
-  const setCameraPosition = useCallback((position) => {
-    const sceneSetup = getSceneSetup();
-    if (sceneSetup?.camera) {
-      sceneSetup.camera.position.set(position.x, position.y, position.z);
+
+  // Clear all objects
+  const clearAllObjects = useCallback(() => {
+    loadedObjects.forEach(obj => removeObject(obj.instanceId));
+  }, [loadedObjects, removeObject]);
+
+  // Initialize on mount
+  useEffect(() => {
+    if (isViewerReady) {
+      scanEnvironment();
     }
-  }, [getSceneSetup]);
-  
-  const setCameraTarget = useCallback((target) => {
-    const sceneSetup = getSceneSetup();
-    if (sceneSetup?.controls) {
-      sceneSetup.controls.target.set(target.x, target.y, target.z);
-      sceneSetup.controls.update();
-    }
-  }, [getSceneSetup]);
-  
-  const resetCamera = useCallback(() => {
-    const sceneSetup = getSceneSetup();
-    if (sceneSetup?.resetCamera) {
-      sceneSetup.resetCamera();
-    }
-  }, [getSceneSetup]);
-  
-  const focusOnObject = useCallback((object) => {
-    const sceneSetup = getSceneSetup();
-    if (sceneSetup?.focusOnObject) {
-      sceneSetup.focusOnObject(object);
-    }
-  }, [getSceneSetup]);
-  
-  // Getter methods
-  const getObjectById = useCallback((objectId) => {
-    return loadedObjects.find(obj => obj.id === objectId);
-  }, [loadedObjects]);
-  
-  const getObjectsByCategory = useCallback((category) => {
-    return loadedObjects.filter(obj => obj.category === category);
-  }, [loadedObjects]);
-  
-  const getHumanById = useCallback((humanId) => {
-    return spawnedHumans.find(h => h.id === humanId);
-  }, [spawnedHumans]);
-  
-  const getActiveHuman = useCallback(() => {
-    return spawnedHumans.find(h => h.isActive);
-  }, [spawnedHumans]);
-  
-  const getHumanPosition = useCallback((humanId) => {
-    return humanPositions[humanId] || { x: 0, y: 0, z: 0 };
-  }, [humanPositions]);
-  
-  const getCategoryById = useCallback((categoryId) => {
-    return categories.find(cat => cat.id === categoryId);
-  }, [categories]);
-  
-  const getSceneObjectById = useCallback((objectId) => {
-    return sceneObjects.get(objectId);
-  }, [sceneObjects]);
-  
-  const getAllSceneObjects = useCallback(() => {
-    return Array.from(sceneObjects.values());
-  }, [sceneObjects]);
-  
-  // State checks
-  const isObjectLoaded = useCallback((objectId) => {
-    return loadedObjects.some(obj => obj.id === objectId);
-  }, [loadedObjects]);
-  
-  const isHumanSpawned = useCallback((humanId) => {
-    return spawnedHumans.some(h => h.id === humanId);
-  }, [spawnedHumans]);
-  
-  const isInScene = useCallback((objectId) => {
-    return sceneObjects.has(objectId);
-  }, [sceneObjects]);
-  
-  const isCategoriesView = currentView === 'categories';
-  const isInObjectsView = currentView === 'objects';
-  
+  }, [isViewerReady, scanEnvironment]);
+
+  // Cleanup physics bodies on unmount
+  useEffect(() => {
+    return () => {
+      physicsBodyMapRef.current.forEach((body, id) => removePhysicsBody(id));
+    };
+  }, [removePhysicsBody]);
+
   const value = {
-    // Environment state
-    environment,
-    isLoading,
-    error,
-    
-    // Object state
+    // ========== ENVIRONMENT STATE ==========
+    categories,
     loadedObjects,
-    sceneObjects,
-    objectRegistries,
-    
-    // Human state
+    selectedCategory,
+    currentView,
     spawnedHumans,
     selectedHuman,
     humanPositions,
+    isLoading,
+    error,
+    successMessage,
     
-    // Category state
-    categories,
-    selectedCategory,
-    currentView,
+    // ========== SCENE STATE (from useScene) ==========
+    sceneObjects,
+    objectRegistries,
     
-    // Environment operations
-    loadEnvironment,
-    
-    // Object management
+    // ========== ENVIRONMENT OPERATIONS ==========
+    scanEnvironment,
     loadObject,
     updateObject,
     removeObject,
     clearAllObjects,
     
-    // Human management
+    // ========== HUMAN OPERATIONS ==========
     handleMoveHuman,
     
-    // Category management
-    selectCategory,
+    // ========== DELETE OPERATIONS ==========
+    deleteObject,
     deleteCategory,
     
-    // View management
+    // ========== VIEW MANAGEMENT ==========
+    selectCategory,
     goBackToCategories,
     setCurrentView,
     setSelectedCategory,
     
-    // Scene object management
+    // ========== SCENE MANAGEMENT (from useScene) ==========
     registerObject,
     unregisterObject,
     getObjectsByType,
     addObject,
+    isInScene,
     
-    // Camera management
+    // ========== SMART PLACEMENT (from useSmartPlacement) ==========
+    calculateSmartPosition,
+    
+    // ========== CAMERA CONTROLS (from useCameraControls) ==========
     setCameraPosition,
     setCameraTarget,
     resetCamera,
     focusOnObject,
     
-    // Getter methods
-    getObjectById,
-    getObjectsByCategory,
-    getHumanById,
-    getActiveHuman,
-    getHumanPosition,
-    getCategoryById,
-    getSceneObjectById,
-    getAllSceneObjects,
+    // ========== PHYSICS (from usePhysics) ==========
+    createPhysicsBody,
+    removePhysicsBody,
+    syncWithObject,
+    world: sceneSetupRef.current?.world,
+    isPhysicsEnabled: !!sceneSetupRef.current?.world,
     
-    // State checks
-    isObjectLoaded,
-    isHumanSpawned,
-    isInScene,
-    isCategoriesView,
-    isInObjectsView
+    // ========== STATE SETTERS ==========
+    setCategories,
+    setLoadedObjects,
+    setSpawnedHumans,
+    setSelectedHuman,
+    setHumanPositions,
+    setError,
+    setSuccessMessage,
+    
+    // ========== UTILS ==========
+    clearError: () => setError(null),
+    clearSuccess: () => setSuccessMessage('')
   };
-  
+
   return (
     <EnvironmentContext.Provider value={value}>
       {children}
@@ -275,15 +946,10 @@ export const EnvironmentProvider = ({ children }) => {
   );
 };
 
-/**
- * Hook to use the environment context
- * @returns {Object} Environment context
- * @throws {Error} If used outside of EnvironmentProvider
- */
-export const useEnvironment = () => {
+export const useEnvironmentContext = () => {
   const context = useContext(EnvironmentContext);
   if (!context) {
-    throw new Error('useEnvironment must be used within EnvironmentProvider');
+    throw new Error('useEnvironmentContext must be used within EnvironmentProvider');
   }
   return context;
 };

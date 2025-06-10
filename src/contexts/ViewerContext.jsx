@@ -2,10 +2,24 @@ import React, { createContext, useContext, useRef, useState, useCallback } from 
 import EventBus from '../utils/EventBus';
 
 /**
+ * @typedef {Object} RobotLoadOptions
+ * @property {Object} position - Initial position of the robot
+ * @property {number} position.x - X coordinate
+ * @property {number} position.y - Y coordinate
+ * @property {number} position.z - Z coordinate
+ * @property {boolean} makeActive - Whether to make this robot active
+ * @property {boolean} clearOthers - Whether to clear other robots
+ */
+
+/**
  * @typedef {Object} ViewerContextType
  * @property {boolean} isViewerReady - Whether the viewer is initialized and ready
  * @property {Function} setViewerInstance - Sets the viewer instance
  * @property {Function} getSceneSetup - Gets the scene setup
+ * @property {Function} getRobotManager - Gets the robot manager
+ * @property {Function} focusOnRobot - Focuses the camera on a robot
+ * @property {Function} loadRobot - Loads a robot into the scene
+ * @property {Function} resetJoints - Resets the joints of a robot
  * @property {Object} viewerInstance - Direct access to viewer instance (escape hatch)
  */
 
@@ -13,8 +27,6 @@ const ViewerContext = createContext(/** @type {ViewerContextType | null} */ (nul
 
 /**
  * Provider component for the viewer context
- * ✅ Updated: Focuses on scene/viewer management only
- * ❌ Removed: Robot management (now handled by RobotContext)
  * @param {Object} props
  * @param {React.ReactNode} props.children - Child components
  */
@@ -43,97 +55,59 @@ export const ViewerProvider = ({ children }) => {
            viewerInstanceRef.current?.sceneRef?.current;
   }, []);
   
-  // ❌ Removed: getRobotManager (was RobotLoader)
-  // ✅ Note: Use useRobot() hook instead for robot operations
-  
-  // Focus on specific object in scene
-  const focusOnObject = useCallback((object) => {
+  // Get robot manager
+  const getRobotManager = useCallback(() => {
     if (!viewerInstanceRef.current) {
-      console.warn('[ViewerContext] Attempted to focus before viewer initialization');
-      return;
+      console.warn('[ViewerContext] Attempted to get robot manager before viewer initialization');
+      return null;
     }
-    
-    const sceneSetup = getSceneSetup();
-    if (sceneSetup && sceneSetup.focusOnObject) {
-      sceneSetup.focusOnObject(object);
-    }
-  }, [getSceneSetup]);
+    return viewerInstanceRef.current?.robotLoaderRef?.current;
+  }, []);
   
-  // Focus on robot by ID (delegates to robot context via events)
+  // Focus on robot
   const focusOnRobot = useCallback((robotId, forceRefocus = false) => {
     if (!viewerInstanceRef.current) {
       console.warn('[ViewerContext] Attempted to focus robot before viewer initialization');
       return;
     }
-    
-    // Emit event for RobotContext to handle
-    EventBus.emit('viewer:focus-robot-requested', { robotId, forceRefocus });
+    viewerInstanceRef.current.focusOnRobot?.(robotId, forceRefocus);
   }, []);
   
-  // Camera controls
-  const resetCamera = useCallback(() => {
-    const sceneSetup = getSceneSetup();
-    if (sceneSetup && sceneSetup.resetCamera) {
-      sceneSetup.resetCamera();
+  // Load robot
+  const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
+    if (!viewerInstanceRef.current) {
+      throw new Error('Viewer not initialized');
     }
-  }, [getSceneSetup]);
-  
-  const setCameraPosition = useCallback((position) => {
-    const sceneSetup = getSceneSetup();
-    if (sceneSetup && sceneSetup.camera) {
-      sceneSetup.camera.position.set(position.x, position.y, position.z);
-      if (sceneSetup.controls) {
-        sceneSetup.controls.update();
-      }
+
+    try {
+      const result = await viewerInstanceRef.current.loadRobot(robotId, urdfPath, options);
+      EventBus.emit('viewer:robot-loaded', { robotId, options });
+      return result;
+    } catch (error) {
+      console.error('[ViewerContext] Error loading robot:', error);
+      EventBus.emit('viewer:robot-load-error', { robotId, error });
+      throw error;
     }
-  }, [getSceneSetup]);
+  }, []);
   
-  const setCameraTarget = useCallback((target) => {
-    const sceneSetup = getSceneSetup();
-    if (sceneSetup && sceneSetup.controls) {
-      sceneSetup.controls.target.set(target.x, target.y, target.z);
-      sceneSetup.controls.update();
+  // Reset joints
+  const resetJoints = useCallback((robotId) => {
+    if (!viewerInstanceRef.current) {
+      console.warn('[ViewerContext] Attempted to reset joints before viewer initialization');
+      return;
     }
-  }, [getSceneSetup]);
-  
-  // Scene management
-  const getScene = useCallback(() => {
-    const sceneSetup = getSceneSetup();
-    return sceneSetup?.scene;
-  }, [getSceneSetup]);
-  
-  const getCamera = useCallback(() => {
-    const sceneSetup = getSceneSetup();
-    return sceneSetup?.camera;
-  }, [getSceneSetup]);
-  
-  const getRenderer = useCallback(() => {
-    const sceneSetup = getSceneSetup();
-    return sceneSetup?.renderer;
-  }, [getSceneSetup]);
-  
-  // ❌ Removed: Robot-specific methods (loadRobot, resetJoints)
-  // ✅ Note: Use useRobot() hook for these operations:
-  //   const { loadRobot, resetJoints } = useRobot();
+    viewerInstanceRef.current.resetJoints(robotId);
+    EventBus.emit('viewer:joints-reset', { robotId });
+  }, []);
   
   const value = {
-    // Core viewer state
     isViewerReady,
     setViewerInstance,
-    
-    // Scene access
     getSceneSetup,
-    getScene,
-    getCamera, 
-    getRenderer,
-    
-    // Camera controls
-    focusOnObject,
-    focusOnRobot, // Delegates to RobotContext via events
-    resetCamera,
-    setCameraPosition,
-    setCameraTarget,
-    
+    getRobotManager,
+    focusOnRobot,
+    loadRobot,
+    resetJoints,
     // Direct access when needed (escape hatch)
     viewerInstance: viewerInstanceRef.current
   };

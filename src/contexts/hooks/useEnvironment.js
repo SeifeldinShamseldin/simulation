@@ -1,24 +1,144 @@
 // src/contexts/hooks/useEnvironment.js
-import { useContext, useCallback } from 'react';
-import EnvironmentContext from '../EnvironmentContext';
+import { useCallback } from 'react';
+import { useEnvironmentContext } from '../EnvironmentContext';
 
-/**
- * Hook to use the environment context
- * @returns {Object} Environment context value
- * @throws {Error} If used outside of EnvironmentProvider
- */
 export const useEnvironment = () => {
-  const context = useContext(EnvironmentContext);
-  if (!context) {
-    throw new Error('useEnvironment must be used within EnvironmentProvider');
-  }
-  return context;
+  const context = useEnvironmentContext();
+  
+  return {
+    // ========== ENVIRONMENT STATE ==========
+    categories: context.categories,
+    loadedObjects: context.loadedObjects,
+    selectedCategory: context.selectedCategory,
+    currentView: context.currentView,
+    spawnedHumans: context.spawnedHumans,
+    selectedHuman: context.selectedHuman,
+    humanPositions: context.humanPositions,
+    isLoading: context.isLoading,
+    error: context.error,
+    successMessage: context.successMessage,
+    
+    // ========== SCENE STATE ==========
+    sceneObjects: context.sceneObjects,
+    objectRegistries: context.objectRegistries,
+    
+    // ========== ENVIRONMENT OPERATIONS ==========
+    scanEnvironment: context.scanEnvironment,
+    loadObject: context.loadObject,
+    updateObject: context.updateObject,
+    removeObject: context.removeObject,
+    clearAllObjects: context.clearAllObjects,
+    
+    // ========== HUMAN OPERATIONS ==========
+    handleMoveHuman: context.handleMoveHuman,
+    
+    // ========== DELETE OPERATIONS ==========
+    deleteObject: context.deleteObject,
+    deleteCategory: context.deleteCategory,
+    
+    // ========== VIEW MANAGEMENT ==========
+    selectCategory: context.selectCategory,
+    goBackToCategories: context.goBackToCategories,
+    setCurrentView: context.setCurrentView,
+    setSelectedCategory: context.setSelectedCategory,
+    
+    // ========== SCENE MANAGEMENT ==========
+    registerObject: context.registerObject,
+    unregisterObject: context.unregisterObject,
+    getObjectsByType: context.getObjectsByType,
+    addObject: context.addObject,
+    isInScene: context.isInScene,
+    
+    // ========== SMART PLACEMENT ==========
+    calculateSmartPosition: context.calculateSmartPosition,
+    
+    // ========== CAMERA CONTROLS ==========
+    setCameraPosition: context.setCameraPosition,
+    setCameraTarget: context.setCameraTarget,
+    resetCamera: context.resetCamera,
+    focusOnObject: context.focusOnObject,
+    
+    // ========== PHYSICS ==========
+    createPhysicsBody: context.createPhysicsBody,
+    removePhysicsBody: context.removePhysicsBody,
+    syncWithObject: context.syncWithObject,
+    world: context.world,
+    isPhysicsEnabled: context.isPhysicsEnabled,
+    
+    // ========== STATE SETTERS ==========
+    setCategories: context.setCategories,
+    setLoadedObjects: context.setLoadedObjects,
+    setSpawnedHumans: context.setSpawnedHumans,
+    setSelectedHuman: context.setSelectedHuman,
+    setHumanPositions: context.setHumanPositions,
+    setError: context.setError,
+    setSuccessMessage: context.setSuccessMessage,
+    
+    // ========== UTILS ==========
+    clearError: context.clearError,
+    clearSuccess: context.clearSuccess,
+    
+    // ========== CONVENIENCE GETTERS ==========
+    hasLoadedObjects: context.loadedObjects.length > 0,
+    hasCategories: context.categories.length > 0,
+    hasSpawnedHumans: context.spawnedHumans.length > 0,
+    isInObjectsView: context.currentView === 'objects',
+    isCategoriesView: context.currentView === 'categories',
+    
+    // ========== OBJECT MANAGEMENT HELPERS ==========
+    getObjectById: useCallback((instanceId) => {
+      return context.loadedObjects.find(obj => obj.instanceId === instanceId);
+    }, [context.loadedObjects]),
+    
+    getObjectsByCategory: useCallback((category) => {
+      return context.loadedObjects.filter(obj => obj.category === category);
+    }, [context.loadedObjects]),
+    
+    // ========== HUMAN MANAGEMENT HELPERS ==========
+    getHumanById: useCallback((humanId) => {
+      return context.spawnedHumans.find(h => h.id === humanId);
+    }, [context.spawnedHumans]),
+    
+    getActiveHuman: useCallback(() => {
+      return context.spawnedHumans.find(h => h.isActive);
+    }, [context.spawnedHumans]),
+    
+    getHumanPosition: useCallback((humanId) => {
+      return context.humanPositions[humanId] || { x: 0, y: 0, z: 0 };
+    }, [context.humanPositions]),
+    
+    // ========== CATEGORY HELPERS ==========
+    getCategoryById: useCallback((categoryId) => {
+      return context.categories.find(cat => cat.id === categoryId);
+    }, [context.categories]),
+    
+    // ========== STATE CHECKS ==========
+    isObjectLoaded: useCallback((objectId) => {
+      return context.loadedObjects.some(obj => obj.objectId === objectId);
+    }, [context.loadedObjects]),
+    
+    isHumanSpawned: useCallback((humanId) => {
+      return context.spawnedHumans.some(h => h.id === humanId);
+    }, [context.spawnedHumans]),
+    
+    // ========== SCENE OBJECT HELPERS ==========
+    getSceneObjectById: useCallback((objectId) => {
+      return context.sceneObjects.get(objectId);
+    }, [context.sceneObjects]),
+    
+    getAllSceneObjects: useCallback(() => {
+      return Array.from(context.sceneObjects.values());
+    }, [context.sceneObjects]),
+    
+    // ========== PHYSICS HELPERS ==========
+    hasPhysicsBody: useCallback((objectId) => {
+      return context.world && context.sceneObjects.has(objectId);
+    }, [context.world, context.sceneObjects])
+  };
 };
 
-/**
- * Hook for managing environment objects
- * @returns {Object} Object management utilities
- */
+// ========== SPECIALIZED HOOKS ==========
+
 export const useEnvironmentObjects = () => {
   const {
     loadedObjects,
@@ -45,10 +165,6 @@ export const useEnvironmentObjects = () => {
   };
 };
 
-/**
- * Hook for managing environment humans
- * @returns {Object} Human management utilities
- */
 export const useEnvironmentHumans = () => {
   const {
     spawnedHumans,
@@ -76,10 +192,6 @@ export const useEnvironmentHumans = () => {
   };
 };
 
-/**
- * Hook for managing environment categories
- * @returns {Object} Category management utilities
- */
 export const useEnvironmentCategories = () => {
   const {
     categories,
@@ -100,10 +212,6 @@ export const useEnvironmentCategories = () => {
   };
 };
 
-/**
- * Hook for managing environment view state
- * @returns {Object} View management utilities
- */
 export const useEnvironmentView = () => {
   const {
     currentView,
@@ -126,10 +234,6 @@ export const useEnvironmentView = () => {
   };
 };
 
-/**
- * Hook for managing environment scene objects
- * @returns {Object} Scene object management utilities
- */
 export const useEnvironmentScene = () => {
   const {
     sceneObjects,
@@ -157,10 +261,6 @@ export const useEnvironmentScene = () => {
   };
 };
 
-/**
- * Hook for managing environment camera
- * @returns {Object} Camera management utilities
- */
 export const useEnvironmentCamera = () => {
   const {
     setCameraPosition,
@@ -177,10 +277,6 @@ export const useEnvironmentCamera = () => {
   };
 };
 
-/**
- * Hook for managing environment physics
- * @returns {Object} Physics management utilities
- */
 export const useEnvironmentPhysics = () => {
   const {
     world,
@@ -201,10 +297,6 @@ export const useEnvironmentPhysics = () => {
   };
 };
 
-/**
- * Hook for managing environment placement
- * @returns {Object} Placement management utilities
- */
 export const useEnvironmentPlacement = () => {
   const { calculateSmartPosition } = useEnvironment();
   

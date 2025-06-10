@@ -1,20 +1,86 @@
-// src/contexts/hooks/useRobot.js - UNIFIED ROBOT HOOK (Discovery + Workspace + 3D Operations)
-import { useCallback, useContext } from 'react';
+// src/contexts/hooks/useRobot.js - HOOK DISPATCHER (Same as Environment Pattern)
+import { useCallback } from 'react';
 import { useRobotContext } from '../RobotContext';
-import RobotContext from '../RobotContext';
 
 // ========== MAIN HOOK (Everything) ==========
-/**
- * Hook to use the robot context
- * @returns {Object} Robot context value
- * @throws {Error} If used outside of RobotProvider
- */
 export const useRobot = () => {
-  const context = useContext(RobotContext);
-  if (!context) {
-    throw new Error('useRobot must be used within RobotProvider');
-  }
-  return context;
+  const context = useRobotContext();
+  
+  return {
+    // ========== ROBOT STATE ==========
+    availableRobots: context.availableRobots,
+    categories: context.categories,
+    workspaceRobots: context.workspaceRobots,
+    activeRobotId: context.activeRobotId,
+    activeRobot: context.activeRobot,
+    loadedRobots: context.loadedRobots,
+    isLoading: context.isLoading,
+    error: context.error,
+    successMessage: context.successMessage,
+    
+    // ========== ROBOT DISCOVERY OPERATIONS ==========
+    discoverRobots: context.discoverRobots,
+    refresh: context.refresh,
+    
+    // ========== WORKSPACE OPERATIONS ==========
+    addRobotToWorkspace: context.addRobotToWorkspace,
+    removeRobotFromWorkspace: context.removeRobotFromWorkspace,
+    isRobotInWorkspace: context.isRobotInWorkspace,
+    getWorkspaceRobot: context.getWorkspaceRobot,
+    clearWorkspace: context.clearWorkspace,
+    importRobots: context.importRobots,
+    exportRobots: context.exportRobots,
+    
+    // ========== ROBOT LOADING OPERATIONS ==========
+    loadRobot: context.loadRobot,
+    unloadRobot: context.unloadRobot,
+    isRobotLoaded: context.isRobotLoaded,
+    getRobot: context.getRobot,
+    setActiveRobotId: context.setActiveRobotId,
+    setActiveRobot: context.setActiveRobot,
+    getRobotLoadStatus: context.getRobotLoadStatus,
+    
+    // ========== CONVENIENCE METHODS ==========
+    getLoadedRobots: context.getLoadedRobots,
+    
+    // ========== COMPUTED PROPERTIES ==========
+    robotCount: context.robotCount,
+    isEmpty: context.isEmpty,
+    hasWorkspaceRobots: context.hasWorkspaceRobots,
+    hasAvailableRobots: context.hasAvailableRobots,
+    hasLoadedRobots: context.hasLoadedRobots,
+    hasActiveRobot: context.hasActiveRobot,
+    
+    // ========== ERROR HANDLING ==========
+    clearError: context.clearError,
+    clearSuccess: context.clearSuccess,
+    
+    // ========== HELPER FUNCTIONS ==========
+    getRobotById: useCallback((robotId) => {
+      return context.availableRobots.find(robot => robot.id === robotId);
+    }, [context.availableRobots]),
+    
+    getWorkspaceRobotById: useCallback((workspaceRobotId) => {
+      return context.workspaceRobots.find(robot => robot.id === workspaceRobotId);
+    }, [context.workspaceRobots]),
+    
+    getRobotsByCategory: useCallback((categoryId) => {
+      return context.availableRobots.filter(robot => robot.category === categoryId);
+    }, [context.availableRobots]),
+    
+    getCategoryById: useCallback((categoryId) => {
+      return context.categories.find(category => category.id === categoryId);
+    }, [context.categories]),
+    
+    // ========== STATE CHECKS ==========
+    isRobotActive: useCallback((robotId) => {
+      return context.activeRobotId === robotId;
+    }, [context.activeRobotId]),
+    
+    hasWorkspaceRobot: useCallback((robotId) => {
+      return context.workspaceRobots.some(r => r.robotId === robotId);
+    }, [context.workspaceRobots])
+  };
 };
 
 // ========== SPECIALIZED HOOKS ==========
@@ -62,12 +128,9 @@ export const useRobotDiscovery = () => {
   const {
     availableRobots,
     categories,
-    availableTools,
     discoverRobots,
     refresh,
-    loadAvailableTools,
     hasAvailableRobots,
-    hasAvailableTools,
     getRobotById,
     getRobotsByCategory,
     getCategoryById
@@ -77,14 +140,11 @@ export const useRobotDiscovery = () => {
     // Discovery State
     robots: availableRobots,
     categories,
-    tools: availableTools,
     hasRobots: hasAvailableRobots,
-    hasTools: hasAvailableTools,
     
     // Discovery Operations
     discover: discoverRobots,
     refresh,
-    refreshTools: loadAvailableTools,
     
     // Helper Methods
     getRobotById,
@@ -94,7 +154,6 @@ export const useRobotDiscovery = () => {
     // Computed Properties
     robotCount: availableRobots.length,
     categoryCount: categories.length,
-    toolCount: availableTools.length,
     isEmpty: availableRobots.length === 0
   };
 };
@@ -108,9 +167,7 @@ export const useRobotManagement = () => {
     getRobotLoadStatus,
     loadedRobots,
     hasLoadedRobots,
-    getLoadedRobots,
-    get3DRobot,
-    getAll3DRobots
+    getLoadedRobots
   } = useRobot();
   
   return {
@@ -125,10 +182,6 @@ export const useRobotManagement = () => {
     getRobot,
     getStatus: getRobotLoadStatus,
     getAll: getLoadedRobots,
-    
-    // 3D Model Access
-    get3DModel: get3DRobot,
-    getAll3DModels: getAll3DRobots,
     
     // Computed Properties
     loadedCount: loadedRobots.size,
@@ -206,90 +259,6 @@ export const useRobotCategories = () => {
   };
 };
 
-// ========== NEW: 3D ROBOT CONTROL HOOKS ==========
-
-export const useRobotControl = (robotId = null) => {
-  const {
-    activeRobotId,
-    setJointValue,
-    setJointValues,
-    getJointValues,
-    resetJoints,
-    getRobot,
-    hasJointControl,
-    getJointNames,
-    getJointCount,
-    updateMultipleJoints,
-    resetAllJoints,
-    getCurrentJointState,
-    getRobotModel
-  } = useRobot();
-  
-  // Use provided robotId or fall back to active robot
-  const targetRobotId = robotId || activeRobotId;
-  
-  return {
-    // Control State
-    robotId: targetRobotId,
-    hasControl: hasJointControl(targetRobotId),
-    jointNames: getJointNames(targetRobotId),
-    jointCount: getJointCount(targetRobotId),
-    
-    // Joint Control Operations
-    setJoint: (jointName, value) => setJointValue(targetRobotId, jointName, value),
-    setJoints: (values) => setJointValues(targetRobotId, values),
-    getJoints: () => getJointValues(targetRobotId),
-    resetJoints: () => resetJoints(targetRobotId),
-    
-    // Batch Operations
-    updateMultiple: (jointUpdates) => updateMultipleJoints(targetRobotId, jointUpdates),
-    resetAll: () => resetAllJoints(targetRobotId),
-    
-    // State Queries
-    getCurrentState: () => getCurrentJointState(targetRobotId),
-    getModel: () => getRobotModel(targetRobotId),
-    getRobotObject: () => getRobot(targetRobotId),
-    
-    // Convenience Methods
-    hasJoints: getJointCount(targetRobotId) > 0,
-    isControlReady: !!targetRobotId && hasJointControl(targetRobotId)
-  };
-};
-
-export const useRobotJoints = (robotId = null) => {
-  const {
-    activeRobotId,
-    setJointValue,
-    setJointValues,
-    getJointValues,
-    resetJoints,
-    getJointNames,
-    getJointCount,
-    getCurrentJointState
-  } = useRobot();
-  
-  // Use provided robotId or fall back to active robot
-  const targetRobotId = robotId || activeRobotId;
-  
-  return {
-    // Joint State
-    robotId: targetRobotId,
-    jointNames: getJointNames(targetRobotId),
-    jointCount: getJointCount(targetRobotId),
-    currentValues: getCurrentJointState(targetRobotId),
-    
-    // Joint Operations
-    setValue: (jointName, value) => setJointValue(targetRobotId, jointName, value),
-    setValues: (values) => setJointValues(targetRobotId, values),
-    getValues: () => getJointValues(targetRobotId),
-    reset: () => resetJoints(targetRobotId),
-    
-    // State Checks
-    hasJoints: getJointCount(targetRobotId) > 0,
-    isReady: !!targetRobotId
-  };
-};
-
 // ========== CONVENIENCE HOOKS ==========
 
 export const useActiveRobot = () => {
@@ -314,21 +283,6 @@ export const useRobotErrors = () => {
     error,
     hasError,
     clear: clearError
-  };
-};
-
-export const useRobotTools = () => {
-  const {
-    availableTools,
-    hasAvailableTools,
-    loadAvailableTools
-  } = useRobot();
-  
-  return {
-    tools: availableTools,
-    hasTools: hasAvailableTools,
-    refresh: loadAvailableTools,
-    count: availableTools.length
   };
 };
 

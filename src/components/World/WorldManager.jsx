@@ -1,9 +1,6 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useWorld } from '../../contexts/WorldContext';
-import { useViewer } from '../../contexts/ViewerContext';
-import { useEnvironment } from '../../contexts/hooks/useEnvironment';
-import { useRobot } from '../../contexts/hooks/useRobot';
 import EventBus from '../../utils/EventBus';
 import * as THREE from 'three';
 
@@ -50,6 +47,7 @@ const WorldManager = ({ viewerRef, isOpen, onClose }) => {
     
     const viewer = viewerRef.current;
     const sceneSetup = viewer.getSceneSetup?.() || viewer.sceneRef?.current;
+    const robotManager = viewer.robotManagerRef?.current;
     
     if (!sceneSetup) {
       throw new Error('Scene not properly initialized');
@@ -64,24 +62,26 @@ const WorldManager = ({ viewerRef, isOpen, onClose }) => {
     
     // Get robots data
     const robots = [];
-    const allRobots = getAll3DRobots();
-    allRobots.forEach((robotData, robotId) => {
-      if (robotData.model) {
-        robots.push({
-          id: robotId,
-          name: robotData.name,
-          urdfPath: robotData.urdfPath,
-          position: robotData.container ? 
-            robotData.container.position.toArray() : 
-            [0, 0, 0],
-          rotation: robotData.container ?
-            robotData.container.rotation.toArray() :
-            [0, 0, 0],
-          jointValues: getJointValues(robotId),
-          isActive: robotData.isActive
-        });
-      }
-    });
+    if (robotManager) {
+      const allRobots = robotManager.getAllRobots();
+      allRobots.forEach((robotData, robotId) => {
+        if (robotData.model) {
+          robots.push({
+            id: robotId,
+            name: robotData.name,
+            urdfPath: robotData.urdfPath,
+            position: robotData.container ? 
+              robotData.container.position.toArray() : 
+              [0, 0, 0],
+            rotation: robotData.container ?
+              robotData.container.rotation.toArray() :
+              [0, 0, 0],
+            jointValues: robotManager.getJointValues(robotId),
+            isActive: robotData.isActive
+          });
+        }
+      });
+    }
     
     // Get environment objects
     const environment = [];
@@ -122,20 +122,18 @@ const WorldManager = ({ viewerRef, isOpen, onClose }) => {
     
     const viewer = viewerRef.current;
     const sceneSetup = viewer.getSceneSetup?.() || viewer.sceneRef?.current;
+    const robotManager = viewer.robotManagerRef?.current;
     
-    if (!sceneSetup) {
-      console.error('Scene not properly initialized');
+    if (!sceneSetup || !robotManager) {
+      console.error('Scene or robot manager not initialized');
       return;
     }
     
     const callbacks = {
       clearScene: async () => {
         console.log('Clearing scene...');
-        // Clear robots using useRobot
-        const allRobots = getAll3DRobots();
-        for (const [robotId] of allRobots) {
-          await unloadRobot(robotId);
-        }
+        // Clear robots
+        robotManager.clearAllRobots();
         
         // Clear environment
         sceneSetup.clearEnvironment();
@@ -147,13 +145,13 @@ const WorldManager = ({ viewerRef, isOpen, onClose }) => {
       loadRobot: async (robotId, urdfPath, options) => {
         console.log('Loading robot:', robotId, urdfPath, options);
         try {
-          const robot = await loadRobot(robotId, urdfPath, options);
+          const robot = await robotManager.loadRobot(robotId, urdfPath, options);
           
           // Apply position after loading
           if (robot && options.position) {
-            const robotData = getAll3DRobots().get(robotId);
-            if (robotData?.container) {
-              robotData.container.position.set(
+            const container = robotManager.robots.get(robotId)?.container;
+            if (container) {
+              container.position.set(
                 options.position[0],
                 options.position[1],
                 options.position[2]
