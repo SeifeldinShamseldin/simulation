@@ -14,16 +14,23 @@ import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
 import { JointProvider } from './contexts/JointContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
+import { useRobotSelection } from './contexts/hooks/useRobot';
 import WorldManager from './components/World/WorldManager';
 import './App.css';
 
 const RobotPanel = ({ onClose, viewerRef }) => {
   const [showControls, setShowControls] = useState(false);
   const [selectedRobotId, setSelectedRobotId] = useState(null);
+  
+  // Add this line to get setActive from context
+  const { setActive: setActiveRobotId } = useRobotSelection();
 
   // Handle when a robot is selected for controls
   const handleRobotSelected = (robotId) => {
     console.log('[App] Robot selected for controls:', robotId);
+    
+    // FIXED: Update the context's active robot, not just local state
+    setActiveRobotId(robotId);
     setSelectedRobotId(robotId);
     setShowControls(true);
   };
