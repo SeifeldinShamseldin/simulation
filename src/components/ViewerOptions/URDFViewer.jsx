@@ -455,9 +455,6 @@ const URDFViewer = ({
       getSceneSetup: () => sceneRef.current,
       robotLoaderRef: { current: robotManager }, // Expose robot manager for compatibility
       
-      // 🎯 NEW: Direct access to robot manager context
-      getRobotManager: () => robotManager,
-      
       // Table-related methods
       loadTable,
       toggleTable,

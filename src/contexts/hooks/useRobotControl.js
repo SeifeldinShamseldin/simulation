@@ -1,14 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useRobotSelection } from './useRobot';
 import { useViewer } from '../ViewerContext';
-import { useRobotManager } from './useRobotManager'; // ← 🎯 USE ROBOT MANAGER CONTEXT DIRECTLY
 import { useTCP } from './useTCP';
 import EventBus from '@/utils/EventBus';
 
 export const useRobotControl = () => {
   const { activeId: activeRobotId } = useRobotSelection();
-  const { isViewerReady } = useViewer();
-  const robotManager = useRobotManager(); // ← 🎯 USE CONTEXT DIRECTLY
+  const { isViewerReady, viewerInstance } = useViewer();
   const { 
     currentEndEffectorPoint,
     hasValidEndEffector,
@@ -19,41 +17,35 @@ export const useRobotControl = () => {
   } = useTCP();
 
   const [robot, setRobot] = useState(null);
+  const [robotManager, setRobotManager] = useState(null);
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    if (!isViewerReady || !activeRobotId || !robotManager) {
+    if (!isViewerReady || !activeRobotId || !viewerInstance) {
       setRobot(null);
+      setRobotManager(null);
       setIsReady(false);
       return;
     }
 
-    // 🎯 CRITICAL FIX: Extract actual robot name from workspace robot ID
-    // Workspace robot ID: "crx10ial_1749533150114"
-    // Robot manager expects: "crx10ial"
-    const actualRobotName = activeRobotId.includes('_') ? activeRobotId.split('_')[0] : activeRobotId;
-    
-    console.log(`[useRobotControl] Active robot ID: ${activeRobotId}`);
-    console.log(`[useRobotControl] Actual robot name for robot manager: ${actualRobotName}`);
-    console.log(`[useRobotControl] Available robots in manager:`, Array.from(robotManager.robots.keys()));
+    // Get robot manager from viewer instance (compatibility)
+    const manager = viewerInstance?.robotLoaderRef?.current;
+    if (!manager) return;
 
-    // Get the specific robot using the actual robot name
-    const robotModel = robotManager.getRobot(actualRobotName);
+    setRobotManager(manager);
+
+    // Get the specific robot
+    const robotModel = manager.getRobot ? manager.getRobot(activeRobotId) : null;
     
     if (robotModel) {
       setRobot(robotModel);
       setIsReady(true);
-      console.log(`[useRobotControl] Robot ${actualRobotName} found and ready`);
-    } else {
-      console.warn(`[useRobotControl] Robot ${actualRobotName} not found in robotManager`);
-      console.log(`[useRobotControl] Available robots:`, Array.from(robotManager.robots.keys()));
     }
 
     // Listen for updates
     const handleUpdate = (data) => {
-      const dataRobotName = data.robotId || data.robotName;
-      if (dataRobotName === activeRobotId || dataRobotName === actualRobotName) {
-        const updatedRobot = robotManager.getRobot(actualRobotName);
+      if (data.robotId === activeRobotId || data.robotName === activeRobotId) {
+        const updatedRobot = manager.getRobot ? manager.getRobot(activeRobotId) : null;
         if (updatedRobot) {
           setRobot(updatedRobot);
           setIsReady(true);
@@ -63,86 +55,62 @@ export const useRobotControl = () => {
 
     const unsubscribe = EventBus.on('robot:updated', handleUpdate);
     return () => unsubscribe();
-  }, [isViewerReady, activeRobotId, robotManager]);
-
-  // Helper function to get actual robot name
-  const getActualRobotName = useCallback(() => {
-    return activeRobotId ? (activeRobotId.includes('_') ? activeRobotId.split('_')[0] : activeRobotId) : null;
-  }, [activeRobotId]);
+  }, [isViewerReady, activeRobotId, viewerInstance]);
 
   const setJointValue = useCallback((jointName, value) => {
-    const actualRobotName = getActualRobotName();
-    if (!robotManager || !actualRobotName) {
-      console.warn(`[useRobotControl] Cannot set joint - robotManager: ${!!robotManager}, actualRobotName: ${actualRobotName}`);
-      return false;
-    }
-    
-    const success = robotManager.setJointValue(actualRobotName, jointName, value);
+    if (!robotManager || !activeRobotId) return false;
+    const success = robotManager.setJointValue ? 
+      robotManager.setJointValue(activeRobotId, jointName, value) : false;
     
     if (success && isUsingTCP) {
       // Force TCP end effector recalculation after joint change
-      EventBus.emit('tcp:force-recalculate', { robotId: actualRobotName });
+      EventBus.emit('tcp:force-recalculate', { robotId: activeRobotId });
     }
     
     return success;
-  }, [robotManager, getActualRobotName, isUsingTCP]);
+  }, [robotManager, activeRobotId, isUsingTCP]);
 
   const setJointValues = useCallback((values) => {
-    const actualRobotName = getActualRobotName();
-    if (!robotManager || !actualRobotName) {
-      console.warn(`[useRobotControl] Cannot set joints - robotManager: ${!!robotManager}, actualRobotName: ${actualRobotName}`);
-      return false;
-    }
-    
-    const success = robotManager.setJointValues(actualRobotName, values);
+    if (!robotManager || !activeRobotId) return false;
+    const success = robotManager.setJointValues ? 
+      robotManager.setJointValues(activeRobotId, values) : false;
     
     if (success && isUsingTCP) {
       // Force TCP end effector recalculation after joint changes
-      EventBus.emit('tcp:force-recalculate', { robotId: actualRobotName });
+      EventBus.emit('tcp:force-recalculate', { robotId: activeRobotId });
     }
     
     return success;
-  }, [robotManager, getActualRobotName, isUsingTCP]);
+  }, [robotManager, activeRobotId, isUsingTCP]);
 
   const resetJoints = useCallback(() => {
-    const actualRobotName = getActualRobotName();
-    if (!robotManager || !actualRobotName) {
-      console.warn(`[useRobotControl] Cannot reset joints - robotManager: ${!!robotManager}, actualRobotName: ${actualRobotName}`);
-      return;
+    if (!robotManager || !activeRobotId) return;
+    if (robotManager.resetJoints) {
+      robotManager.resetJoints(activeRobotId);
     }
-    
-    robotManager.resetJoints(actualRobotName);
     
     if (isUsingTCP) {
       // Force TCP end effector recalculation after reset
-      EventBus.emit('tcp:force-recalculate', { robotId: actualRobotName });
+      EventBus.emit('tcp:force-recalculate', { robotId: activeRobotId });
     }
-  }, [robotManager, getActualRobotName, isUsingTCP]);
+  }, [robotManager, activeRobotId, isUsingTCP]);
 
   const getJointValues = useCallback(() => {
-    const actualRobotName = getActualRobotName();
-    if (!robotManager || !actualRobotName) {
-      console.warn(`[useRobotControl] Cannot get joints - robotManager: ${!!robotManager}, actualRobotName: ${actualRobotName}`);
-      return {};
-    }
-    
-    return robotManager.getJointValues(actualRobotName);
-  }, [robotManager, getActualRobotName]);
+    if (!robotManager || !activeRobotId) return {};
+    return robotManager.getJointValues ? 
+      robotManager.getJointValues(activeRobotId) : {};
+  }, [robotManager, activeRobotId]);
 
-  const getRobot = useCallback((robotId = null) => {
-    const targetRobotName = robotId || getActualRobotName();
-    if (!robotManager || !targetRobotName) return null;
-    
-    // Extract actual robot name if workspace ID is provided
-    const actualName = targetRobotName.includes('_') ? targetRobotName.split('_')[0] : targetRobotName;
-    return robotManager.getRobot(actualName);
-  }, [robotManager, getActualRobotName]);
+  const getRobot = useCallback((robotId = activeRobotId) => {
+    if (!robotManager || !robotId) return null;
+    return robotManager.getRobot ? robotManager.getRobot(robotId) : null;
+  }, [robotManager, activeRobotId]);
 
   return {
     // Robot state
     activeRobotId,
     robot,
-    robotManager, // ← 🎯 PROVIDE CONTEXT DIRECTLY
+    robotManager,
     isReady,
     
     // TCP awareness
