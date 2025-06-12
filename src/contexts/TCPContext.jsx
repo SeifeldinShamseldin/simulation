@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { useViewer } from './ViewerContext';
-import { useRobotSelection } from './hooks/useRobot';
+import { useRobot } from './hooks/useRobot';
 import URDFLoader from '../core/Loader/URDFLoader';
 import MeshLoader from '../core/Loader/MeshLoader';
 import EventBus from '../utils/EventBus';
@@ -11,7 +11,7 @@ const TCPContext = createContext(null);
 class OptimizedTCPManager {
   constructor() {
     this.sceneSetup = null;
-    this.robotManager = null;
+    this.robotContext = null;
     this.attachedTools = new Map();
     this.availableTools = [];
     this.urdfLoader = null;
@@ -30,48 +30,28 @@ class OptimizedTCPManager {
       return this.robotRegistry.get(robotId);
     }
     
-    // Try robot manager methods
-    if (this.robotManager) {
-      // Method 1: getRobot method
-      if (this.robotManager.getRobot) {
-        try {
-          const robot = this.robotManager.getRobot(robotId);
-          if (robot) {
-            this.robotRegistry.set(robotId, robot);
-            return robot;
-          }
-        } catch (error) { /* Continue to next method */ }
-      }
-      
-      // Method 2: robots Map
-      if (this.robotManager.robots?.has?.(robotId)) {
-        const robotData = this.robotManager.robots.get(robotId);
-        if (robotData?.robot) {
-          this.robotRegistry.set(robotId, robotData.robot);
-          return robotData.robot;
-        }
+    // Try robot context methods
+    if (this.robotContext) {
+      const robot = this.robotContext.getRobot(robotId);
+      if (robot) {
+        this.robotRegistry.set(robotId, robot);
+        return robot;
       }
     }
     
     // Method 3: Scene traversal (slowest, last resort)
-    if (this.sceneSetup?.scene) {
-      let foundRobot = null;
-      this.sceneSetup.scene.traverse((child) => {
-        if (child.isURDFRobot && (child.name === robotId || child.robotName === robotId)) {
-          foundRobot = child;
-        }
-      });
-      if (foundRobot) {
-        this.robotRegistry.set(robotId, foundRobot);
-        return foundRobot;
+    if (this.sceneSetup) {
+      const robot = this.sceneSetup.scene.getObjectByName(robotId);
+      if (robot) {
+        this.robotRegistry.set(robotId, robot);
+        return robot;
       }
     }
     
-    // Only warn once per robot to avoid spam
+    // Log warning only once per robot
     if (!this._notFoundWarnings.has(robotId)) {
-      console.warn(`[TCP] Robot ${robotId} not found`);
+      console.warn(`[TCPManager] Robot ${robotId} not found in any registry`);
       this._notFoundWarnings.add(robotId);
-      setTimeout(() => this._notFoundWarnings.delete(robotId), 5000);
     }
     
     return null;
@@ -237,9 +217,9 @@ class OptimizedTCPManager {
   /**
    * Initialize manager
    */
-  initialize(sceneSetup, robotManager) {
+  initialize(sceneSetup, robotContext) {
     this.sceneSetup = sceneSetup;
-    this.robotManager = robotManager;
+    this.robotContext = robotContext;
     this.urdfLoader = new URDFLoader(new THREE.LoadingManager());
     this.urdfLoader.parseVisual = true;
     this.urdfLoader.parseCollision = false;
@@ -607,7 +587,8 @@ class OptimizedTCPManager {
 }
 
 export const TCPProvider = ({ children }) => {
-  const { isViewerReady, getSceneSetup, getRobotManager } = useViewer();
+  const { isViewerReady, getSceneSetup } = useViewer();
+  const { getRobot } = useRobot();
   const tcpManagerRef = useRef(null);
   
   // State
@@ -621,21 +602,20 @@ export const TCPProvider = ({ children }) => {
   useEffect(() => {
     if (isViewerReady) {
       const sceneSetup = getSceneSetup();
-      const robotManager = getRobotManager();
       
-      if (sceneSetup && robotManager) {
+      if (sceneSetup) {
         if (!tcpManagerRef.current) {
           tcpManagerRef.current = new OptimizedTCPManager();
         }
         
-        tcpManagerRef.current.initialize(sceneSetup, robotManager);
+        tcpManagerRef.current.initialize(sceneSetup, { getRobot });
         setIsInitialized(true);
         setError(null);
         
         loadAvailableTools();
       }
     }
-  }, [isViewerReady, getSceneSetup, getRobotManager]);
+  }, [isViewerReady, getSceneSetup, getRobot]);
 
   // Event handlers
   useEffect(() => {

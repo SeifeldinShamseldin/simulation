@@ -1,14 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
-import { useRobotSelection } from './useRobot';
+import { useRobot } from '../contexts/hooks/useRobot';
 import { useViewer } from '../contexts/ViewerContext';
-import { useRobotManager } from './useRobotManager'; // ← 🎯 USE ROBOT MANAGER CONTEXT
 import { useTCP } from './useTCP';
 import EventBus from '@/utils/EventBus';
 
 export const useRobotControl = () => {
-  const { activeId: activeRobotId } = useRobotSelection();
+  const { activeRobotId, getRobot } = useRobot();
   const { isViewerReady } = useViewer();
-  const robotManager = useRobotManager(); // ← 🎯 USE CONTEXT INSTEAD OF REF
   const { 
     currentEndEffectorPoint,
     hasValidEndEffector,
@@ -22,14 +20,14 @@ export const useRobotControl = () => {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    if (!isViewerReady || !activeRobotId || !robotManager) {
+    if (!isViewerReady || !activeRobotId) {
       setRobot(null);
       setIsReady(false);
       return;
     }
 
     // Get the specific robot using context
-    const robotModel = robotManager.getRobot(activeRobotId);
+    const robotModel = getRobot(activeRobotId);
     
     if (robotModel) {
       setRobot(robotModel);
@@ -39,7 +37,7 @@ export const useRobotControl = () => {
     // Listen for updates
     const handleUpdate = (data) => {
       if (data.robotId === activeRobotId || data.robotName === activeRobotId) {
-        const updatedRobot = robotManager.getRobot(activeRobotId);
+        const updatedRobot = getRobot(activeRobotId);
         if (updatedRobot) {
           setRobot(updatedRobot);
           setIsReady(true);
@@ -49,11 +47,11 @@ export const useRobotControl = () => {
 
     const unsubscribe = EventBus.on('robot:updated', handleUpdate);
     return () => unsubscribe();
-  }, [isViewerReady, activeRobotId, robotManager]);
+  }, [isViewerReady, activeRobotId, getRobot]);
 
   const setJointValue = useCallback((jointName, value) => {
-    if (!robotManager || !activeRobotId) return false;
-    const success = robotManager.setJointValue(activeRobotId, jointName, value);
+    if (!robot || !activeRobotId) return false;
+    const success = robot.setJointValue(activeRobotId, jointName, value);
     
     if (success && isUsingTCP) {
       // Force TCP end effector recalculation after joint change
@@ -61,11 +59,11 @@ export const useRobotControl = () => {
     }
     
     return success;
-  }, [robotManager, activeRobotId, isUsingTCP]);
+  }, [robot, activeRobotId, isUsingTCP]);
 
   const setJointValues = useCallback((values) => {
-    if (!robotManager || !activeRobotId) return false;
-    const success = robotManager.setJointValues(activeRobotId, values);
+    if (!robot || !activeRobotId) return false;
+    const success = robot.setJointValues(activeRobotId, values);
     
     if (success && isUsingTCP) {
       // Force TCP end effector recalculation after joint changes
@@ -73,34 +71,27 @@ export const useRobotControl = () => {
     }
     
     return success;
-  }, [robotManager, activeRobotId, isUsingTCP]);
+  }, [robot, activeRobotId, isUsingTCP]);
 
   const resetJoints = useCallback(() => {
-    if (!robotManager || !activeRobotId) return;
-    robotManager.resetJoints(activeRobotId);
+    if (!robot || !activeRobotId) return;
+    robot.resetJoints(activeRobotId);
     
     if (isUsingTCP) {
       // Force TCP end effector recalculation after reset
       EventBus.emit('tcp:force-recalculate', { robotId: activeRobotId });
     }
-  }, [robotManager, activeRobotId, isUsingTCP]);
+  }, [robot, activeRobotId, isUsingTCP]);
 
   const getJointValues = useCallback(() => {
-    if (!robotManager || !activeRobotId) return {};
-    return robotManager.getJointValues(activeRobotId);
-  }, [robotManager, activeRobotId]);
-
-  const getRobot = useCallback((robotId = activeRobotId) => {
-    if (!robotManager || !robotId) return null;
-    return robotManager.getRobot(robotId);
-  }, [robotManager, activeRobotId]);
+    if (!robot || !activeRobotId) return {};
+    return robot.getJointValues(activeRobotId);
+  }, [robot, activeRobotId]);
 
   return {
     // Robot state
     activeRobotId,
     robot,
-    robotManager, // ← 🎯 PROVIDE CONTEXT INSTEAD OF REF
-    isReady,
     
     // TCP awareness
     currentEndEffectorPoint,
@@ -113,7 +104,6 @@ export const useRobotControl = () => {
     setJointValues,
     resetJoints,
     getJointValues,
-    getRobot,
     
     // TCP-specific methods
     getEndEffectorInfo,

@@ -65,7 +65,7 @@ export const ViewerProvider = ({ children }) => {
     return viewerInstanceRef.current?.robotLoaderRef?.current;
   }, []);
   
-  // Focus on robot (existing API)
+  // Focus on robot
   const focusOnRobot = useCallback((robotId, forceRefocus = false) => {
     if (!viewerInstanceRef.current && !sceneSetupRef.current) {
       console.warn('[ViewerContext] Attempted to focus robot before viewer initialization');
