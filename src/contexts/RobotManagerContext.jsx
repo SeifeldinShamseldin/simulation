@@ -260,28 +260,38 @@ export const RobotManagerProvider = ({ children }) => {
       return false;
     }
     
-    if (!robot.joints) {
-      console.warn(`[RobotManager] Robot ${robotName} has no joints`);
-      return false;
-    }
-    
-    if (!robot.joints[jointName]) {
-      console.warn(`[RobotManager] Joint ${jointName} not found in robot ${robotName}`);
-      return false;
-    }
-    
     try {
-      robot.joints[jointName].angle = value;
-      if (robot.joints[jointName].setPosition) {
-        robot.joints[jointName].setPosition(value);
+      let success = false;
+      
+      // Method 1: Use robot.setJointValue if available
+      if (robot.setJointValue && typeof robot.setJointValue === 'function') {
+        success = robot.setJointValue(jointName, value);
+        console.log(`[RobotManager] robot.setJointValue(${jointName}, ${value}) = ${success}`);
       }
-      robot.updateMatrixWorld(true);
-      return true;
+      
+      // Method 2: Direct joint access (always do this to ensure sync)
+      if (robot.joints && robot.joints[jointName]) {
+        robot.joints[jointName].angle = value;
+        if (robot.joints[jointName].setPosition) {
+          robot.joints[jointName].setPosition(value);
+        }
+        success = true;
+        console.log(`[RobotManager] ✅ Set joint.angle for ${jointName} = ${value}`);
+      } else {
+        console.warn(`[RobotManager] Joint ${jointName} not found in robot.joints`);
+      }
+      
+      // Update matrices
+      if (success && robot.updateMatrixWorld) {
+        robot.updateMatrixWorld(true);
+      }
+      
+      return success;
     } catch (error) {
       console.error(`[RobotManager] Error setting joint ${jointName}:`, error);
       return false;
     }
-  }, [robots]);
+  }, [getRobot]);
   
   /**
    * Set multiple joint values for a specific robot
@@ -320,14 +330,41 @@ export const RobotManagerProvider = ({ children }) => {
    */
   const getJointValues = useCallback((robotName) => {
     const robotData = robots.get(robotName);
-    if (!robotData || !robotData.model) return {};
+    if (!robotData || !robotData.model) {
+      console.warn(`[RobotManager] Robot ${robotName} not found for getJointValues`);
+      return {};
+    }
     
+    const robot = robotData.model;
     const values = {};
-    Object.entries(robotData.model.joints).forEach(([name, joint]) => {
-      values[name] = joint.angle;
-    });
     
-    return values;
+    try {
+      // Method 1: Direct joint access
+      if (robot.joints) {
+        Object.values(robot.joints).forEach(joint => {
+          if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
+            values[joint.name] = joint.angle;
+          }
+        });
+        
+        console.log(`[RobotManager] Got ${Object.keys(values).length} joint values for ${robotName}:`, values);
+        return values;
+      }
+      
+      // Method 2: Traverse robot object
+      robot.traverse((child) => {
+        if (child.isURDFJoint && child.jointType !== 'fixed' && typeof child.angle !== 'undefined') {
+          values[child.name] = child.angle;
+        }
+      });
+      
+      console.log(`[RobotManager] Got ${Object.keys(values).length} joint values via traverse for ${robotName}:`, values);
+      return values;
+      
+    } catch (error) {
+      console.error(`[RobotManager] Error getting joint values for ${robotName}:`, error);
+      return {};
+    }
   }, [robots]);
   
   /**

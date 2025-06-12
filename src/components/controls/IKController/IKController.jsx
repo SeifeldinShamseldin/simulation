@@ -30,6 +30,7 @@ const IKController = () => {
   const [solverSettings, setSolverSettings] = useState({});
   const [targetOrientation, setTargetOrientation] = useState({ roll: 0, pitch: 0, yaw: 0 });
   const [orientationInitialized, setOrientationInitialized] = useState(false);
+  const [orientationMode, setOrientationMode] = useState(false);
 
   // Update solver settings when solver changes
   useEffect(() => {
@@ -94,6 +95,7 @@ const IKController = () => {
     try {
       console.log(`[IKController] Moving to target position:`, targetPosition);
       console.log(`[IKController] Moving to target orientation:`, targetOrientation);
+      console.log(`[IKController] Orientation mode:`, orientationMode);
       
       // Convert target orientation from degrees to radians for the solver
       const targetOrientationRad = {
@@ -102,10 +104,22 @@ const IKController = () => {
         yaw: targetOrientation.yaw * Math.PI / 180
       };
       
+      // Configure solver for orientation mode
+      if (orientationMode) {
+        configureSolver(currentSolver, {
+          orientationWeight: 0.8, // High orientation weight
+          maxIterations: 20,      // More iterations for orientation
+          tolerance: 0.02,        // Slightly relaxed position tolerance
+          dampingFactor: 0.5      // Lower damping for better orientation reach
+        });
+      }
+      
       await executeIK(targetPosition, { 
         animate,
-        targetOrientation: targetOrientationRad
+        targetOrientation: targetOrientationRad,
+        orientationMode
       });
+      
     } catch (error) {
       console.error('[IKController] IK execution failed:', error);
     }
@@ -195,6 +209,21 @@ const IKController = () => {
       {showSettings && solverSettings && (
         <div className="controls-card controls-p-3 controls-mb-3">
           <h5 className="controls-h6">{currentSolver} Settings:</h5>
+          
+          <div className="controls-form-group">
+            <label className="controls-form-label">
+              <input
+                type="checkbox"
+                checked={orientationMode}
+                onChange={(e) => setOrientationMode(e.target.checked)}
+                style={{ marginRight: '0.5rem' }}
+              />
+              Orientation Priority Mode
+            </label>
+            <small className="controls-text-muted">
+              Prioritizes reaching target orientation over exact position
+            </small>
+          </div>
           
           {Object.entries(solverSettings).map(([key, value]) => (
             <div key={key} className="controls-form-group">

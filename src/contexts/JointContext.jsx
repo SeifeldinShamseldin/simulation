@@ -121,43 +121,103 @@ export const JointProvider = ({ children }) => {
     const values = {};
     
     try {
-      // Method 1: Use robot's getJointValues if available
+      console.log(`[JointContext] Getting joint values for ${robotId}`);
+      
+      // Method 1: Direct robot.joints access (most reliable)
+      if (robot.joints) {
+        console.log(`[JointContext] Found robot.joints:`, Object.keys(robot.joints));
+        
+        Object.values(robot.joints).forEach(joint => {
+          if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
+            values[joint.name] = joint.angle;
+            console.log(`[JointContext] Read joint ${joint.name} = ${joint.angle}`);
+          }
+        });
+        
+        if (Object.keys(values).length > 0) {
+          console.log(`[JointContext] ✅ Got ${Object.keys(values).length} joint values via direct access:`, values);
+          return values;
+        }
+      }
+
+      // Method 2: Try robot's getJointValues if available
       if (robot.getJointValues && typeof robot.getJointValues === 'function') {
         const robotValues = robot.getJointValues();
         Object.assign(values, robotValues);
         console.log(`[JointContext] Got joint values via robot.getJointValues(): ${Object.keys(values).length} joints`);
-        return values;
+        
+        if (Object.keys(values).length > 0) {
+          return values;
+        }
       }
 
-      // Method 2: Use robot manager's getJointValues
+      // Method 3: Try robot manager's getJointValues (this was failing before)
       if (robotManagerRef.current && robotManagerRef.current.getJointValues) {
         try {
           const managerValues = robotManagerRef.current.getJointValues(robotId);
           Object.assign(values, managerValues);
           console.log(`[JointContext] Got joint values via manager.getJointValues(): ${Object.keys(values).length} joints`);
-          return values;
+          
+          if (Object.keys(values).length > 0) {
+            return values;
+          }
         } catch (error) {
           console.warn(`[JointContext] Manager getJointValues failed:`, error);
         }
       }
 
-      // Method 3: Direct joint access
-      if (robot.joints) {
-        Object.values(robot.joints).forEach(joint => {
-          if (joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
-            values[joint.name] = joint.angle;
-          }
-        });
-        console.log(`[JointContext] Got joint values via direct access: ${Object.keys(values).length} joints`);
-        return values;
+      // Method 4: Try traversing robot object to find joints
+      console.log(`[JointContext] Fallback: traversing robot object to find joints`);
+      const foundJoints = {};
+      
+      robot.traverse((child) => {
+        if (child.isURDFJoint && child.jointType !== 'fixed' && typeof child.angle !== 'undefined') {
+          foundJoints[child.name] = child.angle;
+          console.log(`[JointContext] Found joint via traverse: ${child.name} = ${child.angle}`);
+        }
+      });
+      
+      if (Object.keys(foundJoints).length > 0) {
+        console.log(`[JointContext] ✅ Got ${Object.keys(foundJoints).length} joints via traverse:`, foundJoints);
+        return foundJoints;
       }
+
+      console.warn(`[JointContext] ❌ Could not retrieve any joint values for ${robotId}`);
+      return {};
 
     } catch (error) {
       console.error(`[JointContext] Error getting joint values for ${robotId}:`, error);
+      return {};
+    }
+  }, [findRobotWithFallbacks]);
+
+  // Add this helper method in JointProvider (around line 150)
+  const ensureJointAngleSync = useCallback((robot, jointName, value) => {
+    // Method 1: Call robot's setJointValue if available
+    let visualSuccess = false;
+    if (robot.setJointValue && typeof robot.setJointValue === 'function') {
+      visualSuccess = robot.setJointValue(jointName, value);
     }
 
-    return values;
-  }, [findRobotWithFallbacks]);
+    // Method 2: Also ensure joint.angle is directly updated for IK solver
+    if (robot.joints && robot.joints[jointName]) {
+      robot.joints[jointName].angle = value;
+      
+      // If the joint has a setPosition method, call it too
+      if (robot.joints[jointName].setPosition) {
+        robot.joints[jointName].setPosition(value);
+      }
+      
+      console.log(`[JointContext] ✅ Synced joint.angle for ${jointName} = ${value}`);
+    }
+
+    // Method 3: Update matrices
+    if (robot.updateMatrixWorld) {
+      robot.updateMatrixWorld(true);
+    }
+
+    return visualSuccess;
+  }, []);
 
   // 🚨 CRITICAL FIX: Enhanced joint setter with proper TCP integration
   const setRobotJointValues_Internal = useCallback((robotId, values) => {
@@ -178,51 +238,43 @@ export const JointProvider = ({ children }) => {
         console.log(`[JointContext] Robot setJointValues result: ${success}`);
       }
 
+      // 🚨 FIX: Always ensure joint.angle properties are synced regardless of setJointValues result
+      let syncSuccess = true;
+      Object.entries(values).forEach(([jointName, value]) => {
+        try {
+          // Ensure both visual and internal state are updated
+          const jointSuccess = ensureJointAngleSync(robot, jointName, value);
+          if (!jointSuccess) syncSuccess = false;
+        } catch (error) {
+          console.error(`[JointContext] Failed to sync joint ${jointName}:`, error);
+          syncSuccess = false;
+        }
+      });
+
+      // If robot.setJointValues failed but individual sync succeeded, consider it a success
+      if (!success && syncSuccess) {
+        success = true;
+        console.log(`[JointContext] ✅ Joint values applied via individual sync`);
+      }
+
       // Method 2: Use robot manager's setJointValues (if robot method failed)
       if (!success && robotManagerRef.current && robotManagerRef.current.setJointValues) {
         try {
           success = robotManagerRef.current.setJointValues(robotId, values);
           console.log(`[JointContext] Robot manager setJointValues result: ${success}`);
+          
+          // Still sync joint.angle even if manager succeeded
+          if (success) {
+            Object.entries(values).forEach(([jointName, value]) => {
+              if (robot.joints && robot.joints[jointName]) {
+                robot.joints[jointName].angle = value;
+              }
+            });
+            console.log(`[JointContext] ✅ Synced joint.angle via manager`);
+          }
         } catch (error) {
           console.warn(`[JointContext] Robot manager setJointValues failed:`, error);
         }
-      }
-
-      // Method 3: Set individual joints as fallback
-      if (!success) {
-        console.log(`[JointContext] Falling back to individual joint setting`);
-        let individualSuccess = true;
-
-        Object.entries(values).forEach(([jointName, value]) => {
-          try {
-            // Try robot's setJointValue method first
-            if (robot.setJointValue && typeof robot.setJointValue === 'function') {
-              const result = robot.setJointValue(jointName, value);
-              if (!result) individualSuccess = false;
-            } 
-            // Try robot manager's setJointValue method
-            else if (robotManagerRef.current && robotManagerRef.current.setJointValue) {
-              const result = robotManagerRef.current.setJointValue(robotId, jointName, value);
-              if (!result) individualSuccess = false;
-            }
-            // Direct joint manipulation as last resort
-            else if (robot.joints && robot.joints[jointName]) {
-              robot.joints[jointName].angle = value;
-              if (robot.joints[jointName].setPosition) {
-                robot.joints[jointName].setPosition(value);
-              }
-            } else {
-              console.warn(`[JointContext] Joint ${jointName} not found`);
-              individualSuccess = false;
-            }
-          } catch (error) {
-            console.error(`[JointContext] Failed to set joint ${jointName}:`, error);
-            individualSuccess = false;
-          }
-        });
-
-        success = individualSuccess;
-        console.log(`[JointContext] Individual joint setting result: ${success}`);
       }
 
       // Force update matrices after joint changes
@@ -263,7 +315,7 @@ export const JointProvider = ({ children }) => {
       console.error(`[JointContext] Error setting joint values for ${robotId}:`, error);
       return false;
     }
-  }, [findRobotWithFallbacks, getRobotJointValues]);
+  }, [findRobotWithFallbacks, getRobotJointValues, ensureJointAngleSync]);
 
   // Extract joint information when robot loads or registers
   useEffect(() => {
@@ -493,7 +545,7 @@ export const JointProvider = ({ children }) => {
     });
   }, [getRobotJointValues, setRobotJointValues_Internal]);
 
-  // Public method to set a single joint value
+  // Update the setJointValue method (around line 200)
   const setJointValue = useCallback((robotId, jointName, value) => {
     console.log(`[JointContext] Setting joint ${jointName} = ${value} for robot ${robotId}`);
     
@@ -506,32 +558,21 @@ export const JointProvider = ({ children }) => {
     let success = false;
 
     try {
-      // Try robot's setJointValue method first
-      if (robot.setJointValue && typeof robot.setJointValue === 'function') {
-        success = robot.setJointValue(jointName, value);
-        console.log(`[JointContext] Robot setJointValue result: ${success}`);
-      }
-      // Try robot manager's setJointValue as fallback
-      else if (robotManagerRef.current && robotManagerRef.current.setJointValue) {
+      // 🚨 FIX: Use the new sync method to ensure both visual and internal state are updated
+      success = ensureJointAngleSync(robot, jointName, value);
+      
+      // Try robot manager's setJointValue as additional fallback
+      if (!success && robotManagerRef.current && robotManagerRef.current.setJointValue) {
         success = robotManagerRef.current.setJointValue(robotId, jointName, value);
-        console.log(`[JointContext] Robot manager setJointValue result: ${success}`);
-      }
-      // Direct joint manipulation as last resort
-      else if (robot.joints && robot.joints[jointName]) {
-        robot.joints[jointName].angle = value;
-        if (robot.joints[jointName].setPosition) {
-          robot.joints[jointName].setPosition(value);
+        
+        // Still need to sync joint.angle even if manager succeeded
+        if (success && robot.joints && robot.joints[jointName]) {
+          robot.joints[jointName].angle = value;
+          console.log(`[JointContext] ✅ Synced joint.angle via manager fallback for ${jointName} = ${value}`);
         }
-        success = true;
-        console.log(`[JointContext] Direct joint manipulation successful`);
       }
 
       if (success) {
-        // Update matrices
-        if (robot.updateMatrixWorld) {
-          robot.updateMatrixWorld(true);
-        }
-
         // Update local state
         setRobotJointValues(prev => {
           const newMap = new Map(prev);
@@ -561,7 +602,7 @@ export const JointProvider = ({ children }) => {
       console.error(`[JointContext] Error setting joint value:`, error);
       return false;
     }
-  }, [findRobotWithFallbacks, getRobotJointValues]);
+  }, [findRobotWithFallbacks, getRobotJointValues, ensureJointAngleSync]);
 
   // Public method to set multiple joint values
   const setJointValues = useCallback((robotId, values) => {

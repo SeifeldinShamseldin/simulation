@@ -69,6 +69,18 @@ class CCDSolver {
       return null;
     }
     
+    // 🚨 CRITICAL: Verify starting angles
+    const { hasNonZeroAngles, hasValidAngles } = this.verifyStartingAngles(robot, startingAngles);
+    
+    if (!hasValidAngles) {
+      console.error('[CCD] Invalid starting angles detected - aborting solve');
+      return null;
+    }
+    
+    if (!hasNonZeroAngles) {
+      console.warn('[CCD] Warning: All starting angles are zero - this may affect IK solution quality');
+    }
+    
     console.log(`[CCD] Starting from current joint angles:`, startingAngles);
     console.log(`[CCD] Movable joints: ${movableJoints.join(', ')}`);
     
@@ -174,22 +186,44 @@ class CCDSolver {
         let orientationAngle = 0;
         if (targetQuaternion && this.orientationWeight > 0) {
           realEndEffector.getWorldQuaternion(this.vectors.currentQuat);
-          const orientationDiff = this.vectors.currentQuat.angleTo(targetQuaternion);
+          const orientationError = this.vectors.currentQuat.angleTo(targetQuaternion);
           
-          // Simple heuristic: contribute small orientation correction
-          if (orientationDiff > 0.1) { // Only if significant orientation error
-            orientationAngle = orientationDiff * this.orientationWeight * 0.1; // Small contribution
-            
-            // Determine direction based on joint index (simple heuristic)
+          if (orientationError > 0.01) { // ~0.6 degrees threshold
+            // Simple heuristic: distribute orientation error among joints
+            // Joints closer to end effector get more orientation responsibility
             const jointIndex = movableJoints.indexOf(jointName);
-            if (jointIndex % 2 === 0) {
-              orientationAngle = -orientationAngle; // Alternate direction
-            }
+            const jointCount = movableJoints.length;
+            const endEffectorWeight = (jointCount - jointIndex) / jointCount; // 1.0 for last joint, lower for earlier joints
+            
+            // Calculate orientation contribution
+            const orientationContribution = orientationError * this.orientationWeight * endEffectorWeight;
+            
+            // Determine direction based on quaternion difference
+            const quatDiff = this.vectors.currentQuat.clone().invert().multiply(targetQuaternion);
+            
+            // Project quaternion rotation onto joint axis
+            const rotAxis = new THREE.Vector3(quatDiff.x, quatDiff.y, quatDiff.z).normalize();
+            const axisAlignment = this.vectors.axis.dot(rotAxis);
+            
+            orientationAngle = orientationContribution * axisAlignment;
+            
+            console.log(`[CCD] Joint ${jointName} orientation: error=${(orientationError*180/Math.PI).toFixed(1)}°, weight=${endEffectorWeight.toFixed(2)}, contribution=${(orientationAngle*180/Math.PI).toFixed(2)}°`);
           }
         }
         
-        // Combine position and orientation angles
-        let totalAngle = positionAngle + orientationAngle;
+        // Combine position and orientation angles with simpler logic
+        let totalAngle;
+        if (targetQuaternion) {
+          // For orientation tasks, use a balanced approach
+          const posWeight = distanceToTarget > 0.1 ? 0.7 : 0.3; // Focus on position when far, orientation when close
+          const oriWeight = 1.0 - posWeight;
+          
+          totalAngle = (positionAngle * posWeight) + (orientationAngle * oriWeight);
+          
+          console.log(`[CCD] ${jointName}: pos=${(positionAngle*180/Math.PI).toFixed(1)}°*${posWeight.toFixed(1)} + ori=${(orientationAngle*180/Math.PI).toFixed(1)}°*${oriWeight.toFixed(1)} = ${(totalAngle*180/Math.PI).toFixed(1)}°`);
+        } else {
+          totalAngle = positionAngle;
+        }
         
         // Apply damping to prevent overshooting
         totalAngle *= this.dampingFactor;
@@ -237,6 +271,41 @@ class CCDSolver {
    */
   configure(settings) {
     Object.assign(this, settings);
+  }
+
+  // Add this helper method in CCDSolver class
+  verifyStartingAngles(robot, startingAngles) {
+    let hasNonZeroAngles = false;
+    let hasValidAngles = true;
+    
+    if (robot.joints) {
+      Object.entries(robot.joints).forEach(([name, joint]) => {
+        if (joint && joint.jointType !== 'fixed') {
+          const currentAngle = joint.angle;
+          const storedAngle = startingAngles[name];
+          
+          // Check if angle is defined and not NaN
+          if (typeof currentAngle !== 'number' || isNaN(currentAngle)) {
+            console.warn(`[CCD] Invalid angle for joint ${name}: ${currentAngle}`);
+            hasValidAngles = false;
+            return;
+          }
+          
+          // Check if angle is non-zero
+          if (Math.abs(currentAngle) > 0.001) {
+            hasNonZeroAngles = true;
+          }
+          
+          // Verify stored angle matches current angle
+          if (Math.abs(currentAngle - storedAngle) > 0.001) {
+            console.warn(`[CCD] Angle mismatch for joint ${name}: current=${currentAngle}, stored=${storedAngle}`);
+            hasValidAngles = false;
+          }
+        }
+      });
+    }
+    
+    return { hasNonZeroAngles, hasValidAngles };
   }
 }
 
