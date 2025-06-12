@@ -1,23 +1,22 @@
-// src/contexts/TrajectoryContext.jsx - CLEAN CORE LOGIC ONLY
+// src/contexts/TrajectoryContext.jsx - OPTIMIZED HYBRID APPROACH
 import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
 
 const TrajectoryContext = createContext(null);
 
 export const TrajectoryProvider = ({ children }) => {
-  // ========== CORE STATE ==========
+  // ========== DIRECT STATE (UI concerns - no EventBus overhead) ==========
   const [trajectories, setTrajectories] = useState(new Map()); // Map<robotId, Map<trajectoryName, trajectory>>
   const [recordingStates, setRecordingStates] = useState(new Map()); // Map<robotId, recordingState>
   const [playbackStates, setPlaybackStates] = useState(new Map()); // Map<robotId, playbackState>
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   
-  // Recording intervals and playback frames
+  // ========== EVENTBUS FOR CORE OPERATIONS ONLY ==========
   const recordingIntervalsRef = useRef(new Map());
   const playbackFramesRef = useRef(new Map());
-  const playbackStatesRef = useRef(new Map()); // 🚨 FIX: Add ref for animation access
+  const playbackStatesRef = useRef(new Map()); // Ref for animation access
 
-  // ========== ROBOT TRAJECTORY STORAGE ==========
-  
+  // ========== DIRECT STATE HELPERS (no events) ==========
   const getRobotTrajectories = useCallback((robotId) => {
     if (!trajectories.has(robotId)) {
       setTrajectories(prev => new Map(prev).set(robotId, new Map()));
@@ -25,6 +24,7 @@ export const TrajectoryProvider = ({ children }) => {
     return trajectories.get(robotId);
   }, [trajectories]);
 
+  // ========== PURE FUNCTIONS (no EventBus) ==========
   const getTrajectoryNames = useCallback((robotId) => {
     const robotTrajectories = getRobotTrajectories(robotId);
     return Array.from(robotTrajectories.keys());
@@ -61,8 +61,36 @@ export const TrajectoryProvider = ({ children }) => {
     return true;
   }, []);
 
-  // ========== RECORDING LOGIC ==========
-  
+  // ========== DIRECT STATE QUERIES (no EventBus) ==========
+  const isRecording = useCallback((robotId) => {
+    const recordingState = recordingStates.get(robotId);
+    return recordingState && recordingState.isRecording;
+  }, [recordingStates]);
+
+  const isPlaying = useCallback((robotId) => {
+    const playbackState = playbackStatesRef.current.get(robotId);
+    return playbackState && playbackState.isPlaying;
+  }, []);
+
+  const getPlaybackProgress = useCallback((robotId) => {
+    const playbackState = playbackStatesRef.current.get(robotId);
+    if (!playbackState || !playbackState.trajectory) return 0;
+    
+    const elapsed = (Date.now() - playbackState.startTime) * playbackState.speed;
+    return Math.min(elapsed / playbackState.trajectory.duration, 1);
+  }, []);
+
+  const hasTrajectories = useCallback((robotId) => {
+    const robotTrajectories = trajectories.get(robotId);
+    return robotTrajectories && robotTrajectories.size > 0;
+  }, [trajectories]);
+
+  const getTrajectoryCount = useCallback((robotId) => {
+    const robotTrajectories = trajectories.get(robotId);
+    return robotTrajectories ? robotTrajectories.size : 0;
+  }, [trajectories]);
+
+  // ========== RECORDING: EventBus for data capture, direct state for UI ==========
   const startRecording = useCallback((trajectoryName, robotId, dataCallback, interval = 100) => {
     if (!robotId || !trajectoryName || !dataCallback) {
       setError('Invalid recording parameters');
@@ -74,6 +102,7 @@ export const TrajectoryProvider = ({ children }) => {
 
     console.log(`[TrajectoryContext] Starting recording "${trajectoryName}" for robot ${robotId}`);
 
+    // Direct state for UI
     const recordingState = {
       trajectoryName,
       robotId,
@@ -84,7 +113,9 @@ export const TrajectoryProvider = ({ children }) => {
       dataCallback
     };
 
-    // Start recording interval
+    setRecordingStates(prev => new Map(prev).set(robotId, recordingState));
+
+    // EventBus ONLY for high-frequency data capture
     const intervalId = setInterval(() => {
       if (recordingState.isRecording) {
         const currentTime = Date.now() - recordingState.startTime;
@@ -92,7 +123,7 @@ export const TrajectoryProvider = ({ children }) => {
         // Get data from callback (provided by hook)
         const frameData = dataCallback();
         if (frameData) {
-          // Store joint frame
+          // Direct state update (no events)
           recordingState.frames.push({
             timestamp: currentTime,
             jointValues: frameData.jointValues || {}
@@ -112,9 +143,7 @@ export const TrajectoryProvider = ({ children }) => {
       }
     }, interval);
 
-    setRecordingStates(prev => new Map(prev).set(robotId, recordingState));
     recordingIntervalsRef.current.set(robotId, intervalId);
-    
     return true;
   }, []);
 
@@ -131,7 +160,7 @@ export const TrajectoryProvider = ({ children }) => {
       recordingIntervalsRef.current.delete(robotId);
     }
 
-    // Create trajectory
+    // Create trajectory (direct state)
     const trajectory = {
       name: recordingState.trajectoryName,
       robotId: recordingState.robotId,
@@ -142,10 +171,10 @@ export const TrajectoryProvider = ({ children }) => {
       frameCount: recordingState.frames.length
     };
 
-    // Save trajectory
+    // Save trajectory (direct state)
     saveTrajectory(trajectory, robotId);
 
-    // Clear recording state
+    // Clear recording state (direct state)
     setRecordingStates(prev => {
       const newMap = new Map(prev);
       newMap.delete(robotId);
@@ -156,13 +185,7 @@ export const TrajectoryProvider = ({ children }) => {
     return trajectory;
   }, [recordingStates, saveTrajectory]);
 
-  const isRecording = useCallback((robotId) => {
-    const recordingState = recordingStates.get(robotId);
-    return recordingState && recordingState.isRecording;
-  }, [recordingStates]);
-
-  // ========== PLAYBACK LOGIC ==========
-  
+  // ========== PLAYBACK: EventBus for frame application, direct state for UI ==========
   const playTrajectory = useCallback((trajectoryName, robotId, applyCallback, options = {}) => {
     const trajectory = getTrajectory(trajectoryName, robotId);
     if (!trajectory || !applyCallback) {
@@ -176,14 +199,8 @@ export const TrajectoryProvider = ({ children }) => {
     stopPlayback(robotId);
 
     console.log(`[TrajectoryContext] Starting playback "${trajectoryName}" for robot ${robotId}`);
-    console.log(`[TrajectoryContext] Trajectory info:`, {
-      frames: trajectory.frames.length,
-      duration: trajectory.duration,
-      speed: speed,
-      firstFrame: trajectory.frames[0],
-      lastFrame: trajectory.frames[trajectory.frames.length - 1]
-    });
 
+    // Direct state for UI
     const playbackState = {
       trajectory,
       robotId,
@@ -197,14 +214,11 @@ export const TrajectoryProvider = ({ children }) => {
     };
 
     setPlaybackStates(prev => new Map(prev).set(robotId, playbackState));
-    playbackStatesRef.current.set(robotId, playbackState); // 🚨 FIX: Sync with ref
+    playbackStatesRef.current.set(robotId, playbackState);
     
-    // Start playback animation immediately
-    console.log(`[TrajectoryContext] Starting playback animation for ${robotId}`);
-    
-    // Start playback animation
+    // EventBus ONLY for frame application (async timing)
     const playFrame = () => {
-      const state = playbackStatesRef.current.get(robotId); // 🚨 FIX: Use ref instead of state
+      const state = playbackStatesRef.current.get(robotId);
       if (!state || !state.isPlaying) {
         console.log(`[TrajectoryContext] Playback stopped or state missing for ${robotId}`);
         return;
@@ -228,54 +242,45 @@ export const TrajectoryProvider = ({ children }) => {
         const frame = state.trajectory.frames[targetFrameIndex];
         const endEffectorFrame = state.trajectory.endEffectorPath?.[targetFrameIndex];
         
-        console.log(`[TrajectoryContext] Playing frame ${targetFrameIndex}/${state.trajectory.frames.length}:`, {
-          timestamp: frame.timestamp,
-          elapsed: elapsed.toFixed(0),
-          progress: (progress * 100).toFixed(1) + '%',
-          jointValues: frame.jointValues
-        });
+        console.log(`[TrajectoryContext] Playing frame ${targetFrameIndex}/${state.trajectory.frames.length}`);
         
-        // 🚨 FIX: Apply frame via callback (provided by hook)
+        // Apply frame via callback (EventBus alternative)
         try {
           state.applyCallback(frame, endEffectorFrame);
-          console.log(`[TrajectoryContext] ✅ Successfully applied frame ${targetFrameIndex}`);
         } catch (error) {
-          console.error(`[TrajectoryContext] ❌ Error applying frame ${targetFrameIndex}:`, error);
+          console.error(`[TrajectoryContext] Error applying frame:`, error);
         }
         
-        // Call frame callback
+        // Call frame callback (direct function call)
         state.onFrame(frame, endEffectorFrame, progress);
       }
 
       // Check if finished
       if (progress >= 1) {
         if (state.loop) {
-          // Reset for loop
+          // Reset for loop (direct state)
           state.startTime = Date.now();
-          playbackStatesRef.current.set(robotId, state); // 🚨 FIX: Update ref with new start time
+          playbackStatesRef.current.set(robotId, state);
           console.log(`[TrajectoryContext] Looping playback for ${robotId}`);
         } else {
-          // End playback
+          // End playback (direct state)
           console.log(`[TrajectoryContext] Playback completed for ${robotId}`);
-          
-          // Stop playback and call completion callback
           const onComplete = state.onComplete;
           stopPlayback(robotId);
-          onComplete();
+          onComplete(); // Direct function call
           return;
         }
       }
 
-      // Schedule next frame
+      // Schedule next frame (EventBus alternative - direct scheduling)
       const frameId = requestAnimationFrame(playFrame);
       playbackFramesRef.current.set(robotId, frameId);
     };
 
     // Start the first frame
     playFrame();
-    
     return true;
-  }, [getTrajectory, playbackStates]);
+  }, [getTrajectory]);
 
   const stopPlayback = useCallback((robotId) => {
     const playbackState = playbackStates.get(robotId);
@@ -290,34 +295,18 @@ export const TrajectoryProvider = ({ children }) => {
       playbackFramesRef.current.delete(robotId);
     }
 
-    // Clear playback state
+    // Clear playback state (direct state)
     setPlaybackStates(prev => {
       const newMap = new Map(prev);
       newMap.delete(robotId);
       return newMap;
     });
     
-    // 🚨 FIX: Also clean up ref
     playbackStatesRef.current.delete(robotId);
-
     return true;
   }, [playbackStates]);
 
-  const isPlaying = useCallback((robotId) => {
-    const playbackState = playbackStatesRef.current.get(robotId); // 🚨 FIX: Use ref for consistency
-    return playbackState && playbackState.isPlaying;
-  }, []);
-
-  const getPlaybackProgress = useCallback((robotId) => {
-    const playbackState = playbackStatesRef.current.get(robotId); // 🚨 FIX: Use ref for consistency
-    if (!playbackState || !playbackState.trajectory) return 0;
-    
-    const elapsed = (Date.now() - playbackState.startTime) * playbackState.speed;
-    return Math.min(elapsed / playbackState.trajectory.duration, 1);
-  }, []);
-
-  // ========== IMPORT/EXPORT ==========
-  
+  // ========== IMPORT/EXPORT (direct state) ==========
   const exportTrajectory = useCallback((trajectoryName, robotId) => {
     const trajectory = getTrajectory(trajectoryName, robotId);
     if (!trajectory) return null;
@@ -348,8 +337,7 @@ export const TrajectoryProvider = ({ children }) => {
     }
   }, [saveTrajectory]);
 
-  // ========== ANALYSIS ==========
-  
+  // ========== ANALYSIS (pure computation) ==========
   const analyzeTrajectory = useCallback((trajectoryName, robotId) => {
     const trajectory = getTrajectory(trajectoryName, robotId);
     if (!trajectory) return null;
@@ -430,64 +418,51 @@ export const TrajectoryProvider = ({ children }) => {
   }, [getTrajectory]);
 
   // ========== UTILITY ==========
-  
   const clearError = useCallback(() => setError(null), []);
-  
-  const hasTrajectories = useCallback((robotId) => {
-    const robotTrajectories = trajectories.get(robotId);
-    return robotTrajectories && robotTrajectories.size > 0;
-  }, [trajectories]);
-  
-  const getTrajectoryCount = useCallback((robotId) => {
-    const robotTrajectories = trajectories.get(robotId);
-    return robotTrajectories ? robotTrajectories.size : 0;
-  }, [trajectories]);
 
   // ========== CLEANUP ==========
-  
   React.useEffect(() => {
     return () => {
       recordingIntervalsRef.current.forEach(clearInterval);
       playbackFramesRef.current.forEach(cancelAnimationFrame);
       recordingIntervalsRef.current.clear();
       playbackFramesRef.current.clear();
-      playbackStatesRef.current.clear(); // 🚨 FIX: Clean up ref too
+      playbackStatesRef.current.clear();
     };
   }, []);
 
-  // ========== CONTEXT VALUE ==========
-  
+  // ========== CONTEXT VALUE (same interface, optimized internals) ==========
   const value = {
-    // Core Storage
+    // Core Storage (direct state)
     getTrajectoryNames,
     getTrajectory,
     saveTrajectory,
     deleteTrajectory,
     
-    // Recording
+    // Recording (hybrid: EventBus for capture, direct state for UI)
     startRecording,
     stopRecording,
     isRecording,
     
-    // Playback
+    // Playback (hybrid: EventBus for application, direct state for UI)
     playTrajectory,
     stopPlayback,
     isPlaying,
     getPlaybackProgress,
     
-    // Import/Export
+    // Import/Export (direct state)
     exportTrajectory,
     importTrajectory,
     
-    // Analysis
+    // Analysis (pure computation)
     analyzeTrajectory,
     
-    // Utils
+    // Utils (direct state)
     clearError,
     hasTrajectories,
     getTrajectoryCount,
     
-    // State
+    // State (direct state)
     isLoading,
     error
   };

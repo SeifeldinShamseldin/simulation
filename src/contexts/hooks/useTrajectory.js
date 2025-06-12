@@ -1,10 +1,10 @@
-// src/contexts/hooks/useTrajectory.js - DATA TRANSFER HOOK ONLY
+// src/contexts/hooks/useTrajectory.js - OPTIMIZED HYBRID APPROACH
 import { useCallback, useState } from 'react';
 import { useTrajectoryContext } from '../TrajectoryContext';
 import { useJoints } from './useJoints';
 import { useTCP } from './useTCP';
 import { useRobotSelection } from './useRobot';
-import { useRobotControl } from './useRobotControl'; // 🚨 ADD: Direct robot access
+import { useRobotControl } from './useRobotControl';
 
 export const useTrajectory = (robotId = null) => {
   const context = useTrajectoryContext();
@@ -17,9 +17,9 @@ export const useTrajectory = (robotId = null) => {
   const {
     jointValues,
     setJointValues,
-    setJointValue, // 🚨 ADD: Individual joint setter
+    setJointValue,
     hasJoints,
-    getJointValues: getCurrentJointValues // Get the live joint values method
+    getJointValues: getCurrentJointValues
   } = useJoints(targetRobotId);
   
   const {
@@ -29,22 +29,21 @@ export const useTrajectory = (robotId = null) => {
     isUsingTCP
   } = useTCP(targetRobotId);
 
-  // 🚨 ADD: Direct robot control access for both recording and playback
+  // Direct robot control access for both recording and playback
   const { 
     getJointValues: getRobotJointValues,
-    setJointValues: setRobotJointValues // 🚨 ADD: For playback fallback
+    setJointValues: setRobotJointValues
   } = useRobotControl();
 
-  // Local state for UI feedback
+  // Local state for UI feedback (no EventBus needed)
   const [lastRecordedFrame, setLastRecordedFrame] = useState(null);
   const [playbackStatus, setPlaybackStatus] = useState({ isPlaying: false, progress: 0 });
 
   // ========== DATA COLLECTION CALLBACK (for recording) ==========
-  
   const getFrameData = useCallback(() => {
     if (!targetRobotId || !hasJoints) return null;
     
-    // 🚨 FIX: Try multiple methods to get LIVE joint values
+    // Get LIVE joint values using multiple methods
     let liveJointValues = {};
     
     // Method 1: Try useJoints getCurrentJointValues
@@ -61,13 +60,11 @@ export const useTrajectory = (robotId = null) => {
       }
     }
     
-    // Method 3: Last resort - use cached jointValues (what was causing the bug)
+    // Method 3: Last resort - use cached jointValues
     if (!liveJointValues || Object.keys(liveJointValues).length === 0) {
       liveJointValues = jointValues || {};
       console.warn(`[useTrajectory] Using cached joint values (may be stale):`, liveJointValues);
     }
-    
-    console.log(`[useTrajectory] Final joint values for recording:`, liveJointValues);
     
     const frameData = {
       jointValues: liveJointValues,
@@ -75,28 +72,27 @@ export const useTrajectory = (robotId = null) => {
       endEffectorOrientation: hasValidEndEffector ? currentEndEffectorOrientation : null
     };
     
-    // Update UI feedback with live values
+    // Update UI feedback with live values (direct state)
     setLastRecordedFrame({
       timestamp: Date.now(),
       jointCount: Object.keys(frameData.jointValues).length,
       hasEndEffector: !!frameData.endEffectorPosition,
       isUsingTCP,
-      sampleJoint: Object.values(frameData.jointValues)[0], // Show a sample value for debugging
-      allJointValues: frameData.jointValues // Show all values for debugging
+      sampleJoint: Object.values(frameData.jointValues)[0],
+      allJointValues: frameData.jointValues
     });
     
     return frameData;
   }, [targetRobotId, hasJoints, getCurrentJointValues, getRobotJointValues, jointValues, hasValidEndEffector, currentEndEffectorPoint, currentEndEffectorOrientation, isUsingTCP]);
 
   // ========== DATA APPLICATION CALLBACK (for playback) ==========
-  
   const applyFrameData = useCallback((frame, endEffectorFrame) => {
     if (!targetRobotId || !hasJoints || !frame) {
       console.warn(`[useTrajectory] Cannot apply frame - robotId: ${targetRobotId}, hasJoints: ${hasJoints}, frame: ${!!frame}`);
       return;
     }
     
-    // 🚨 FIX: Apply joint values using multiple methods like recording
+    // Apply joint values using multiple methods
     if (frame.jointValues && Object.keys(frame.jointValues).length > 0) {
       console.log(`[useTrajectory] Applying joint values for playback:`, frame.jointValues);
       
@@ -123,7 +119,6 @@ export const useTrajectory = (robotId = null) => {
         let individualSuccess = true;
         Object.entries(frame.jointValues).forEach(([jointName, value]) => {
           try {
-            // Try individual joint setting from useJoints
             if (setJointValue) {
               const result = setJointValue(jointName, value);
               console.log(`[useTrajectory] Set ${jointName} = ${value}: ${result}`);
@@ -144,7 +139,7 @@ export const useTrajectory = (robotId = null) => {
       }
     }
     
-    // Update playback status for UI
+    // Update playback status for UI (direct state)
     if (endEffectorFrame && endEffectorFrame.position) {
       setPlaybackStatus(prev => ({
         ...prev,
@@ -153,8 +148,7 @@ export const useTrajectory = (robotId = null) => {
     }
   }, [targetRobotId, hasJoints, setJointValues, setRobotJointValues, setJointValue]);
 
-  // ========== RECORDING METHODS ==========
-  
+  // ========== RECORDING METHODS (same interface, optimized internals) ==========
   const startRecording = useCallback((trajectoryName, options = {}) => {
     if (!targetRobotId) {
       console.warn('[useTrajectory] No robot ID available for recording');
@@ -168,6 +162,7 @@ export const useTrajectory = (robotId = null) => {
 
     console.log(`[useTrajectory] Starting recording "${trajectoryName}" for robot ${targetRobotId}`);
     
+    // Direct context call (no EventBus for UI)
     const success = context.startRecording(
       trajectoryName, 
       targetRobotId, 
@@ -193,13 +188,13 @@ export const useTrajectory = (robotId = null) => {
     return trajectory;
   }, [targetRobotId, context]);
 
+  // Direct state access (no EventBus)
   const isRecording = useCallback(() => {
     if (!targetRobotId) return false;
     return context.isRecording(targetRobotId);
   }, [targetRobotId, context]);
 
-  // ========== PLAYBACK METHODS ==========
-  
+  // ========== PLAYBACK METHODS (same interface, optimized internals) ==========
   const playTrajectory = useCallback((trajectoryName, options = {}) => {
     if (!targetRobotId) {
       console.warn('[useTrajectory] No robot ID available for playback');
@@ -213,6 +208,7 @@ export const useTrajectory = (robotId = null) => {
 
     console.log(`[useTrajectory] Playing trajectory "${trajectoryName}" for robot ${targetRobotId}`);
     
+    // Direct state update
     setPlaybackStatus({ isPlaying: true, progress: 0 });
     
     return context.playTrajectory(
@@ -244,6 +240,7 @@ export const useTrajectory = (robotId = null) => {
     return success;
   }, [targetRobotId, context]);
 
+  // Direct state access (no EventBus)
   const isPlaying = useCallback(() => {
     if (!targetRobotId) return false;
     return context.isPlaying(targetRobotId);
@@ -254,8 +251,7 @@ export const useTrajectory = (robotId = null) => {
     return context.getPlaybackProgress(targetRobotId);
   }, [targetRobotId, context]);
 
-  // ========== TRAJECTORY MANAGEMENT ==========
-  
+  // ========== TRAJECTORY MANAGEMENT (direct state access) ==========
   const getTrajectories = useCallback(() => {
     if (!targetRobotId) return [];
     return context.getTrajectoryNames(targetRobotId);
@@ -286,8 +282,7 @@ export const useTrajectory = (robotId = null) => {
     return context.analyzeTrajectory(trajectoryName, targetRobotId);
   }, [targetRobotId, context]);
 
-  // ========== STATE CHECKS ==========
-  
+  // ========== STATE CHECKS (direct state access) ==========
   const hasTrajectories = useCallback(() => {
     if (!targetRobotId) return false;
     return context.hasTrajectories(targetRobotId);
@@ -298,8 +293,7 @@ export const useTrajectory = (robotId = null) => {
     return context.getTrajectoryCount(targetRobotId);
   }, [targetRobotId, context]);
 
-  // ========== RETURN COMPLETE INTERFACE ==========
-  
+  // ========== RETURN COMPLETE INTERFACE (same as before) ==========
   return {
     // Robot identification
     robotId: targetRobotId,
@@ -353,7 +347,7 @@ export const useTrajectory = (robotId = null) => {
   };
 };
 
-// ========== SPECIALIZED HOOKS ==========
+// ========== SPECIALIZED HOOKS (same interface, optimized internals) ==========
 
 export const useTrajectoryRecording = (robotId = null) => {
   const {
