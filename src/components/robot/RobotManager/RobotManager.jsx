@@ -1,7 +1,108 @@
 // src/components/robot/RobotManager/RobotManager.jsx - PURE UI COMPONENT
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRobotWorkspace, useRobotManagement, useRobotLoading } from '../../../contexts/hooks/useRobot';
+import { useCreateLogo } from '../../../contexts/hooks/useCreateLogo';
 import EventBus from '../../../utils/EventBus';
+
+const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
+  const {
+    initializePreview,
+    loadRobot: loadRobotPreview,
+    cleanup
+  } = useCreateLogo();
+  
+  const previewRef = useRef(null);
+  
+  useEffect(() => {
+    if (previewRef.current) {
+      initializePreview(previewRef.current);
+      loadRobotPreview(robot);
+    }
+    
+    return () => {
+      cleanup();
+    };
+  }, [robot]);
+  
+  return (
+    <div 
+      className="controls-card"
+      style={{
+        cursor: 'pointer',
+        transition: 'all 0.2s',
+        position: 'relative',
+        borderColor: isLoaded ? '#00a99d' : undefined,
+        borderWidth: isLoaded ? '2px' : '1px'
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'translateY(-2px)';
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = '';
+      }}
+    >
+      <div 
+        className="controls-card-body controls-text-center controls-p-4"
+        onClick={onLoad}
+      >
+        {/* Robot Preview */}
+        <div 
+          ref={previewRef}
+          style={{
+            width: '100%',
+            height: '180px',
+            marginBottom: '0.5rem',
+            borderRadius: '4px',
+            overflow: 'hidden',
+            backgroundColor: '#f8f9fa',
+            border: '1px solid #dee2e6'
+          }}
+        />
+        
+        <h5 className="controls-h5 controls-mb-1">{robot.name}</h5>
+        <small className="controls-text-muted">{robot.manufacturer}</small>
+        
+        {/* Status badge */}
+        <div style={{ marginTop: '0.5rem' }}>
+          <span 
+            className={`controls-badge ${isLoaded ? 'controls-badge-success' : 'controls-badge-secondary'}`}
+            style={{ fontSize: '0.7rem' }}
+          >
+            {isLoaded ? 'Loaded' : 'Click to Load'}
+          </span>
+        </div>
+      </div>
+      
+      {/* Remove button */}
+      <button
+        className="controls-btn controls-btn-danger controls-btn-sm"
+        style={{
+          position: 'absolute',
+          top: '0.5rem',
+          right: '0.5rem',
+          padding: '0.25rem 0.5rem',
+          fontSize: '0.75rem',
+          opacity: 0,
+          transition: 'opacity 0.2s'
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove();
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.opacity = '1';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.opacity = '0';
+        }}
+      >
+        ×
+      </button>
+    </div>
+  );
+};
 
 const RobotManager = ({ 
   isPanel = false, 
@@ -149,70 +250,13 @@ const RobotManager = ({
             const status = getDisplayRobotLoadStatus(robot);
             
             return (
-              <div 
+              <RobotCard
                 key={robot.id}
-                className="controls-card"
-                style={{
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  position: 'relative',
-                  borderColor: status.isLoaded ? '#00a99d' : undefined,
-                  borderWidth: status.isLoaded ? '2px' : '1px'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '';
-                }}
-              >
-                <div 
-                  className="controls-card-body controls-text-center controls-p-4"
-                  onClick={() => handleLoadRobot(robot)}
-                >
-                  <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>{robot.icon}</div>
-                  <h5 className="controls-h5 controls-mb-1">{robot.name}</h5>
-                  <small className="controls-text-muted">{robot.manufacturer}</small>
-                  
-                  {/* Status badge */}
-                  <div style={{ marginTop: '0.5rem' }}>
-                    <span 
-                      className={`controls-badge ${status.isLoaded ? 'controls-badge-success' : 'controls-badge-secondary'}`}
-                      style={{ fontSize: '0.7rem' }}
-                    >
-                      {status.statusText}
-                    </span>
-                  </div>
-                </div>
-                
-                {/* Remove button */}
-                <button
-                  className="controls-btn controls-btn-danger controls-btn-sm"
-                  style={{
-                    position: 'absolute',
-                    top: '0.5rem',
-                    right: '0.5rem',
-                    padding: '0.25rem 0.5rem',
-                    fontSize: '0.75rem',
-                    opacity: 0,
-                    transition: 'opacity 0.2s'
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRemoveRobot(robot.id);
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.opacity = '1';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.opacity = '0';
-                  }}
-                >
-                  ×
-                </button>
-              </div>
+                robot={robot}
+                isLoaded={status.isLoaded}
+                onLoad={() => handleLoadRobot(robot)}
+                onRemove={() => handleRemoveRobot(robot.id)}
+              />
             );
           })}
           

@@ -269,16 +269,16 @@ export const RobotManagerProvider = ({ children }) => {
         console.log(`[RobotManager] robot.setJointValue(${jointName}, ${value}) = ${success}`);
       }
       
-      // Method 2: Direct joint access (always do this to ensure sync)
-      if (robot.joints && robot.joints[jointName]) {
-        robot.joints[jointName].angle = value;
+      // Method 2: Direct joint access using proper setJointValue method
+      if (!success && robot.joints && robot.joints[jointName]) {
+        if (robot.joints[jointName].setJointValue) {
+          success = robot.joints[jointName].setJointValue(value);
+          console.log(`[RobotManager] ✅ Set joint value for ${jointName} = ${value}, success: ${success}`);
+        }
+        
         if (robot.joints[jointName].setPosition) {
           robot.joints[jointName].setPosition(value);
         }
-        success = true;
-        console.log(`[RobotManager] ✅ Set joint.angle for ${jointName} = ${value}`);
-      } else {
-        console.warn(`[RobotManager] Joint ${jointName} not found in robot.joints`);
       }
       
       // Update matrices

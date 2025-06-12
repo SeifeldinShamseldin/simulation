@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import EventBus from '../../../utils/EventBus';
+import { useCreateLogo } from '../../../contexts/hooks/useCreateLogo';
 
 const LoadedRobots = ({ 
   viewerRef, 
@@ -8,6 +9,25 @@ const LoadedRobots = ({
   setActiveRobotId,
   setShowRobotSelection
 }) => {
+  const {
+    initializePreview,
+    loadRobot: loadRobotPreview,
+    cleanup
+  } = useCreateLogo();
+  
+  const previewRef = useRef(null);
+  const activeRobot = workspaceRobots.find(r => r.id === activeRobotId);
+  
+  useEffect(() => {
+    if (previewRef.current && activeRobot) {
+      initializePreview(previewRef.current);
+      loadRobotPreview(activeRobot);
+    }
+    
+    return () => {
+      cleanup();
+    };
+  }, [activeRobot]);
   
   const goBackToSelection = () => {
     // Don't clear the robot - just go back to selection
@@ -16,7 +36,6 @@ const LoadedRobots = ({
     EventBus.emit('robot:controls-hidden', { robotId: activeRobotId });
   };
 
-  const activeRobot = workspaceRobots.find(r => r.id === activeRobotId);
   if (!activeRobot) return null;
 
   return (
@@ -34,9 +53,20 @@ const LoadedRobots = ({
       <div className="controls-card-body">
         <div className="controls-card">
           <div className="controls-card-body">
-            <div className="controls-text-center controls-mb-3">
-              <div style={{ fontSize: '2rem' }}>{activeRobot.icon}</div>
-            </div>
+            {/* Robot Preview */}
+            <div 
+              ref={previewRef}
+              style={{
+                width: '100%',
+                height: '180px',
+                marginBottom: '1rem',
+                borderRadius: '4px',
+                overflow: 'hidden',
+                backgroundColor: '#f8f9fa',
+                border: '1px solid #dee2e6'
+              }}
+            />
+            
             <h5 className="controls-h5">{activeRobot.name}</h5>
             <p className="controls-text-muted controls-mb-2">
               {activeRobot.manufacturer}
@@ -63,4 +93,4 @@ const LoadedRobots = ({
   );
 };
 
-export default LoadedRobots; 
+export default LoadedRobots;

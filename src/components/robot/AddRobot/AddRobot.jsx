@@ -1,7 +1,74 @@
-// src/components/robot/AddRobot/AddRobot.jsx - PURE UI COMPONENT
-import React, { useState, useEffect } from 'react';
+// src/components/robot/AddRobot/AddRobot.jsx - PURE UI COMPONENT with Robot Preview
+import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useRobotWorkspace, useRobotDiscovery, useRobotLoading } from '../../../contexts/hooks/useRobot';
+import { useCreateLogo } from '../../../contexts/hooks/useCreateLogo';
+
+const RobotCard = ({ robot, manufacturer, inWorkspace, onSelect }) => {
+  const {
+    initializePreview,
+    loadRobot: loadRobotPreview,
+    cleanup
+  } = useCreateLogo();
+  
+  const previewRef = useRef(null);
+  
+  useEffect(() => {
+    if (previewRef.current) {
+      initializePreview(previewRef.current);
+      loadRobotPreview({
+        ...robot,
+        manufacturer
+      });
+    }
+    
+    return () => {
+      cleanup();
+    };
+  }, [robot, manufacturer]);
+  
+  return (
+    <div
+      className="controls-card"
+      onClick={() => !inWorkspace && onSelect()}
+      style={{
+        cursor: inWorkspace ? 'not-allowed' : 'pointer',
+        opacity: inWorkspace ? 0.6 : 1,
+        transition: 'all 0.2s',
+        borderColor: inWorkspace ? '#6c757d' : undefined
+      }}
+    >
+      <div className="controls-card-body">
+        {/* Robot Preview */}
+        <div 
+          ref={previewRef}
+          style={{
+            width: '100%',
+            height: '200px',
+            marginBottom: '10px',
+            borderRadius: '4px',
+            overflow: 'hidden',
+            backgroundColor: '#f8f9fa',
+            border: '1px solid #dee2e6'
+          }}
+        />
+        
+        <h5 className="controls-h5 controls-mb-2">{robot.name}</h5>
+        <p className="controls-text-muted controls-small controls-mb-3">
+          URDF • {inWorkspace ? 'Already in workspace' : 'Ready to add'}
+        </p>
+        <button 
+          className={`controls-btn controls-btn-sm controls-btn-block ${
+            inWorkspace ? 'controls-btn-secondary' : 'controls-btn-success'
+          }`}
+          disabled={inWorkspace}
+        >
+          {inWorkspace ? '✓ In Workspace' : '+ Add to Workspace'}
+        </button>
+      </div>
+    </div>
+  );
+};
 
 const AddRobot = ({ isOpen, onClose, onSuccess }) => {
   // ========== HOOK USAGE (Data Only) ==========
@@ -23,23 +90,11 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
     success: successMessage 
   } = useRobotLoading();
 
-  // Debug logging
-  console.log('[AddRobot] State:', { 
-    isLoading, 
-    hasAvailableRobots, 
-    categoriesLength: categories.length,
-    availableRobotsLength: availableRobots.length 
-  });
-
   // ========== UI-ONLY STATE ==========
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [localError, setLocalError] = useState(null);
   const [localSuccess, setLocalSuccess] = useState('');
-
-  // Debug logging for category state
-  console.log('[AddRobot] Current selectedCategory:', selectedCategory);
-  console.log('[AddRobot] Categories available:', categories.length);
 
   // ========== UI EFFECTS ==========
   // Reset state when modal opens/closes
@@ -219,53 +274,18 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
               </h4>
               
               <div className="controls-grid controls-grid-cols-2 controls-gap-3">
-                {selectedCategory.robots.map(robot => {
-                  const inWorkspace = isRobotInWorkspace(robot.id);
-                  
-                  return (
-                    <div
-                      key={robot.id}
-                      className="controls-card"
-                      onClick={() => !inWorkspace && handleSelectRobot({
-                        ...robot,
-                        manufacturer: selectedCategory.name
-                      })}
-                      style={{
-                        cursor: inWorkspace ? 'not-allowed' : 'pointer',
-                        opacity: inWorkspace ? 0.6 : 1,
-                        transition: 'all 0.2s',
-                        borderColor: inWorkspace ? '#6c757d' : undefined
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!inWorkspace) {
-                          e.currentTarget.style.transform = 'translateY(-2px)';
-                          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!inWorkspace) {
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = '';
-                        }
-                      }}
-                    >
-                      <div className="controls-card-body">
-                        <h5 className="controls-h5 controls-mb-2">{robot.name}</h5>
-                        <p className="controls-text-muted controls-small controls-mb-3">
-                          URDF • {inWorkspace ? 'Already in workspace' : 'Ready to add'}
-                        </p>
-                        <button 
-                          className={`controls-btn controls-btn-sm controls-btn-block ${
-                            inWorkspace ? 'controls-btn-secondary' : 'controls-btn-success'
-                          }`}
-                          disabled={inWorkspace}
-                        >
-                          {inWorkspace ? '✓ In Workspace' : '+ Add to Workspace'}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+                {selectedCategory.robots.map(robot => (
+                  <RobotCard
+                    key={robot.id}
+                    robot={robot}
+                    manufacturer={selectedCategory.name}
+                    inWorkspace={isRobotInWorkspace(robot.id)}
+                    onSelect={() => handleSelectRobot({
+                      ...robot,
+                      manufacturer: selectedCategory.name
+                    })}
+                  />
+                ))}
               </div>
             </div>
           )}

@@ -193,30 +193,34 @@ export const JointProvider = ({ children }) => {
 
   // Add this helper method in JointProvider (around line 150)
   const ensureJointAngleSync = useCallback((robot, jointName, value) => {
-    // Method 1: Call robot's setJointValue if available
-    let visualSuccess = false;
+    let success = false;
+    
+    // Method 1: Use robot's setJointValue if available
     if (robot.setJointValue && typeof robot.setJointValue === 'function') {
-      visualSuccess = robot.setJointValue(jointName, value);
+      success = robot.setJointValue(jointName, value);
+      console.log(`[JointContext] robot.setJointValue(${jointName}, ${value}) = ${success}`);
     }
 
-    // Method 2: Also ensure joint.angle is directly updated for IK solver
-    if (robot.joints && robot.joints[jointName]) {
-      robot.joints[jointName].angle = value;
+    // Method 2: Try direct joint setJointValue if robot method failed
+    if (!success && robot.joints && robot.joints[jointName]) {
+      if (robot.joints[jointName].setJointValue) {
+        success = robot.joints[jointName].setJointValue(value);
+        console.log(`[JointContext] joint.setJointValue(${value}) = ${success}`);
+      }
       
       // If the joint has a setPosition method, call it too
       if (robot.joints[jointName].setPosition) {
         robot.joints[jointName].setPosition(value);
       }
-      
-      console.log(`[JointContext] ✅ Synced joint.angle for ${jointName} = ${value}`);
     }
 
     // Method 3: Update matrices
-    if (robot.updateMatrixWorld) {
+    if (success && robot.updateMatrixWorld) {
       robot.updateMatrixWorld(true);
     }
 
-    return visualSuccess;
+    console.log(`[JointContext] ✅ Joint sync for ${jointName} = ${value}, success: ${success}`);
+    return success;
   }, []);
 
   // 🚨 CRITICAL FIX: Enhanced joint setter with proper TCP integration
@@ -263,14 +267,17 @@ export const JointProvider = ({ children }) => {
           success = robotManagerRef.current.setJointValues(robotId, values);
           console.log(`[JointContext] Robot manager setJointValues result: ${success}`);
           
-          // Still sync joint.angle even if manager succeeded
+          // Still sync joints even if manager succeeded
           if (success) {
             Object.entries(values).forEach(([jointName, value]) => {
               if (robot.joints && robot.joints[jointName]) {
-                robot.joints[jointName].angle = value;
+                // Use proper setJointValue method instead of direct angle assignment
+                if (robot.joints[jointName].setJointValue) {
+                  robot.joints[jointName].setJointValue(value);
+                }
               }
             });
-            console.log(`[JointContext] ✅ Synced joint.angle via manager`);
+            console.log(`[JointContext] ✅ Synced joints via manager`);
           }
         } catch (error) {
           console.warn(`[JointContext] Robot manager setJointValues failed:`, error);

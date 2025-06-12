@@ -1,101 +1,90 @@
-// src/components/controls/Controls.jsx - PURE UI ORCHESTRATOR
-import React from 'react';
-import { useRobotSelection } from '../../contexts/hooks/useRobot';
+// src/components/controls/Controls.jsx - Control components only
+import React, { useState, useEffect } from 'react';
+import { useViewer } from '../../contexts/ViewerContext';
+import { useRobotSelection, useRobotManagement } from '../../contexts/hooks/useRobot';
+import { useTCP } from '../../contexts/hooks/useTCP';
+import { useJoints } from '../../contexts/hooks/useJoints';
+import { useIK } from '../../contexts/hooks/useIK';
+import EventBus from '../../utils/EventBus';
 import ControlJoints from './ControlJoints/ControlJoints';
 import IKController from './IKController/IKController';
-import RecordMap from './RecordMap/RecordMap';
 import Reposition from './Reposition/Reposition';
-import TCPController from './tcp/TCPController';
+import TrajectoryViewer from './RecordMap/TrajectoryViewer';
+import TCPController from './TCP/TCPController';
 
-const Controls = ({ viewerRef }) => {
+const Controls = ({ viewerRef, onClose }) => {
+  const { isViewerReady } = useViewer();
   const { activeId: activeRobotId } = useRobotSelection();
+  const { getRobot } = useRobotManagement();
+  const { 
+    currentEndEffectorPoint,
+    hasValidEndEffector,
+    isUsingTCP,
+    isUsingRobotEndEffector,
+    getEndEffectorInfo,
+    getEndEffectorType
+  } = useTCP();
+
+  if (!activeRobotId) {
+    return (
+      <div className="controls">
+        <div className="controls-section">
+          <h3 className="controls-section-title">Robot Controls</h3>
+          <p className="controls-text-muted">No robot selected. Please select a robot first.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="controls">
-      <div className="controls-container">
+    <div className="controls" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: '1rem',
+        paddingBottom: '1rem',
+        borderBottom: '1px solid #dee2e6'
+      }}>
+        <h2 style={{ margin: 0, fontSize: '1.5rem' }}>Robot Controls</h2>
+        <button
+          onClick={onClose}
+          style={{
+            background: 'none',
+            border: 'none',
+            fontSize: '1.8rem',
+            cursor: 'pointer',
+            color: '#6c757d',
+            padding: '0.25rem 0.5rem',
+            borderRadius: '4px',
+            transition: 'all 0.2s ease',
+            lineHeight: 1
+          }}
+        >
+          ×
+        </button>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        <section className="controls-section-wrapper">
+          <ControlJoints />
+        </section>
         
-        {/* Robot Status Indicator */}
-        <section className="controls-section">
-          <div className="controls-card" style={{
-            padding: '0.75rem',
-            marginBottom: '1rem',
-            backgroundColor: activeRobotId ? '#e8f5e8' : '#f8f9fa',
-            border: `2px solid ${activeRobotId ? '#28a745' : '#dee2e6'}`,
-            borderRadius: '8px'
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}>
-              <div style={{
-                width: '12px',
-                height: '12px',
-                backgroundColor: activeRobotId ? '#28a745' : '#6c757d',
-                borderRadius: '3px',
-                flexShrink: 0
-              }}></div>
-              <span style={{
-                fontSize: '0.875rem',
-                fontWeight: '500',
-                color: activeRobotId ? '#155724' : '#6c757d'
-              }}>
-                Robot using right now: {activeRobotId || 'No robot loaded'}
-              </span>
-            </div>
-          </div>
+        <section className="controls-section-wrapper">
+          <IKController />
         </section>
-
-        {/* Joint Control */}
-        <section className="controls-section">
-          <div className="controls-section-header">
-            <h3 className="controls-section-title">Joint Control</h3>
-          </div>
-          <div className="controls-section-body">
-            <ControlJoints />
-          </div>
+        
+        <section className="controls-section-wrapper">
+          <Reposition viewerRef={viewerRef} />
         </section>
-
-        {/* IK Controller */}
-        <section className="controls-section">
-          <div className="controls-section-header">
-            <h3 className="controls-section-title">Inverse Kinematics</h3>
-          </div>
-          <div className="controls-section-body">
-            <IKController />
-          </div>
+        
+        <section className="controls-section-wrapper">
+          <TCPController viewerRef={viewerRef} />
         </section>
-
-        {/* TCP Tool Controller */}
-        <section className="controls-section">
-          <div className="controls-section-header">
-            <h3 className="controls-section-title">TCP Tools</h3>
-          </div>
-          <div className="controls-section-body">
-            <TCPController />
-          </div>
+        
+        <section className="controls-section-wrapper">
+          <TrajectoryViewer viewerRef={viewerRef} />
         </section>
-
-        {/* Reposition Controls */}
-        <section className="controls-section">
-          <div className="controls-section-header">
-            <h3 className="controls-section-title">Robot Position</h3>
-          </div>
-          <div className="controls-section-body">
-            <Reposition />
-          </div>
-        </section>
-
-        {/* Trajectory Recording & Mapping */}
-        <section className="controls-section">
-          <div className="controls-section-header">
-            <h3 className="controls-section-title">Trajectory & Recording</h3>
-          </div>
-          <div className="controls-section-body">
-            <RecordMap viewerRef={viewerRef} />
-          </div>
-        </section>
-
       </div>
     </div>
   );

@@ -16,6 +16,7 @@ import { TrajectoryProvider } from './contexts/TrajectoryContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobot';
 import { RobotManagerProvider } from './contexts/RobotManagerContext';
+import { CreateLogoProvider } from './contexts/CreateLogoContext';
 import WorldManager from './components/World/WorldManager';
 import './App.css';
 
@@ -216,7 +217,9 @@ const App = () => {
                 <TrajectoryProvider>
                   <IKProvider>
                     <WorldProvider>
-                      <AppContent />
+                      <CreateLogoProvider>
+                        <AppContent />
+                      </CreateLogoProvider>
                     </WorldProvider>
                   </IKProvider>
                 </TrajectoryProvider>
