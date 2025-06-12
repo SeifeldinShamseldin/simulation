@@ -1,17 +1,17 @@
-// src/components/controls/RecordMap/TrajectoryViewer.jsx - Pure UI Component
+// src/components/controls/RecordMap/TrajectoryViewer.jsx - CLEAN UI ONLY
 import React, { useState, useEffect } from 'react';
 import { useTrajectory, useTrajectoryRecording, useTrajectoryPlayback, useTrajectoryManagement } from '../../../contexts/hooks/useTrajectory';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
-import EventBus from '../../../utils/EventBus';
 
 /**
- * Pure UI component for trajectory recording, playback, and management
+ * Clean UI component for trajectory recording, playback, and management
+ * NO BUSINESS LOGIC - only UI state and event handlers
  */
 const TrajectoryViewer = ({ viewerRef }) => {
   const { activeRobotId, isReady } = useRobotControl(viewerRef);
   
-  // Use specialized hooks for cleaner separation
+  // Use specialized hooks for clean separation
   const {
     isRecording,
     startRecording,
@@ -42,62 +42,38 @@ const TrajectoryViewer = ({ viewerRef }) => {
     analyzeTrajectory
   } = useTrajectoryManagement(activeRobotId);
   
-  // Get main hook for error handling and loading states
+  // Get main hook for error handling and robot info
   const {
     error,
     isLoading,
     clearError,
-    isReady: trajectoryReady,
     hasJoints,
     hasValidEndEffector,
     isUsingTCP
   } = useTrajectory(activeRobotId);
 
-  // Local UI state
+  // ========== UI-ONLY STATE ==========
   const [selectedTrajectory, setSelectedTrajectory] = useState('');
   const [newTrajectoryName, setNewTrajectoryName] = useState('');
   const [recordInterval, setRecordInterval] = useState(100);
   const [showLiveGraph, setShowLiveGraph] = useState(false);
   const [playbackOptions, setPlaybackOptions] = useState({
-    speed: 1.0,
+    speed: 0.5, // 🚨 FIX: Slower default speed to see movement better
     loop: false
   });
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [analysisData, setAnalysisData] = useState(null);
 
-  // Update trajectory list when it changes
+  // ========== UI EFFECTS ==========
+  
+  // Auto-select first trajectory
   useEffect(() => {
     if (trajectories.length > 0 && !selectedTrajectory) {
       setSelectedTrajectory(trajectories[0]);
     }
   }, [trajectories, selectedTrajectory]);
 
-  // Listen for recording updates to show real-time feedback
-  useEffect(() => {
-    const handleRecordingUpdate = (data) => {
-      if (data.robotId === activeRobotId) {
-        // Could update UI with recording progress
-        console.log(`[TrajectoryViewer] Recording update: ${data.frameCount} frames, ${data.currentTime}ms`);
-      }
-    };
-
-    const handlePlaybackUpdate = (data) => {
-      if (data.robotId === activeRobotId) {
-        // Could update UI with playback progress
-        console.log(`[TrajectoryViewer] Playback update: ${(data.progress * 100).toFixed(1)}%`);
-      }
-    };
-
-    const unsubscribeRecording = EventBus.on('trajectory:recording-update', handleRecordingUpdate);
-    const unsubscribePlayback = EventBus.on('trajectory:playback-update', handlePlaybackUpdate);
-
-    return () => {
-      unsubscribeRecording();
-      unsubscribePlayback();
-    };
-  }, [activeRobotId]);
-
-  // ========== EVENT HANDLERS ==========
+  // ========== UI EVENT HANDLERS ==========
 
   const handleStartRecording = () => {
     if (!newTrajectoryName.trim() || !canRecord) {
@@ -134,9 +110,6 @@ const TrajectoryViewer = ({ viewerRef }) => {
       ...playbackOptions,
       onComplete: () => {
         console.log(`[TrajectoryViewer] Playback of "${trajectoryName}" completed`);
-      },
-      onFrame: (frame, endEffectorFrame) => {
-        // Frame callback for additional UI updates if needed
       }
     });
 
@@ -227,11 +200,32 @@ const TrajectoryViewer = ({ viewerRef }) => {
     }));
   };
 
-  // ========== RENDER HELPERS ==========
+  // ========== UI RENDER HELPERS ==========
+
+  const renderRobotStatus = () => (
+    <div className="controls-mb-3" style={{
+      padding: '0.75rem',
+      backgroundColor: '#f8f9fa',
+      borderRadius: '4px',
+      border: '1px solid #e9ecef'
+    }}>
+      <h5 className="controls-h6 controls-mb-2">Robot Status</h5>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.875rem' }}>
+        <div><strong>Robot:</strong> {activeRobotId || 'None'}</div>
+        <div><strong>Joints:</strong> {hasJoints ? '✓' : '✗'}</div>
+        <div><strong>End Effector:</strong> {hasValidEndEffector ? '✓' : '✗'}</div>
+        <div><strong>TCP Tool:</strong> {isUsingTCP ? '✓' : '✗'}</div>
+      </div>
+      {!canRecord && (
+        <div className="controls-text-danger controls-small controls-mt-2">
+          Robot not ready for trajectory operations
+        </div>
+      )}
+    </div>
+  );
 
   const renderRecordingStatus = () => {
     if (!isRecording) return null;
-
     return (
       <div className="controls-alert controls-alert-info controls-mb-3">
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -245,7 +239,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
           <span>Recording "{selectedTrajectory}"</span>
           {lastRecordedFrame && (
             <small className="controls-text-muted">
-              {lastRecordedFrame.timestamp}ms • {Object.keys(lastRecordedFrame.jointValues).length} joints
+              {lastRecordedFrame.jointCount} joints • {lastRecordedFrame.hasEndEffector ? 'End effector tracked' : 'No end effector'}
             </small>
           )}
         </div>
@@ -255,7 +249,6 @@ const TrajectoryViewer = ({ viewerRef }) => {
 
   const renderPlaybackStatus = () => {
     if (!isPlaying) return null;
-
     return (
       <div className="controls-alert controls-alert-success controls-mb-3">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -268,38 +261,6 @@ const TrajectoryViewer = ({ viewerRef }) => {
             style={{ width: `${playbackProgress * 100}%` }}
           />
         </div>
-      </div>
-    );
-  };
-
-  const renderRobotStatus = () => {
-    return (
-      <div className="controls-mb-3" style={{
-        padding: '0.75rem',
-        backgroundColor: '#f8f9fa',
-        borderRadius: '4px',
-        border: '1px solid #e9ecef'
-      }}>
-        <h5 className="controls-h6 controls-mb-2">Robot Status</h5>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.875rem' }}>
-          <div>
-            <strong>Robot:</strong> {activeRobotId || 'None'}
-          </div>
-          <div>
-            <strong>Joints:</strong> {hasJoints ? '✓' : '✗'}
-          </div>
-          <div>
-            <strong>End Effector:</strong> {hasValidEndEffector ? '✓' : '✗'}
-          </div>
-          <div>
-            <strong>TCP Tool:</strong> {isUsingTCP ? '✓' : '✗'}
-          </div>
-        </div>
-        {!canRecord && (
-          <div className="controls-text-danger controls-small controls-mt-2">
-            Robot not ready for trajectory operations
-          </div>
-        )}
       </div>
     );
   };
@@ -392,6 +353,37 @@ const TrajectoryViewer = ({ viewerRef }) => {
             </button>
           )}
         </div>
+
+        {/* Real-time recording feedback */}
+        {isRecording && currentState && lastRecordedFrame && (
+          <div className="controls-mt-3 controls-small controls-text-muted" style={{
+            padding: '0.75rem',
+            backgroundColor: '#f0f8ff',
+            borderRadius: '4px',
+            border: '1px solid #007bff'
+          }}>
+            <div><strong>Recording Live Data:</strong></div>
+            <div>Joints: {Object.keys(currentState.joints).length} detected</div>
+            {currentState.endEffector && (
+              <div>End effector: ({currentState.endEffector.x.toFixed(3)}, {currentState.endEffector.y.toFixed(3)}, {currentState.endEffector.z.toFixed(3)})</div>
+            )}
+            
+            {/* Show sample joint values for debugging */}
+            {lastRecordedFrame.allJointValues && Object.keys(lastRecordedFrame.allJointValues).length > 0 && (
+              <div className="controls-mt-2">
+                <strong>Sample Joint Values:</strong>
+                <div style={{ fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                  {Object.entries(lastRecordedFrame.allJointValues).slice(0, 3).map(([name, value]) => (
+                    <div key={name}>{name}: {typeof value === 'number' ? value.toFixed(4) : value}</div>
+                  ))}
+                  {Object.keys(lastRecordedFrame.allJointValues).length > 3 && (
+                    <div>... and {Object.keys(lastRecordedFrame.allJointValues).length - 3} more</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Playback Options */}
@@ -567,11 +559,35 @@ const TrajectoryViewer = ({ viewerRef }) => {
             </button>
           </div>
           
-          {playbackPosition && (
-            <div className="controls-mt-2 controls-small controls-text-muted">
-              End Effector: ({playbackPosition.x.toFixed(3)}, {playbackPosition.y.toFixed(3)}, {playbackPosition.z.toFixed(3)})
-            </div>
-          )}
+          <div className="controls-mt-2">
+            <div><strong>Progress:</strong> {(playbackProgress * 100).toFixed(1)}%</div>
+            
+            {playbackPosition && (
+              <div className="controls-small controls-text-muted">
+                End Effector: ({playbackPosition.x.toFixed(3)}, {playbackPosition.y.toFixed(3)}, {playbackPosition.z.toFixed(3)})
+              </div>
+            )}
+            
+            {/* Show current joint values during playback for debugging */}
+            {isPlaying && currentState && (
+              <div className="controls-mt-2" style={{
+                fontSize: '0.75rem',
+                fontFamily: 'monospace',
+                backgroundColor: '#f8f9fa',
+                padding: '0.5rem',
+                borderRadius: '3px',
+                border: '1px solid #dee2e6'
+              }}>
+                <strong>Current Joint Values:</strong>
+                {Object.entries(currentState.joints).slice(0, 3).map(([name, value]) => (
+                  <div key={name}>{name}: {typeof value === 'number' ? value.toFixed(4) : value}</div>
+                ))}
+                {Object.keys(currentState.joints).length > 3 && (
+                  <div>... and {Object.keys(currentState.joints).length - 3} more</div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

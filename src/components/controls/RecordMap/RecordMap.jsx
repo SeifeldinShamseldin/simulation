@@ -1,9 +1,10 @@
-// src/components/controls/RecordMap/RecordMap.jsx - Simplified UI Component
+// src/components/controls/RecordMap/RecordMap.jsx - SIMPLE INFO DISPLAY ONLY
 import React from 'react';
 import { useTrajectoryManagement } from '../../../contexts/hooks/useTrajectory';
 
 /**
  * Simple component showing trajectory status and basic info
+ * PURE UI - no business logic
  */
 const RecordMap = ({ trajectoryName, robotId }) => {
   const {

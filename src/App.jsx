@@ -1,4 +1,4 @@
-// src/App.jsx - UPDATED Provider Chain with TrajectoryProvider
+// src/App.jsx - UPDATED Provider Chain with Clean TrajectoryProvider
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
@@ -12,7 +12,7 @@ import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
 import { JointProvider } from './contexts/JointContext';
-import { TrajectoryProvider } from './contexts/TrajectoryContext'; // NEW
+import { TrajectoryProvider } from './contexts/TrajectoryContext'; // NEW CLEAN IMPLEMENTATION
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobot';
 import { RobotManagerProvider } from './contexts/RobotManagerContext';
@@ -23,14 +23,14 @@ const RobotPanel = ({ onClose, viewerRef }) => {
   const [showControls, setShowControls] = useState(false);
   const [selectedRobotId, setSelectedRobotId] = useState(null);
   
-  // Add this line to get setActive from context
+  // Get setActive from context
   const { setActive: setActiveRobotId } = useRobotSelection();
 
   // Handle when a robot is selected for controls
   const handleRobotSelected = (robotId) => {
     console.log('[App] Robot selected for controls:', robotId);
     
-    // FIXED: Update the context's active robot, not just local state
+    // Update the context's active robot
     setActiveRobotId(robotId);
     setSelectedRobotId(robotId);
     setShowControls(true);
@@ -40,7 +40,7 @@ const RobotPanel = ({ onClose, viewerRef }) => {
   const handleBackToRobots = () => {
     console.log('[App] Going back to robot selection');
     setShowControls(false);
-    // Don't clear selectedRobotId - keep it for potential return
+    // Keep selectedRobotId for potential return
   };
 
   if (showControls && selectedRobotId) {
@@ -195,7 +195,7 @@ const AppContent = () => {
   );
 };
 
-// 🚨 UPDATED: Clean Provider Chain with TrajectoryProvider Added
+// 🚨 CLEAN PROVIDER CHAIN - No EventBus Dependencies
 const App = () => {
   return (
     <ViewerProvider>
@@ -204,6 +204,7 @@ const App = () => {
           <EnvironmentProvider>
             <TCPProvider>
               <JointProvider>
+                {/* NEW: Clean TrajectoryProvider - depends on TCPProvider and JointProvider */}
                 <TrajectoryProvider>
                   <IKProvider>
                     <WorldProvider>

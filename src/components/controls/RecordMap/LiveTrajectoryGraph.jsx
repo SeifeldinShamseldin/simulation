@@ -1,26 +1,15 @@
-// src/components/controls/RecordMap/LiveTrajectoryGraph.jsx - Updated UI Component
+// src/components/controls/RecordMap/LiveTrajectoryGraph.jsx - CLEAN 3D VISUALIZATION
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useTrajectoryManagement } from '../../../contexts/hooks/useTrajectory';
 import { useTCP } from '../../../contexts/hooks/useTCP';
-import EventBus from '../../../utils/EventBus';
-import { createStandardGrids } from '../../../utils/threeHelpers';
 
 const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
-  // Use trajectory and TCP hooks
-  const {
-    trajectories,
-    getTrajectory,
-    analyzeTrajectory
-  } = useTrajectoryManagement(activeRobotId);
-  
-  const {
-    currentEndEffectorPoint,
-    hasValidEndEffector,
-    isUsingTCP
-  } = useTCP(activeRobotId);
+  // Use clean hooks for data
+  const { trajectories, getTrajectory, analyzeTrajectory } = useTrajectoryManagement(activeRobotId);
+  const { currentEndEffectorPoint, hasValidEndEffector, isUsingTCP } = useTCP(activeRobotId);
 
   // 3D Scene refs
   const containerRef = useRef(null);
@@ -31,7 +20,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
   const pathLineRef = useRef(null);
   const currentMarkerRef = useRef(null);
   
-  // UI State
+  // UI State only
   const [step, setStep] = useState(1); // 1: Select, 2: Display
   const [selectedTrajectory, setSelectedTrajectory] = useState('');
   const [trajectoryData, setTrajectoryData] = useState(null);
@@ -41,13 +30,12 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     points: 0,
     length: 0,
     duration: 0,
-    bounds: {
-      min: { x: 0, y: 0, z: 0 },
-      max: { x: 0, y: 0, z: 0 }
-    }
+    bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } }
   });
 
-  // Update available trajectories
+  // ========== UI EFFECTS ==========
+  
+  // Auto-select first trajectory
   useEffect(() => {
     if (isOpen && activeRobotId && trajectories.length > 0 && !selectedTrajectory) {
       setSelectedTrajectory(trajectories[0]);
@@ -58,51 +46,27 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
   useEffect(() => {
     if (step === 2 && containerRef.current) {
       initScene();
-      return () => {
-        cleanupScene();
-      };
+      return () => cleanupScene();
     }
   }, [step]);
 
-  // Load and display selected trajectory
+  // Load trajectory data when selected
   useEffect(() => {
     if (step === 2 && selectedTrajectory && !isLive) {
-      loadTrajectory(selectedTrajectory);
+      loadTrajectoryData(selectedTrajectory);
     }
   }, [step, selectedTrajectory, isLive]);
 
-  // Listen for live TCP updates
+  // Update live position
   useEffect(() => {
-    if (!isLive || step !== 2 || !activeRobotId) return;
+    if (isLive && hasValidEndEffector) {
+      setCurrentPosition(currentEndEffectorPoint);
+      updateCurrentMarker(currentEndEffectorPoint);
+    }
+  }, [isLive, hasValidEndEffector, currentEndEffectorPoint]);
 
-    // Update position from TCP hook
-    setCurrentPosition(currentEndEffectorPoint);
-    updateCurrentMarker(currentEndEffectorPoint);
-
-    // Also listen for playback updates during live tracking
-    const handlePlaybackUpdate = (data) => {
-      if (data.robotId === activeRobotId && data.endEffectorPosition) {
-        setCurrentPosition(data.endEffectorPosition);
-        updateCurrentMarker(data.endEffectorPosition);
-      }
-    };
-
-    const handleRecordingUpdate = (data) => {
-      if (data.robotId === activeRobotId && data.endEffectorPosition) {
-        setCurrentPosition(data.endEffectorPosition);
-        updateCurrentMarker(data.endEffectorPosition);
-      }
-    };
-
-    const unsubscribePlayback = EventBus.on('trajectory:playback-update', handlePlaybackUpdate);
-    const unsubscribeRecording = EventBus.on('trajectory:recording-update', handleRecordingUpdate);
-
-    return () => {
-      unsubscribePlayback();
-      unsubscribeRecording();
-    };
-  }, [isLive, step, activeRobotId, currentEndEffectorPoint]);
-
+  // ========== 3D SCENE MANAGEMENT ==========
+  
   const initScene = () => {
     if (!containerRef.current) return;
 
@@ -145,15 +109,14 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     dirLight.shadow.mapSize.height = 2048;
     scene.add(dirLight);
 
-    // Add coordinate system
-    const { grid, axes } = createStandardGrids(scene, { 
-      gridSize: 4, 
-      gridDivisions: 40, 
-      addAxes: true, 
-      axesSize: 2 
-    });
+    // Grid and axes
+    const gridHelper = new THREE.GridHelper(4, 40, 0x444444, 0x888888);
+    scene.add(gridHelper);
+    
+    const axesHelper = new THREE.AxesHelper(2);
+    scene.add(axesHelper);
 
-    // Add current position marker for live tracking
+    // Current position marker
     const currentGeometry = new THREE.SphereGeometry(0.02, 16, 16);
     const currentMaterial = new THREE.MeshPhongMaterial({ 
       color: 0xff9900,
@@ -184,12 +147,10 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     };
     window.addEventListener('resize', handleResize);
 
-    return () => {
-      window.removeEventListener('resize', handleResize);
-    };
+    return () => window.removeEventListener('resize', handleResize);
   };
 
-  const loadTrajectory = (trajectoryName) => {
+  const loadTrajectoryData = (trajectoryName) => {
     if (!activeRobotId) return;
     
     const trajectory = getTrajectory(trajectoryName);
@@ -201,7 +162,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     const pathData = trajectory.endEffectorPath || [];
     setTrajectoryData(trajectory);
 
-    // Calculate statistics using the analysis function
+    // Calculate statistics
     const analysis = analyzeTrajectory(trajectoryName);
     if (analysis) {
       setStatistics({
@@ -213,10 +174,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     }
 
     if (pathData.length > 0) {
-      // Draw the path
       drawTrajectoryPath(pathData);
-
-      // Focus camera on path
       if (analysis && analysis.endEffectorStats.bounds) {
         focusOnTrajectory(analysis.endEffectorStats.bounds);
       }
@@ -236,18 +194,18 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     // Create path points
     const points = pathData.map(p => new THREE.Vector3(p.position.x, p.position.y, p.position.z));
 
-    // Create curve for smooth path
+    // Create smooth curve
     const curve = new THREE.CatmullRomCurve3(points);
-    const pathPoints = curve.getPoints(points.length * 5); // Smooth but not too dense
+    const pathPoints = curve.getPoints(points.length * 5);
 
     // Create line geometry
     const geometry = new THREE.BufferGeometry().setFromPoints(pathPoints);
 
-    // Create gradient colors from start (green) to end (red)
+    // Create gradient colors
     const colors = [];
     for (let i = 0; i < pathPoints.length; i++) {
       const t = i / (pathPoints.length - 1);
-      colors.push(1 - t, t, 0.3); // Red to green gradient with some blue
+      colors.push(1 - t, t, 0.3); // Red to green gradient
     }
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
@@ -283,7 +241,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     endMarker.position.copy(points[points.length - 1]);
     sceneRef.current.add(endMarker);
 
-    // Add waypoint markers at regular intervals
+    // Add waypoints
     const waypointInterval = Math.max(1, Math.floor(points.length / 10));
     for (let i = waypointInterval; i < points.length - 1; i += waypointInterval) {
       const waypointGeometry = new THREE.SphereGeometry(0.015, 12, 12);
@@ -319,7 +277,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
       bounds.max.z - bounds.min.z
     );
 
-    const distance = Math.max(size * 2, 1); // Ensure minimum distance
+    const distance = Math.max(size * 2, 1);
     cameraRef.current.position.set(
       center.x + distance,
       center.y + distance,
@@ -349,6 +307,8 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     pathLineRef.current = null;
     currentMarkerRef.current = null;
   };
+
+  // ========== UI EVENT HANDLERS ==========
 
   const handleNext = () => {
     if ((selectedTrajectory && !isLive) || isLive) {
@@ -650,7 +610,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
                 )}
               </div>
 
-              {/* Trajectory Bounds (for recorded trajectories) */}
+              {/* Trajectory Bounds */}
               {!isLive && statistics.bounds && (
                 <div style={{
                   padding: '0.75rem',
