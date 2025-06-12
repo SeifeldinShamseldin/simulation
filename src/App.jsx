@@ -1,4 +1,4 @@
-// src/App.jsx - UPDATED Provider Chain with Clean TrajectoryProvider
+// src/App.jsx - Fix real-time resize issue
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
@@ -12,7 +12,7 @@ import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
 import { JointProvider } from './contexts/JointContext';
-import { TrajectoryProvider } from './contexts/TrajectoryContext'; // NEW CLEAN IMPLEMENTATION
+import { TrajectoryProvider } from './contexts/TrajectoryContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobot';
 import { RobotManagerProvider } from './contexts/RobotManagerContext';
@@ -23,30 +23,23 @@ const RobotPanel = ({ onClose, viewerRef }) => {
   const [showControls, setShowControls] = useState(false);
   const [selectedRobotId, setSelectedRobotId] = useState(null);
   
-  // Get setActive from context
   const { setActive: setActiveRobotId } = useRobotSelection();
 
-  // Handle when a robot is selected for controls
   const handleRobotSelected = (robotId) => {
     console.log('[App] Robot selected for controls:', robotId);
-    
-    // Update the context's active robot
     setActiveRobotId(robotId);
     setSelectedRobotId(robotId);
     setShowControls(true);
   };
 
-  // Handle going back to robot selection
   const handleBackToRobots = () => {
     console.log('[App] Going back to robot selection');
     setShowControls(false);
-    // Keep selectedRobotId for potential return
   };
 
   if (showControls && selectedRobotId) {
     return (
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        {/* Controls header with back button */}
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
@@ -80,7 +73,6 @@ const RobotPanel = ({ onClose, viewerRef }) => {
           </button>
         </div>
         
-        {/* Robot controls */}
         <div style={{ flex: '1', overflowY: 'auto' }}>
           <Controls viewerRef={viewerRef} />
         </div>
@@ -116,12 +108,22 @@ const AppContent = () => {
 
   const handlePanelToggle = (panel) => {
     console.log('[App] Panel toggle requested:', panel);
-    setActivePanel(prevPanel => prevPanel === panel ? null : panel);
+    setActivePanel(activePanel === panel ? null : panel);
   };
 
   const handlePanelWidthChange = (width) => {
     setPanelWidth(width);
+    // 🚨 FIX: Trigger immediate viewer resize
+    requestAnimationFrame(() => {
+      if (viewerRef.current && viewerRef.current.resize) {
+        viewerRef.current.resize();
+      }
+    });
   };
+
+  const hasPanel = activePanel && activePanel !== 'world';
+  
+  console.log('[App] Render state:', { activePanel, panelWidth, hasPanel });
 
   return (
     <div className="app-wrapper">
@@ -130,58 +132,54 @@ const AppContent = () => {
         onPanelToggle={handlePanelToggle} 
       />
       
+      {/* 🚨 FIX: Use flexbox instead of grid for better resize handling */}
       <div className="app-container">
-        {/* Robot Panel (includes both robot management and controls) */}
-        {activePanel === 'robot' && (
-          <ResizablePanel
-            className="controls-panel panel-open"
-            defaultWidth={400}
-            minWidth={300}
-            maxWidth={800}
-            storageKey="robot-panel-width"
-            onWidthChange={handlePanelWidthChange}
+        {/* Panel Container - Fixed width */}
+        {hasPanel && (
+          <div 
+            className="panel-container"
+            style={{ 
+              width: `${panelWidth}px`,
+              flexShrink: 0
+            }}
           >
-            <RobotPanel 
-              onClose={() => setActivePanel(null)}
-              viewerRef={viewerRef}
-            />
-          </ResizablePanel>
-        )}
-        
-        {/* Environment Panel */}
-        {activePanel === 'environment' && (
-          <ResizablePanel
-            className="environment-panel panel-open"
-            defaultWidth={400}
-            minWidth={300}
-            maxWidth={800}
-            storageKey="environment-panel-width"
-            onWidthChange={handlePanelWidthChange}
-          >
-            <Environment 
-              viewerRef={viewerRef}
-              isPanel={true}
-              onClose={() => setActivePanel(null)}
-            />
-          </ResizablePanel>
+            {activePanel === 'robot' && (
+              <ResizablePanel
+                className="controls-panel"
+                defaultWidth={400}
+                minWidth={300}
+                maxWidth={800}
+                storageKey="robot-panel-width"
+                onWidthChange={handlePanelWidthChange}
+              >
+                <RobotPanel 
+                  onClose={() => setActivePanel(null)}
+                  viewerRef={viewerRef}
+                />
+              </ResizablePanel>
+            )}
+            
+            {activePanel === 'environment' && (
+              <ResizablePanel
+                className="environment-panel"
+                defaultWidth={400}
+                minWidth={300}
+                maxWidth={800}
+                storageKey="environment-panel-width"
+                onWidthChange={handlePanelWidthChange}
+              >
+                <Environment 
+                  viewerRef={viewerRef}
+                  isPanel={true}
+                  onClose={() => setActivePanel(null)}
+                />
+              </ResizablePanel>
+            )}
+          </div>
         )}
 
-        {/* World Panel */}
-        <div className={`world-panel ${activePanel === 'world' ? 'panel-open' : 'panel-closed'}`}>
-          <WorldManager 
-            viewerRef={viewerRef}
-            isOpen={activePanel === 'world'}
-            onClose={() => setActivePanel(null)}
-          />
-        </div>
-        
-        {/* Viewer Panel */}
-        <div 
-          className={`viewer-panel ${activePanel && activePanel !== 'world' ? 'viewer-shifted' : ''}`}
-          style={{
-            marginLeft: activePanel && activePanel !== 'world' ? `${panelWidth}px` : '0'
-          }}
-        >
+        {/* Viewer Container - Flexible width */}
+        <div className="viewer-container">
           <URDFViewer
             ref={viewerRef}
             width="100%"
@@ -190,12 +188,23 @@ const AppContent = () => {
             enableShadows={true}
           />
         </div>
+
+        {/* World Panel - Overlay */}
+        {activePanel === 'world' && (
+          <div className="world-panel-overlay">
+            <WorldManager 
+              viewerRef={viewerRef}
+              isOpen={true}
+              onClose={() => setActivePanel(null)}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
-// 🚨 CLEAN PROVIDER CHAIN - No EventBus Dependencies
+// Clean Provider Chain
 const App = () => {
   return (
     <ViewerProvider>
@@ -204,7 +213,6 @@ const App = () => {
           <EnvironmentProvider>
             <TCPProvider>
               <JointProvider>
-                {/* NEW: Clean TrajectoryProvider - depends on TCPProvider and JointProvider */}
                 <TrajectoryProvider>
                   <IKProvider>
                     <WorldProvider>

@@ -44,6 +44,8 @@ const ResizablePanel = ({
     
     const deltaX = e.clientX - startXRef.current;
     const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidthRef.current + deltaX));
+    
+    // 🚨 FIX: Update width immediately for smooth resize
     setWidth(newWidth);
   }, [isResizing, minWidth, maxWidth]);
 
@@ -70,7 +72,6 @@ const ResizablePanel = ({
     <div
       ref={panelRef}
       className={`resizable-panel ${className}`}
-      style={{ width: `${width}px` }}
     >
       {children}
       
@@ -124,4 +125,4 @@ const ResizablePanel = ({
   );
 };
 
-export default ResizablePanel; 
+export default ResizablePanel;

@@ -1,4 +1,4 @@
-/* src/App.css - Updated for resizable panels */
+/* src/App.css - Flexbox approach for real-time resize */
 .app-wrapper {
   display: flex;
   flex-direction: column;
@@ -7,56 +7,44 @@
 }
 
 .app-container {
-  display: flex;
   flex: 1;
+  display: flex;
   position: relative;
   overflow: hidden;
 }
 
-.viewer-panel {
-  flex: 1;
+.panel-container {
   position: relative;
-  transition: margin-left 0.3s ease;
+  overflow: hidden;
+  height: 100%;
+  /* Width set via inline styles */
 }
 
-.viewer-panel.viewer-shifted {
-  /* Margin will be set dynamically via inline styles */
+.viewer-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-width: 0; /* Allow flexbox to shrink */
 }
 
 /* Resizable Panel Styles */
 .resizable-panel {
-  position: absolute;
-  top: 0;
-  left: 0;
+  position: relative;
+  width: 100%;
   height: 100%;
   background: white;
   box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-  z-index: 100;
   overflow-y: auto;
   overflow-x: hidden;
-  /* Width will be set dynamically */
 }
 
-.controls-panel,
-.environment-panel {
-  /* Remove fixed width - will be handled by ResizablePanel */
-}
-
-.panel-closed {
-  display: none !important;
-}
-
-.panel-open {
-  transform: translateX(0);
-}
-
-/* World panel (not resizable) */
-.world-panel {
-  position: absolute;
+/* World panel overlay */
+.world-panel-overlay {
+  position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
-  height: 100%;
+  height: 100vh;
   background: rgba(0, 0, 0, 0.5);
   z-index: 200;
   display: flex;
@@ -121,13 +109,17 @@
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
-  .resizable-panel {
-    width: 100vw !important;
-    max-width: 100vw !important;
+  .app-container {
+    flex-direction: column;
   }
   
-  .viewer-panel.viewer-shifted {
-    margin-left: 0 !important;
-    display: none;
+  .panel-container {
+    width: 100% !important;
+    height: 50%;
+    flex-shrink: 0;
+  }
+  
+  .viewer-container {
+    height: 50%;
   }
 }
