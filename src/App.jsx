@@ -1,4 +1,4 @@
-// src/App.jsx - UPDATED Provider Chain (Same UI, Clean Architecture)
+// src/App.jsx - UPDATED Provider Chain with TrajectoryProvider
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
@@ -12,6 +12,7 @@ import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
 import { JointProvider } from './contexts/JointContext';
+import { TrajectoryProvider } from './contexts/TrajectoryContext'; // NEW
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobot';
 import { RobotManagerProvider } from './contexts/RobotManagerContext';
@@ -194,7 +195,7 @@ const AppContent = () => {
   );
 };
 
-// 🚨 UPDATED: Clean Provider Chain (Unified RobotProvider + RobotManagerProvider)
+// 🚨 UPDATED: Clean Provider Chain with TrajectoryProvider Added
 const App = () => {
   return (
     <ViewerProvider>
@@ -203,11 +204,13 @@ const App = () => {
           <EnvironmentProvider>
             <TCPProvider>
               <JointProvider>
-                <IKProvider>
-                  <WorldProvider>
-                    <AppContent />
-                  </WorldProvider>
-                </IKProvider>
+                <TrajectoryProvider>
+                  <IKProvider>
+                    <WorldProvider>
+                      <AppContent />
+                    </WorldProvider>
+                  </IKProvider>
+                </TrajectoryProvider>
               </JointProvider>
             </TCPProvider>
           </EnvironmentProvider>

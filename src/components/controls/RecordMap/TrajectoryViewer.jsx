@@ -1,285 +1,435 @@
-// components/controls/RecordMap/TrajectoryViewer.jsx
+// src/components/controls/RecordMap/TrajectoryViewer.jsx - Pure UI Component
 import React, { useState, useEffect } from 'react';
-import trajectoryAPI from '../../../core/Trajectory/TrajectoryAPI';
-import RecordMap from './RecordMap';
+import { useTrajectory, useTrajectoryRecording, useTrajectoryPlayback, useTrajectoryManagement } from '../../../contexts/hooks/useTrajectory';
+import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
 import EventBus from '../../../utils/EventBus';
-import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
-import { useIK } from '../../../contexts/hooks/useIK';
 
 /**
- * Integrated component for trajectory control and visualization
+ * Pure UI component for trajectory recording, playback, and management
  */
 const TrajectoryViewer = ({ viewerRef }) => {
-  const { activeRobotId, robot, isReady, getJointValues, robotManager } = useRobotControl(viewerRef);
-  const { currentPosition } = useIK();
-  const [trajectories, setTrajectories] = useState([]);
-  const [recording, setRecording] = useState(false);
-  const [playing, setPlaying] = useState(false);
+  const { activeRobotId, isReady } = useRobotControl(viewerRef);
+  
+  // Use specialized hooks for cleaner separation
+  const {
+    isRecording,
+    startRecording,
+    stopRecording,
+    lastRecordedFrame,
+    canRecord,
+    currentState
+  } = useTrajectoryRecording(activeRobotId);
+  
+  const {
+    isPlaying,
+    playbackStatus,
+    playTrajectory,
+    stopPlayback,
+    progress: playbackProgress,
+    currentPosition: playbackPosition,
+    canPlay
+  } = useTrajectoryPlayback(activeRobotId);
+  
+  const {
+    trajectories,
+    getTrajectory,
+    deleteTrajectory,
+    hasTrajectories,
+    count: trajectoryCount,
+    exportTrajectory,
+    importTrajectory,
+    analyzeTrajectory
+  } = useTrajectoryManagement(activeRobotId);
+  
+  // Get main hook for error handling and loading states
+  const {
+    error,
+    isLoading,
+    clearError,
+    isReady: trajectoryReady,
+    hasJoints,
+    hasValidEndEffector,
+    isUsingTCP
+  } = useTrajectory(activeRobotId);
+
+  // Local UI state
   const [selectedTrajectory, setSelectedTrajectory] = useState('');
   const [newTrajectoryName, setNewTrajectoryName] = useState('');
-  const [recordInterval, setRecordInterval] = useState(100); // ms
-  const [playbackProgress, setPlaybackProgress] = useState(0);
+  const [recordInterval, setRecordInterval] = useState(100);
   const [showLiveGraph, setShowLiveGraph] = useState(false);
   const [playbackOptions, setPlaybackOptions] = useState({
     speed: 1.0,
     loop: false
   });
-  const [endEffectorPosition, setEndEffectorPosition] = useState({ x: 0, y: 0, z: 0 });
-  
-  // Initialize and load trajectories
-  useEffect(() => {
-    updateTrajectoryList();
-    
-    // Use EventBus with robot ID filtering
-    const unsubscribe = EventBus.on('trajectory:playback-update', (info) => {
-      // Only update if it's for the current robot
-      if (info.robotId === activeRobotId) {
-        setPlaybackProgress(info.progress * 100);
-      }
-    });
-    
-    return () => {
-      // Clean up only for current robot
-      if (playing && activeRobotId) {
-        trajectoryAPI.stopPlayback(activeRobotId);
-      }
-      if (recording && activeRobotId) {
-        trajectoryAPI.stopRecording(activeRobotId);
-      }
-      unsubscribe();
-    };
-  }, [activeRobotId]); // Add activeRobotId to dependencies
+  const [showAnalysis, setShowAnalysis] = useState(false);
+  const [analysisData, setAnalysisData] = useState(null);
 
-  // Update trajectories when robot changes
+  // Update trajectory list when it changes
   useEffect(() => {
-    updateTrajectoryList();
-    // Clear selected trajectory when switching robots
-    setSelectedTrajectory('');
-    setPlaying(false);
-    setRecording(false);
-  }, [activeRobotId]);
-  
+    if (trajectories.length > 0 && !selectedTrajectory) {
+      setSelectedTrajectory(trajectories[0]);
+    }
+  }, [trajectories, selectedTrajectory]);
+
+  // Listen for recording updates to show real-time feedback
   useEffect(() => {
-    if (!robot || !isReady) return;
-    const updatePosition = () => {
-      const pos = currentPosition;
-      setEndEffectorPosition(pos);
+    const handleRecordingUpdate = (data) => {
+      if (data.robotId === activeRobotId) {
+        // Could update UI with recording progress
+        console.log(`[TrajectoryViewer] Recording update: ${data.frameCount} frames, ${data.currentTime}ms`);
+      }
     };
-    const interval = setInterval(updatePosition, 100);
-    updatePosition();
-    return () => clearInterval(interval);
-  }, [robot, isReady]);
-  
-  const updateTrajectoryList = () => {
-    if (!activeRobotId) {
-      setTrajectories([]);
+
+    const handlePlaybackUpdate = (data) => {
+      if (data.robotId === activeRobotId) {
+        // Could update UI with playback progress
+        console.log(`[TrajectoryViewer] Playback update: ${(data.progress * 100).toFixed(1)}%`);
+      }
+    };
+
+    const unsubscribeRecording = EventBus.on('trajectory:recording-update', handleRecordingUpdate);
+    const unsubscribePlayback = EventBus.on('trajectory:playback-update', handlePlaybackUpdate);
+
+    return () => {
+      unsubscribeRecording();
+      unsubscribePlayback();
+    };
+  }, [activeRobotId]);
+
+  // ========== EVENT HANDLERS ==========
+
+  const handleStartRecording = () => {
+    if (!newTrajectoryName.trim() || !canRecord) {
+      alert('Please enter a trajectory name and ensure robot is ready');
       return;
     }
-    setTrajectories(trajectoryAPI.getTrajectoryNames(activeRobotId));
-  };
-  
-  const handleStartRecording = () => {
-    if (!newTrajectoryName.trim() || !robot || !isReady || !activeRobotId) return;
-    
-    const success = trajectoryAPI.startRecording(newTrajectoryName, {
-      robot,
-      robotId: activeRobotId,
-      interval: recordInterval,
-      // Pass functions to get current state
-      getJointValues: () => getJointValues(),
+
+    const success = startRecording(newTrajectoryName, {
+      interval: recordInterval
     });
-    
+
     if (success) {
-      setRecording(true);
       setSelectedTrajectory(newTrajectoryName);
       setNewTrajectoryName('');
     } else {
-      alert('Failed to start recording');
+      alert('Failed to start recording. Check console for details.');
     }
   };
-  
+
   const handleStopRecording = () => {
-    if (!activeRobotId) return;
-    trajectoryAPI.stopRecording(activeRobotId); // Pass robot ID
-    setRecording(false);
-    updateTrajectoryList();
+    const trajectory = stopRecording();
+    if (trajectory) {
+      console.log(`[TrajectoryViewer] Recording completed: ${trajectory.frameCount} frames`);
+    }
   };
-  
-  const handlePlayTrajectory = (name) => {
-    if (!robot || !isReady || !activeRobotId) return;
-    
-    setPlaying(true);
-    setSelectedTrajectory(name);
-    
-    trajectoryAPI.playTrajectory(name, robot, activeRobotId, {
+
+  const handlePlayTrajectory = (trajectoryName) => {
+    if (!canPlay) {
+      alert('Robot not ready for playback');
+      return;
+    }
+
+    const success = playTrajectory(trajectoryName, {
       ...playbackOptions,
-      setJointValues: (values) => {
-        // Use the robotManager to set joint values
-        if (robotManager) {
-          robotManager.setJointValues(activeRobotId, values);
-        } else {
-          // Fallback to direct robot method
-          robot.setJointValues(values);
-        }
-      },
       onComplete: () => {
-        setPlaying(false);
-        setPlaybackProgress(0);
+        console.log(`[TrajectoryViewer] Playback of "${trajectoryName}" completed`);
+      },
+      onFrame: (frame, endEffectorFrame) => {
+        // Frame callback for additional UI updates if needed
       }
     });
-  };
-  
-  const handleStopPlayback = () => {
-    if (!activeRobotId) return;
-    trajectoryAPI.stopPlayback(activeRobotId); // Pass robot ID
-    setPlaying(false);
-    setPlaybackProgress(0);
-  };
-  
-  const handleDeleteTrajectory = (name) => {
-    if (!activeRobotId) return;
-    if (window.confirm(`Delete trajectory "${name}"?`)) {
-      trajectoryAPI.deleteTrajectory(name, activeRobotId);
-      
-      if (selectedTrajectory === name) {
-        setSelectedTrajectory('');
-      }
-      
-      updateTrajectoryList();
+
+    if (success) {
+      setSelectedTrajectory(trajectoryName);
+    } else {
+      alert('Failed to start playback. Check console for details.');
     }
   };
-  
-  const handleRecordIntervalChange = (e) => {
-    setRecordInterval(parseInt(e.target.value, 10));
+
+  const handleStopPlayback = () => {
+    const success = stopPlayback();
+    if (!success) {
+      console.warn('[TrajectoryViewer] Failed to stop playback');
+    }
   };
-  
+
+  const handleDeleteTrajectory = (trajectoryName) => {
+    if (!window.confirm(`Delete trajectory "${trajectoryName}"?`)) return;
+
+    const success = deleteTrajectory(trajectoryName);
+    if (success) {
+      if (selectedTrajectory === trajectoryName) {
+        setSelectedTrajectory('');
+      }
+      console.log(`[TrajectoryViewer] Deleted trajectory: ${trajectoryName}`);
+    } else {
+      alert('Failed to delete trajectory');
+    }
+  };
+
+  const handleExportTrajectory = (trajectoryName) => {
+    const jsonData = exportTrajectory(trajectoryName);
+    if (!jsonData) {
+      alert('Failed to export trajectory');
+      return;
+    }
+
+    // Create and download file
+    const blob = new Blob([jsonData], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${activeRobotId}_${trajectoryName}_${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportTrajectory = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const trajectory = importTrajectory(e.target.result);
+        if (trajectory) {
+          setSelectedTrajectory(trajectory.name);
+          console.log(`[TrajectoryViewer] Imported trajectory: ${trajectory.name}`);
+        } else {
+          alert('Failed to import trajectory. Check file format.');
+        }
+      } catch (error) {
+        console.error('Import error:', error);
+        alert('Error importing trajectory: ' + error.message);
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = ''; // Reset input
+  };
+
+  const handleAnalyzeTrajectory = (trajectoryName) => {
+    const analysis = analyzeTrajectory(trajectoryName);
+    if (analysis) {
+      setAnalysisData(analysis);
+      setShowAnalysis(true);
+    } else {
+      alert('Failed to analyze trajectory');
+    }
+  };
+
   const handlePlaybackOptionChange = (option, value) => {
     setPlaybackOptions(prev => ({
       ...prev,
       [option]: value
     }));
   };
-  
-  const handleExportTrajectory = (name) => {
-    const json = trajectoryAPI.exportTrajectory(name, activeRobotId);
-    if (!json) return;
-    
-    // Create blob and download link
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${activeRobotId}_${name}.json`; // Include robot ID in filename
-    document.body.appendChild(a);
-    a.click();
-    
-    // Clean up
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 0);
+
+  // ========== RENDER HELPERS ==========
+
+  const renderRecordingStatus = () => {
+    if (!isRecording) return null;
+
+    return (
+      <div className="controls-alert controls-alert-info controls-mb-3">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div className="recording-indicator" style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            backgroundColor: '#ff0000',
+            animation: 'pulse 1s infinite'
+          }}></div>
+          <span>Recording "{selectedTrajectory}"</span>
+          {lastRecordedFrame && (
+            <small className="controls-text-muted">
+              {lastRecordedFrame.timestamp}ms • {Object.keys(lastRecordedFrame.jointValues).length} joints
+            </small>
+          )}
+        </div>
+      </div>
+    );
   };
-  
-  const handleImportTrajectory = (e) => {
-    const file = e.target.files[0];
-    if (!file || !activeRobotId) return;
-    
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const json = event.target.result;
-        // Pass activeRobotId to import
-        const trajectory = trajectoryAPI.importTrajectory(json, activeRobotId);
-        if (trajectory) {
-          updateTrajectoryList();
-          setSelectedTrajectory(trajectory.name);
-        } else {
-          alert('Failed to import trajectory. Please ensure the file is valid and contains trajectory data.');
-        }
-      } catch (error) {
-        console.error('Error importing trajectory:', error);
-        alert('Error importing trajectory. Please check the file format and try again.');
-      }
-    };
-    reader.readAsText(file);
-    
-    // Reset file input
-    e.target.value = '';
-  };
-  
-  const handleSelectTrajectory = (name) => {
-    setSelectedTrajectory(name);
-  };
-  
-  return (
-    <div className="urdf-controls-section">
-      <h3>Trajectory Recording - {activeRobotId || 'No Robot Selected'}</h3>
-      
-      {/* Recording controls */}
-      <div className="trajectory-recording">
-        <h4>Record Trajectory</h4>
-        <div className="trajectory-name-input">
-          <input
-            type="text"
-            placeholder="Trajectory name"
-            value={newTrajectoryName}
-            onChange={(e) => setNewTrajectoryName(e.target.value)}
-            disabled={recording}
+
+  const renderPlaybackStatus = () => {
+    if (!isPlaying) return null;
+
+    return (
+      <div className="controls-alert controls-alert-success controls-mb-3">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Playing "{selectedTrajectory}"</span>
+          <span>{(playbackProgress * 100).toFixed(1)}%</span>
+        </div>
+        <div className="controls-progress controls-mt-2">
+          <div 
+            className="controls-progress-bar" 
+            style={{ width: `${playbackProgress * 100}%` }}
           />
         </div>
+      </div>
+    );
+  };
+
+  const renderRobotStatus = () => {
+    return (
+      <div className="controls-mb-3" style={{
+        padding: '0.75rem',
+        backgroundColor: '#f8f9fa',
+        borderRadius: '4px',
+        border: '1px solid #e9ecef'
+      }}>
+        <h5 className="controls-h6 controls-mb-2">Robot Status</h5>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.875rem' }}>
+          <div>
+            <strong>Robot:</strong> {activeRobotId || 'None'}
+          </div>
+          <div>
+            <strong>Joints:</strong> {hasJoints ? '✓' : '✗'}
+          </div>
+          <div>
+            <strong>End Effector:</strong> {hasValidEndEffector ? '✓' : '✗'}
+          </div>
+          <div>
+            <strong>TCP Tool:</strong> {isUsingTCP ? '✓' : '✗'}
+          </div>
+        </div>
+        {!canRecord && (
+          <div className="controls-text-danger controls-small controls-mt-2">
+            Robot not ready for trajectory operations
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // ========== MAIN RENDER ==========
+
+  if (!isReady || !activeRobotId) {
+    return (
+      <div className="urdf-controls-section">
+        <h3>Trajectory Recording</h3>
+        <p className="controls-text-muted">No robot selected. Please load a robot first.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="urdf-controls-section">
+      <h3>Trajectory Recording - {activeRobotId}</h3>
+
+      {/* Error Display */}
+      {error && (
+        <div className="controls-alert controls-alert-danger controls-mb-3">
+          {error}
+          <button 
+            className="controls-btn controls-btn-sm controls-btn-outline-danger controls-mt-2"
+            onClick={clearError}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Robot Status */}
+      {renderRobotStatus()}
+
+      {/* Recording Status */}
+      {renderRecordingStatus()}
+
+      {/* Playback Status */}
+      {renderPlaybackStatus()}
+
+      {/* Recording Controls */}
+      <div className="trajectory-recording controls-mb-4">
+        <h4>Record New Trajectory</h4>
         
-        <div style={{ marginBottom: '0.5rem' }}>
-          <label htmlFor="record-interval">
-            Recording interval (ms):
+        <div className="controls-form-group">
+          <label className="controls-form-label">Trajectory Name:</label>
+          <input
+            type="text"
+            className="controls-form-control"
+            placeholder="Enter trajectory name"
+            value={newTrajectoryName}
+            onChange={(e) => setNewTrajectoryName(e.target.value)}
+            disabled={isRecording || isPlaying}
+          />
+        </div>
+
+        <div className="controls-form-group">
+          <label className="controls-form-label">
+            Recording Interval (ms):
             <input
-              id="record-interval"
               type="number"
+              className="controls-form-control"
               min="10"
               max="1000"
               step="10"
               value={recordInterval}
-              onChange={handleRecordIntervalChange}
-              disabled={recording}
-              style={{ width: '80px', marginLeft: '0.5rem' }}
+              onChange={(e) => setRecordInterval(parseInt(e.target.value, 10))}
+              disabled={isRecording || isPlaying}
+              style={{ width: '100px', marginLeft: '0.5rem' }}
             />
           </label>
         </div>
-        
-        <div className="trajectory-buttons">
-          {!recording ? (
+
+        <div className="controls-btn-group">
+          {!isRecording ? (
             <button 
-              className="record-btn"
+              className="controls-btn controls-btn-success"
               onClick={handleStartRecording}
-              disabled={!newTrajectoryName.trim()}
+              disabled={!canRecord || !newTrajectoryName.trim() || isPlaying}
             >
-              Start Recording
+              🔴 Start Recording
             </button>
           ) : (
             <button 
-              className="stop-btn"
+              className="controls-btn controls-btn-danger"
               onClick={handleStopRecording}
             >
-              Stop Recording
+              ⏹️ Stop Recording
             </button>
           )}
         </div>
+      </div>
 
+      {/* Playback Options */}
+      <div className="controls-mb-4">
+        <h4>Playback Options</h4>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+          <label>
+            Speed:
+            <input
+              type="number"
+              min="0.1"
+              max="5"
+              step="0.1"
+              value={playbackOptions.speed}
+              onChange={(e) => handlePlaybackOptionChange('speed', parseFloat(e.target.value))}
+              disabled={isRecording || isPlaying}
+              style={{ width: '80px', marginLeft: '0.5rem' }}
+            />
+          </label>
+          
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input
+              type="checkbox"
+              checked={playbackOptions.loop}
+              onChange={(e) => handlePlaybackOptionChange('loop', e.target.checked)}
+              disabled={isRecording || isPlaying}
+            />
+            Loop
+          </label>
+        </div>
+      </div>
+
+      {/* 3D Visualization */}
+      <div className="controls-mb-4">
         <button 
-          className="graph-button"
+          className="controls-btn controls-btn-info controls-btn-block"
           onClick={() => setShowLiveGraph(true)}
-          style={{
-            backgroundColor: 'var(--controls-brand-teal)',
-            color: 'white',
-            padding: '10px 20px',
-            borderRadius: '4px',
-            border: 'none',
-            cursor: 'pointer',
-            marginTop: '1rem',
-            width: '100%',
-            fontSize: '1rem',
-            fontWeight: '500'
-          }}
+          style={{ fontSize: '1rem', fontWeight: '500' }}
         >
           📊 View 3D Trajectory Graph
         </button>
@@ -292,118 +442,195 @@ const TrajectoryViewer = ({ viewerRef }) => {
           />
         )}
       </div>
-      
-      {/* Playback controls */}
-      <div style={{ marginBottom: '1rem' }}>
-        <h4>Playback Options</h4>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
-          <label htmlFor="playback-speed">
-            Speed:
-            <input
-              id="playback-speed"
-              type="number"
-              min="0.1"
-              max="5"
-              step="0.1"
-              value={playbackOptions.speed}
-              onChange={(e) => handlePlaybackOptionChange('speed', parseFloat(e.target.value))}
-              disabled={playing}
-              style={{ width: '60px', marginLeft: '0.5rem' }}
-            />
-          </label>
-          
-          <label style={{ marginLeft: '1rem' }}>
-            <input
-              type="checkbox"
-              checked={playbackOptions.loop}
-              onChange={(e) => handlePlaybackOptionChange('loop', e.target.checked)}
-              disabled={playing}
-            />
-            Loop
-          </label>
-        </div>
-      </div>
-      
+
       {/* Import/Export */}
-      <div style={{ marginBottom: '1rem' }}>
+      <div className="controls-mb-4">
         <h4>Import/Export</h4>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <label className="custom-file-upload" style={{ flex: 1 }}>
+        <div className="controls-btn-group">
+          <label className="controls-btn controls-btn-secondary" style={{ margin: 0, cursor: 'pointer' }}>
             <input
               type="file"
               accept=".json"
               onChange={handleImportTrajectory}
               style={{ display: 'none' }}
+              disabled={isRecording || isPlaying}
             />
-            <button style={{ width: '100%' }}>Import Trajectory</button>
+            📥 Import
           </label>
         </div>
       </div>
-      
-      {/* 3D Visualization */}
-      <RecordMap trajectoryName={selectedTrajectory} />
-      
-      {/* Trajectory list */}
+
+      {/* Trajectory List */}
       <div className="trajectory-list">
-        <h4>Saved Trajectories for {activeRobotId || 'No Robot Selected'}</h4>
-        {trajectories.length === 0 ? (
-          <div className="no-trajectories">No trajectories recorded</div>
+        <h4>Saved Trajectories ({trajectoryCount})</h4>
+        
+        {!hasTrajectories ? (
+          <div className="controls-text-muted controls-text-center controls-p-3">
+            No trajectories recorded for {activeRobotId}
+          </div>
         ) : (
-          <ul>
-            {trajectories.map(name => (
-              <li key={name} className="trajectory-item">
-                <span 
-                  className="trajectory-name" 
-                  onClick={() => handleSelectTrajectory(name)}
-                  style={{ 
-                    cursor: 'pointer',
-                    fontWeight: selectedTrajectory === name ? 'bold' : 'normal',
-                    color: selectedTrajectory === name ? '#3498db' : 'inherit'
-                  }}
-                >
-                  {name}
-                </span>
-                <div className="trajectory-actions">
-                  <button 
-                    onClick={() => handlePlayTrajectory(name)}
-                    disabled={playing}
+          <div className="controls-list">
+            {trajectories.map(trajectoryName => (
+              <div key={trajectoryName} className="controls-list-item">
+                <div className="controls-list-item-content">
+                  <h6 
+                    className="controls-list-item-title"
+                    style={{ 
+                      cursor: 'pointer',
+                      color: selectedTrajectory === trajectoryName ? '#007bff' : 'inherit'
+                    }}
+                    onClick={() => setSelectedTrajectory(trajectoryName)}
                   >
-                    Play
-                  </button>
-                  <button onClick={() => handleExportTrajectory(name)}>
-                    Export
-                  </button>
-                  <button onClick={() => handleDeleteTrajectory(name)}>
-                    Delete
-                  </button>
+                    {trajectoryName}
+                    {selectedTrajectory === trajectoryName && (
+                      <span className="controls-badge controls-badge-primary controls-ml-2">
+                        Selected
+                      </span>
+                    )}
+                  </h6>
+                  
+                  {(() => {
+                    const trajectory = getTrajectory(trajectoryName);
+                    return trajectory ? (
+                      <div className="controls-text-muted controls-small">
+                        {trajectory.frameCount || 0} frames • {(trajectory.duration / 1000).toFixed(1)}s
+                        {trajectory.endEffectorPath && (
+                          <span> • End effector tracked</span>
+                        )}
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
-              </li>
+                
+                <div className="controls-list-item-actions">
+                  <div className="controls-btn-group controls-btn-group-sm">
+                    <button 
+                      className="controls-btn controls-btn-sm controls-btn-success"
+                      onClick={() => handlePlayTrajectory(trajectoryName)}
+                      disabled={!canPlay || isRecording || isPlaying}
+                      title="Play trajectory"
+                    >
+                      ▶️
+                    </button>
+                    
+                    <button 
+                      className="controls-btn controls-btn-sm controls-btn-info"
+                      onClick={() => handleAnalyzeTrajectory(trajectoryName)}
+                      disabled={isRecording || isPlaying}
+                      title="Analyze trajectory"
+                    >
+                      📊
+                    </button>
+                    
+                    <button 
+                      className="controls-btn controls-btn-sm controls-btn-secondary"
+                      onClick={() => handleExportTrajectory(trajectoryName)}
+                      disabled={isRecording || isPlaying}
+                      title="Export trajectory"
+                    >
+                      📤
+                    </button>
+                    
+                    <button 
+                      className="controls-btn controls-btn-sm controls-btn-danger"
+                      onClick={() => handleDeleteTrajectory(trajectoryName)}
+                      disabled={isRecording || isPlaying}
+                      title="Delete trajectory"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </div>
-      
-      {/* Active playback controls */}
-      {playing && (
-        <div className="playback-controls">
-          <div style={{ marginBottom: '0.5rem' }}>
-            Playing: <strong>{selectedTrajectory}</strong>
+
+      {/* Active Playback Controls */}
+      {isPlaying && (
+        <div className="controls-mt-4" style={{
+          padding: '1rem',
+          backgroundColor: '#e8f5e8',
+          borderRadius: '4px',
+          border: '1px solid #28a745'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <strong>Playing:</strong> {selectedTrajectory}
+            </div>
+            <button 
+              className="controls-btn controls-btn-sm controls-btn-warning"
+              onClick={handleStopPlayback}
+            >
+              ⏹️ Stop Playback
+            </button>
           </div>
           
-          <div className="playback-progress">
-            <div
-              className="playback-progress-bar"
-              style={{ width: `${playbackProgress}%` }}
-            />
+          {playbackPosition && (
+            <div className="controls-mt-2 controls-small controls-text-muted">
+              End Effector: ({playbackPosition.x.toFixed(3)}, {playbackPosition.y.toFixed(3)}, {playbackPosition.z.toFixed(3)})
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Analysis Modal */}
+      {showAnalysis && analysisData && (
+        <div className="controls-modal-overlay">
+          <div className="controls-modal" style={{ maxWidth: '800px' }}>
+            <div className="controls-modal-header">
+              <h3>Trajectory Analysis: {analysisData.name}</h3>
+              <button 
+                className="controls-close"
+                onClick={() => setShowAnalysis(false)}
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="controls-modal-body">
+              <div className="controls-grid controls-grid-cols-2 controls-gap-4">
+                <div>
+                  <h5>Basic Info</h5>
+                  <p><strong>Frames:</strong> {analysisData.frameCount}</p>
+                  <p><strong>Duration:</strong> {(analysisData.duration / 1000).toFixed(1)}s</p>
+                  <p><strong>Robot:</strong> {analysisData.robotId}</p>
+                </div>
+                
+                <div>
+                  <h5>End Effector</h5>
+                  <p><strong>Distance:</strong> {analysisData.endEffectorStats.totalDistance.toFixed(3)}m</p>
+                  <p><strong>Max Velocity:</strong> {analysisData.endEffectorStats.maxVelocity.toFixed(3)}m/s</p>
+                  <p><strong>Avg Velocity:</strong> {analysisData.endEffectorStats.averageVelocity.toFixed(3)}m/s</p>
+                </div>
+              </div>
+              
+              <div className="controls-mt-4">
+                <h5>Joint Statistics</h5>
+                <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
+                  {Object.entries(analysisData.jointStats).map(([jointName, stats]) => (
+                    <div key={jointName} className="controls-mb-2">
+                      <strong>{jointName}:</strong> 
+                      <span className="controls-ml-2">
+                        Range: {stats.range.toFixed(3)} rad • 
+                        Final: {stats.final.toFixed(3)} rad
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
-          
-          <button 
-            className="stop-playback-btn"
-            onClick={handleStopPlayback}
-            style={{ marginTop: '0.5rem' }}
-          >
-            Stop Playback
-          </button>
+        </div>
+      )}
+
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="controls-loading-overlay">
+          <div className="controls-spinner-border" role="status">
+            <span className="controls-sr-only">Processing...</span>
+          </div>
         </div>
       )}
     </div>
