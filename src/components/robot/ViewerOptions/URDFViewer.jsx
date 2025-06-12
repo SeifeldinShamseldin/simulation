@@ -1,9 +1,9 @@
-// src/components/ViewerOptions/URDFViewer.jsx - REFACTORED
+// src/components/robot/ViewerOptions/URDFViewer.jsx - REFACTORED
 import React, { useEffect, useRef } from 'react';
-import { useViewer } from '../../contexts/ViewerContext';
-import { useViewerControl } from '../../contexts/hooks/useViewerEnhanced';
-import { useRobotManager } from '../../contexts/hooks/useRobotManager';
-import EventBus from '../../utils/EventBus';
+import { useViewer } from '../../../contexts/hooks/useViewer';
+import { useViewerControl } from '../../../contexts/hooks/useViewer';
+import { useRobotManager } from '../../../contexts/hooks/useRobotManager';
+import EventBus from '../../../utils/EventBus';
 
 const URDFViewer = React.forwardRef(({
   robotName = '',

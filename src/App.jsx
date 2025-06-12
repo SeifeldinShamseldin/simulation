@@ -1,6 +1,6 @@
 // src/App.jsx - Fix real-time resize issue
 import React, { useState, useEffect, useRef } from 'react';
-import URDFViewer from './components/ViewerOptions/URDFViewer';
+import URDFViewer from './components/robot/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
 import Robot from './components/robot/Robot';
 import Environment from './components/Environment/Environment';
