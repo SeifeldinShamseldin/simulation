@@ -1,4 +1,4 @@
-// src/contexts/hooks/useRobot.js - UNIFIED HOOKS
+// src/contexts/hooks/useRobot.js - HOOK DISPATCHER (Same as Environment Pattern)
 import { useCallback } from 'react';
 import { useRobotContext } from '../RobotContext';
 
@@ -7,50 +7,55 @@ export const useRobot = () => {
   const context = useRobotContext();
   
   return {
-    // ========== DISCOVERY ==========
+    // ========== ROBOT STATE ==========
     availableRobots: context.availableRobots,
     categories: context.categories,
-    availableTools: context.availableTools,
-    discoverRobots: context.discoverRobots,
-    refresh: context.discoverRobots, // Alias
-    
-    // ========== WORKSPACE ==========
     workspaceRobots: context.workspaceRobots,
-    addRobotToWorkspace: context.addRobotToWorkspace,
-    removeRobotFromWorkspace: context.removeRobotFromWorkspace,
-    isRobotInWorkspace: context.isRobotInWorkspace,
-    clearWorkspace: context.clearWorkspace,
-    exportRobots: context.exportWorkspace,
-    importRobots: context.importWorkspace,
-    
-    // ========== LOADED ROBOTS ==========
-    loadedRobots: context.loadedRobots,
     activeRobotId: context.activeRobotId,
     activeRobot: context.activeRobot,
-    loadRobot: context.loadRobot,
-    unloadRobot: context.unloadRobot,
-    getRobot: context.getRobot,
-    isRobotLoaded: context.isRobotLoaded,
-    setActiveRobotId: context.setActiveRobotId,
-    setActiveRobot: context.setActiveRobotId, // Same function now
-    
-    // ========== STATE ==========
+    loadedRobots: context.loadedRobots,
     isLoading: context.isLoading,
     error: context.error,
     successMessage: context.successMessage,
+    
+    // ========== ROBOT DISCOVERY OPERATIONS ==========
+    discoverRobots: context.discoverRobots,
+    refresh: context.refresh,
+    
+    // ========== WORKSPACE OPERATIONS ==========
+    addRobotToWorkspace: context.addRobotToWorkspace,
+    removeRobotFromWorkspace: context.removeRobotFromWorkspace,
+    isRobotInWorkspace: context.isRobotInWorkspace,
+    getWorkspaceRobot: context.getWorkspaceRobot,
+    clearWorkspace: context.clearWorkspace,
+    importRobots: context.importRobots,
+    exportRobots: context.exportRobots,
+    
+    // ========== ROBOT LOADING OPERATIONS ==========
+    loadRobot: context.loadRobot,
+    unloadRobot: context.unloadRobot,
+    isRobotLoaded: context.isRobotLoaded,
+    getRobot: context.getRobot,
+    setActiveRobotId: context.setActiveRobotId,
+    setActiveRobot: context.setActiveRobot,
+    getRobotLoadStatus: context.getRobotLoadStatus,
+    
+    // ========== CONVENIENCE METHODS ==========
+    getLoadedRobots: context.getLoadedRobots,
+    
+    // ========== COMPUTED PROPERTIES ==========
+    robotCount: context.robotCount,
+    isEmpty: context.isEmpty,
+    hasWorkspaceRobots: context.hasWorkspaceRobots,
+    hasAvailableRobots: context.hasAvailableRobots,
+    hasLoadedRobots: context.hasLoadedRobots,
+    hasActiveRobot: context.hasActiveRobot,
+    
+    // ========== ERROR HANDLING ==========
     clearError: context.clearError,
     clearSuccess: context.clearSuccess,
     
-    // ========== COMPUTED ==========
-    robotCount: context.workspaceCount,
-    isEmpty: context.workspaceCount === 0,
-    hasWorkspaceRobots: context.hasWorkspaceRobots,
-    hasAvailableRobots: context.availableRobots.length > 0,
-    hasLoadedRobots: context.hasLoadedRobots,
-    hasActiveRobot: context.hasActiveRobot,
-    hasAvailableTools: context.availableTools.length > 0,
-    
-    // ========== HELPERS ==========
+    // ========== HELPER FUNCTIONS ==========
     getRobotById: useCallback((robotId) => {
       return context.availableRobots.find(robot => robot.id === robotId);
     }, [context.availableRobots]),
@@ -67,232 +72,190 @@ export const useRobot = () => {
       return context.categories.find(category => category.id === categoryId);
     }, [context.categories]),
     
+    // ========== STATE CHECKS ==========
     isRobotActive: useCallback((robotId) => {
       return context.activeRobotId === robotId;
     }, [context.activeRobotId]),
     
-    getWorkspaceRobot: useCallback((workspaceRobotId) => {
-      return context.workspaceRobots.find(r => r.id === workspaceRobotId);
-    }, [context.workspaceRobots]),
-    
-    getRobotLoadStatus: useCallback((robot) => {
-      const loaded = context.isRobotLoaded(robot.id);
-      return {
-        isLoaded: loaded,
-        statusText: loaded ? 'Loaded' : 'Click to Load'
-      };
-    }, [context.isRobotLoaded]),
-    
-    getLoadedRobots: () => context.loadedRobots
+    hasWorkspaceRobot: useCallback((robotId) => {
+      return context.workspaceRobots.some(r => r.robotId === robotId);
+    }, [context.workspaceRobots])
   };
 };
 
 // ========== SPECIALIZED HOOKS ==========
 
 export const useRobotWorkspace = () => {
-  const context = useRobotContext();
+  const {
+    workspaceRobots,
+    addRobotToWorkspace,
+    removeRobotFromWorkspace,
+    isRobotInWorkspace,
+    getWorkspaceRobot,
+    clearWorkspace,
+    importRobots,
+    exportRobots,
+    robotCount,
+    isEmpty,
+    hasWorkspaceRobots,
+    getWorkspaceRobotById,
+    hasWorkspaceRobot
+  } = useRobot();
   
   return {
-    robots: context.workspaceRobots,
-    count: context.workspaceCount,
-    isEmpty: context.workspaceCount === 0,
-    hasRobots: context.hasWorkspaceRobots,
+    // Workspace State
+    robots: workspaceRobots,
+    count: robotCount,
+    isEmpty,
+    hasRobots: hasWorkspaceRobots,
     
-    addRobot: context.addRobotToWorkspace,
-    removeRobot: context.removeRobotFromWorkspace,
-    isInWorkspace: context.isRobotInWorkspace,
-    clear: context.clearWorkspace,
-    import: context.importWorkspace,
-    export: context.exportWorkspace,
+    // Workspace Operations
+    addRobot: addRobotToWorkspace,
+    removeRobot: removeRobotFromWorkspace,
+    isInWorkspace: isRobotInWorkspace,
+    getRobot: getWorkspaceRobot,
+    clear: clearWorkspace,
+    import: importRobots,
+    export: exportRobots,
     
-    getById: useCallback((id) => {
-      return context.workspaceRobots.find(r => r.id === id);
-    }, [context.workspaceRobots]),
-    
-    getRobot: useCallback((id) => {
-      return context.workspaceRobots.find(r => r.id === id);
-    }, [context.workspaceRobots]),
-    
-    hasRobot: useCallback((robotId) => {
-      return context.workspaceRobots.some(r => r.robotId === robotId);
-    }, [context.workspaceRobots])
+    // Helper Methods
+    getById: getWorkspaceRobotById,
+    hasRobot: hasWorkspaceRobot
   };
 };
 
 export const useRobotDiscovery = () => {
-  const context = useRobotContext();
+  const {
+    availableRobots,
+    categories,
+    discoverRobots,
+    refresh,
+    hasAvailableRobots,
+    getRobotById,
+    getRobotsByCategory,
+    getCategoryById
+  } = useRobot();
   
   return {
-    robots: context.availableRobots,
-    categories: context.categories,
-    hasRobots: context.availableRobots.length > 0,
+    // Discovery State
+    robots: availableRobots,
+    categories,
+    hasRobots: hasAvailableRobots,
     
-    discover: context.discoverRobots,
-    refresh: context.discoverRobots,
+    // Discovery Operations
+    discover: discoverRobots,
+    refresh,
     
-    getRobotById: useCallback((id) => {
-      return context.availableRobots.find(r => r.id === id);
-    }, [context.availableRobots]),
+    // Helper Methods
+    getRobotById,
+    getRobotsByCategory,
+    getCategoryById,
     
-    getRobotsByCategory: useCallback((categoryId) => {
-      return context.availableRobots.filter(r => r.category === categoryId);
-    }, [context.availableRobots]),
-    
-    getCategoryById: useCallback((categoryId) => {
-      return context.categories.find(c => c.id === categoryId);
-    }, [context.categories]),
-    
-    robotCount: context.availableRobots.length,
-    categoryCount: context.categories.length,
-    isEmpty: context.availableRobots.length === 0
+    // Computed Properties
+    robotCount: availableRobots.length,
+    categoryCount: categories.length,
+    isEmpty: availableRobots.length === 0
   };
 };
 
 export const useRobotManagement = () => {
-  const context = useRobotContext();
+  const {
+    loadRobot,
+    unloadRobot,
+    isRobotLoaded,
+    getRobot,
+    getRobotLoadStatus,
+    loadedRobots,
+    hasLoadedRobots,
+    getLoadedRobots
+  } = useRobot();
   
   return {
-    loadedRobots: context.loadedRobots,
-    hasLoaded: context.hasLoadedRobots,
+    // Loading State
+    loadedRobots,
+    hasLoaded: hasLoadedRobots,
     
-    load: context.loadRobot,
-    unload: context.unloadRobot,
-    isLoaded: context.isRobotLoaded,
-    getRobot: context.getRobot,
+    // Loading Operations
+    load: loadRobot,
+    unload: unloadRobot,
+    isLoaded: isRobotLoaded,
+    getRobot,
+    getStatus: getRobotLoadStatus,
+    getAll: getLoadedRobots,
     
-    getStatus: useCallback((robot) => {
-      const loaded = context.isRobotLoaded(robot.id);
-      return {
-        isLoaded: loaded,
-        statusText: loaded ? 'Loaded' : 'Click to Load'
-      };
-    }, [context.isRobotLoaded]),
-    
-    getAll: () => context.loadedRobots,
-    loadedCount: context.robotCount,
-    hasRobots: context.robotCount > 0
+    // Computed Properties
+    loadedCount: loadedRobots.size,
+    hasRobots: loadedRobots.size > 0
   };
 };
 
 export const useRobotSelection = () => {
-  const context = useRobotContext();
+  const {
+    activeRobotId,
+    activeRobot,
+    setActiveRobotId,
+    setActiveRobot,
+    hasActiveRobot,
+    isRobotActive
+  } = useRobot();
   
   return {
-    activeId: context.activeRobotId,
-    activeRobot: context.activeRobot,
-    hasActive: context.hasActiveRobot,
+    // Selection State
+    activeId: activeRobotId,
+    activeRobot,
+    hasActive: hasActiveRobot,
     
-    setActive: context.setActiveRobotId,
-    setActiveRobot: context.setActiveRobotId,
-    clearActive: () => context.setActiveRobotId(null),
+    // Selection Operations
+    setActive: setActiveRobotId,
+    setActiveRobot,
+    clearActive: () => setActiveRobotId(null),
     
-    isActive: useCallback((robotId) => {
-      return context.activeRobotId === robotId;
-    }, [context.activeRobotId])
+    // Helper Methods
+    isActive: isRobotActive
   };
 };
 
 export const useRobotLoading = () => {
-  const context = useRobotContext();
+  const {
+    isLoading,
+    error,
+    successMessage,
+    clearError,
+    clearSuccess
+  } = useRobot();
   
   return {
-    isLoading: context.isLoading,
-    error: context.error,
-    success: context.successMessage,
+    // Loading State
+    isLoading,
+    error,
+    success: successMessage,
     
-    clearError: context.clearError,
-    clearSuccess: context.clearSuccess,
+    // Loading Operations
+    clearError,
+    clearSuccess,
     
-    hasError: !!context.error,
-    hasSuccess: !!context.successMessage
+    // State Checks
+    hasError: !!error,
+    hasSuccess: !!successMessage
   };
 };
 
 export const useRobotCategories = () => {
-  const context = useRobotContext();
+  const {
+    categories,
+    getRobotsByCategory,
+    getCategoryById
+  } = useRobot();
   
   return {
-    categories: context.categories,
-    count: context.categories.length,
-    isEmpty: context.categories.length === 0,
+    // Category State
+    categories,
+    count: categories.length,
+    isEmpty: categories.length === 0,
     
-    getRobotsByCategory: useCallback((categoryId) => {
-      return context.availableRobots.filter(r => r.category === categoryId);
-    }, [context.availableRobots]),
-    
-    getById: useCallback((categoryId) => {
-      return context.categories.find(c => c.id === categoryId);
-    }, [context.categories])
-  };
-};
-
-// ========== ROBOT MANAGER COMPATIBILITY HOOK ==========
-export const useRobotManager = () => {
-  const context = useRobotContext();
-  
-  return {
-    // State
-    robots: context.loadedRobots,
-    activeRobots: new Set(context.activeRobotId ? [context.activeRobotId] : []),
-    isLoading: context.isLoading,
-    error: context.error,
-    
-    // Robot Management
-    loadRobot: context.loadRobot,
-    getAllRobots: () => context.loadedRobots,
-    getRobot: context.getRobot,
-    setRobotActive: (robotId, isActive) => {
-      if (isActive) {
-        context.setActiveRobotId(robotId);
-      } else if (context.activeRobotId === robotId) {
-        context.setActiveRobotId(null);
-      }
-      return true;
-    },
-    removeRobot: context.unloadRobot,
-    clearAllRobots: () => {
-      for (const [robotId] of context.loadedRobots) {
-        context.unloadRobot(robotId);
-      }
-    },
-    getActiveRobots: () => context.activeRobotId ? [context.activeRobotId] : [],
-    
-    // Joint Control
-    setJointValue: context.setJointValue,
-    setJointValues: context.setJointValues,
-    getJointValues: context.getJointValues,
-    resetJoints: context.resetJoints,
-    
-    // Utility
-    calculateRobotPositions: () => {
-      const positions = [];
-      let index = 0;
-      for (const [robotId] of context.loadedRobots) {
-        positions.push({
-          robotId,
-          position: { x: index * 2, y: 0, z: 0 }
-        });
-        index++;
-      }
-      return positions;
-    },
-    getCurrentRobot: () => context.activeRobot,
-    getCurrentRobotName: () => context.activeRobotId,
-    
-    // State checks
-    hasRobots: context.hasLoadedRobots,
-    robotCount: context.robotCount,
-    activeRobotCount: context.activeRobotId ? 1 : 0,
-    
-    // Error handling
-    clearError: context.clearError,
-    
-    // Additional compatibility methods
-    isRobotLoaded: context.isRobotLoaded,
-    isRobotActive: (robotId) => context.activeRobotId === robotId,
-    getRobotData: (robotId) => context.loadedRobots.get(robotId),
-    hasActiveRobots: context.hasActiveRobot,
-    isEmpty: context.robotCount === 0
+    // Category Operations
+    getRobotsByCategory,
+    getById: getCategoryById
   };
 };
 

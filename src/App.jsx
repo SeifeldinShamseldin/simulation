@@ -1,4 +1,4 @@
-// src/App.jsx - Simplified with unified RobotContext
+// src/App.jsx - Fix real-time resize issue
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/robot/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
@@ -6,7 +6,7 @@ import Robot from './components/robot/Robot';
 import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import ResizablePanel from './components/common/ResizablePanel';
-import { RobotProvider } from './contexts/RobotContext'; // Single robot context now
+import { RobotProvider } from './contexts/RobotContext';
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
@@ -15,6 +15,7 @@ import { JointProvider } from './contexts/JointContext';
 import { TrajectoryProvider } from './contexts/TrajectoryContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobot';
+import { RobotManagerProvider } from './contexts/RobotManagerContext';
 import { CreateLogoProvider } from './contexts/CreateLogoContext';
 import WorldManager from './components/World/WorldManager';
 import './App.css';
@@ -113,7 +114,7 @@ const AppContent = () => {
 
   const handlePanelWidthChange = (width) => {
     setPanelWidth(width);
-    // Trigger immediate viewer resize
+    // 🚨 FIX: Trigger immediate viewer resize
     requestAnimationFrame(() => {
       if (viewerRef.current && viewerRef.current.resize) {
         viewerRef.current.resize();
@@ -132,6 +133,7 @@ const AppContent = () => {
         onPanelToggle={handlePanelToggle} 
       />
       
+      {/* 🚨 FIX: Use flexbox instead of grid for better resize handling */}
       <div className="app-container">
         {/* Panel Container - Fixed width */}
         {hasPanel && (
@@ -203,27 +205,29 @@ const AppContent = () => {
   );
 };
 
-// Simplified Provider Chain - No more RobotManagerProvider!
+// Clean Provider Chain
 const App = () => {
   return (
     <ViewerProvider>
-      <RobotProvider>
-        <EnvironmentProvider>
-          <TCPProvider>
-            <JointProvider>
-              <TrajectoryProvider>
-                <IKProvider>
-                  <WorldProvider>
-                    <CreateLogoProvider>
-                      <AppContent />
-                    </CreateLogoProvider>
-                  </WorldProvider>
-                </IKProvider>
-              </TrajectoryProvider>
-            </JointProvider>
-          </TCPProvider>
-        </EnvironmentProvider>
-      </RobotProvider>
+      <RobotManagerProvider>
+        <RobotProvider>
+          <EnvironmentProvider>
+            <TCPProvider>
+              <JointProvider>
+                <TrajectoryProvider>
+                  <IKProvider>
+                    <WorldProvider>
+                      <CreateLogoProvider>
+                        <AppContent />
+                      </CreateLogoProvider>
+                    </WorldProvider>
+                  </IKProvider>
+                </TrajectoryProvider>
+              </JointProvider>
+            </TCPProvider>
+          </EnvironmentProvider>
+        </RobotProvider>
+      </RobotManagerProvider>
     </ViewerProvider>
   );
 };

@@ -1,14 +1,14 @@
 // src/contexts/JointContext.jsx - Fixed robot manager sync and TCP integration
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useViewer } from './ViewerContext';
-import { useRobot } from './hooks/useRobot';
+import { useRobotSelection } from './hooks/useRobot';
 import EventBus from '../utils/EventBus';
 
 const JointContext = createContext(null);
 
 export const JointProvider = ({ children }) => {
-  const { isViewerReady } = useViewer();
-  const { activeRobotId, getRobot } = useRobot();
+  const { isViewerReady, getRobotManager } = useViewer();
+  const { activeId: activeRobotId } = useRobotSelection();
   
   // State for all robots' joint data
   const [robotJoints, setRobotJoints] = useState(new Map()); // robotId -> joint info
@@ -16,28 +16,17 @@ export const JointProvider = ({ children }) => {
   const [isAnimating, setIsAnimating] = useState(new Map()); // robotId -> boolean
   const [animationProgress, setAnimationProgress] = useState(new Map()); // robotId -> progress
   
+  const robotManagerRef = useRef(null);
   const animationFrameRef = useRef(new Map()); // Track animation frames per robot
   const robotRegistryRef = useRef(new Map()); // Local robot registry for fallback
 
-  // Get robot with fallback methods
-  const getRobotWithFallback = useCallback((robotId) => {
-    if (!robotId) return null;
-    
-    // Method 1: Try unified context first
-    const robot = getRobot(robotId);
-    if (robot) {
-      robotRegistryRef.current.set(robotId, robot);
-      return robot;
+  // Initialize robot manager reference
+  useEffect(() => {
+    if (isViewerReady) {
+      robotManagerRef.current = getRobotManager();
+      console.log('[JointContext] Robot manager initialized:', !!robotManagerRef.current);
     }
-    
-    // Method 2: Try local registry
-    if (robotRegistryRef.current.has(robotId)) {
-      return robotRegistryRef.current.get(robotId);
-    }
-
-    console.warn(`[JointContext] Robot ${robotId} not found in any registry`);
-    return null;
-  }, [getRobot]);
+  }, [isViewerReady, getRobotManager]);
 
   // Stop animation for robot (defined early to avoid hoisting issues)
   const stopAnimation = useCallback((robotId) => {
@@ -73,27 +62,53 @@ export const JointProvider = ({ children }) => {
       return robot;
     }
 
-    // Method 2: Try unified context
-    const robot = getRobot(robotId);
-    if (robot) {
-      console.log(`[JointContext] Found robot via unified context: ${robotId}`);
-      robotRegistryRef.current.set(robotId, robot);
-      return robot;
+    // Method 2: Try robot manager getRobot method
+    if (robotManagerRef.current && robotManagerRef.current.getRobot) {
+      try {
+        const robot = robotManagerRef.current.getRobot(robotId);
+        if (robot) {
+          console.log(`[JointContext] Found robot via robot manager: ${robotId}`);
+          // Cache in local registry for future use
+          robotRegistryRef.current.set(robotId, robot);
+          return robot;
+        }
+      } catch (error) {
+        console.warn(`[JointContext] Robot manager getRobot failed:`, error);
+      }
     }
 
-    // Method 3: Try scene traversal (last resort)
-    if (sceneSetupRef.current) {
-      const robot = sceneSetupRef.current.scene.getObjectByName(robotId);
-      if (robot) {
-        console.log(`[JointContext] Found robot via scene traversal: ${robotId}`);
-        robotRegistryRef.current.set(robotId, robot);
-        return robot;
+    // Method 3: Try robot manager robots Map
+    if (robotManagerRef.current && robotManagerRef.current.robots && robotManagerRef.current.robots.has) {
+      try {
+        const robotData = robotManagerRef.current.robots.get(robotId);
+        if (robotData && robotData.robot) {
+          console.log(`[JointContext] Found robot in manager robots Map: ${robotId}`);
+          // Cache in local registry
+          robotRegistryRef.current.set(robotId, robotData.robot);
+          return robotData.robot;
+        }
+      } catch (error) {
+        console.warn(`[JointContext] Robot manager robots Map failed:`, error);
+      }
+    }
+
+    // Method 4: Try window.robotManagerContext (if exists)
+    if (window.robotManagerContext && window.robotManagerContext.getRobot) {
+      try {
+        const robot = window.robotManagerContext.getRobot(robotId);
+        if (robot) {
+          console.log(`[JointContext] Found robot via window.robotManagerContext: ${robotId}`);
+          robotRegistryRef.current.set(robotId, robot);
+          return robot;
+        }
+      } catch (error) {
+        console.warn(`[JointContext] Window robot manager failed:`, error);
       }
     }
 
     console.warn(`[JointContext] Robot ${robotId} not found in any registry`);
     return null;
-  }, [getRobot]);
+  }, []);
 
   // 🚨 CRITICAL FIX: Enhanced joint values getter with fallbacks
   const getRobotJointValues = useCallback((robotId) => {

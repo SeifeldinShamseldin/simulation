@@ -1,14 +1,15 @@
 // src/contexts/IKContext.jsx - Fixed animation completion handling
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { useRobot } from './hooks/useRobot';
+import { useRobotSelection, useRobotManagement } from './hooks/useRobot';
 import { useTCP } from './hooks/useTCP';
 import EventBus from '../utils/EventBus';
 
 const IKContext = createContext(null);
 
 export const IKProvider = ({ children }) => {
-  const { activeRobotId, getRobot } = useRobot();
+  const { activeId: activeRobotId } = useRobotSelection();
+  const { getRobot } = useRobotManagement();
   const { 
     currentEndEffectorPoint,
     hasValidEndEffector,

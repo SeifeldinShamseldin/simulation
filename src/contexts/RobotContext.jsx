@@ -1,56 +1,45 @@
-// src/contexts/RobotContext.jsx - UNIFIED ROBOT MANAGEMENT
+// src/contexts/RobotContext.jsx - UNIFIED BRAIN (Same as Environment Pattern)
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import * as THREE from 'three';
-import URDFLoader from '../core/Loader/URDFLoader';
-import MeshLoader from '../core/Loader/MeshLoader';
 import { useViewer } from './ViewerContext';
 import EventBus from '../utils/EventBus';
 
 const RobotContext = createContext(null);
 
 export const RobotProvider = ({ children }) => {
-  const { isViewerReady, getSceneSetup } = useViewer();
+  const { isViewerReady, viewerInstance } = useViewer();
   
-  // ========== DISCOVERY STATE ==========
+  // Request deduplication
+  const isDiscoveringRef = useRef(false);
+  const hasInitializedRef = useRef(false);
+  
+  // ========== UNIFIED STATE (All Robot Data) ==========
+  
+  // Robot Discovery State (from old RobotContext)
   const [availableRobots, setAvailableRobots] = useState([]);
   const [categories, setCategories] = useState([]);
+  
+  // TCP Tool Discovery State
   const [availableTools, setAvailableTools] = useState([]);
   
-  // ========== WORKSPACE STATE ==========
+  // Workspace State (from old WorkspaceContext)
   const [workspaceRobots, setWorkspaceRobots] = useState([]);
   
-  // ========== SCENE STATE ==========
-  const [loadedRobots, setLoadedRobots] = useState(new Map());
-  const [activeRobotId, setActiveRobotId] = useState(null);
+  // Active Robot Management 
+  const [activeRobotId, setActiveRobotIdState] = useState(null);
   const [activeRobot, setActiveRobot] = useState(null);
+  const [loadedRobots, setLoadedRobots] = useState(new Map());
   
-  // ========== LOADING STATE ==========
+  // Loading & Error States
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   
-  // ========== REFS ==========
-  const sceneSetupRef = useRef(null);
-  const urdfLoaderRef = useRef(null);
-  const isDiscoveringRef = useRef(false);
-  const hasInitializedRef = useRef(false);
+  // ========== ROBOT DISCOVERY OPERATIONS (Fixed like EnvironmentContext) ==========
   
-  // ========== INITIALIZATION ==========
-  useEffect(() => {
-    if (isViewerReady) {
-      sceneSetupRef.current = getSceneSetup();
-      urdfLoaderRef.current = new URDFLoader(new THREE.LoadingManager());
-      urdfLoaderRef.current.parseVisual = true;
-      urdfLoaderRef.current.parseCollision = false;
-      
-      console.log('[RobotContext] Initialized with scene setup');
-    }
-  }, [isViewerReady, getSceneSetup]);
-  
-  // ========== DISCOVERY OPERATIONS ==========
   const discoverRobots = useCallback(async () => {
+    // Prevent multiple simultaneous requests
     if (isDiscoveringRef.current) {
-      console.log('[RobotContext] Discovery already in progress');
+      console.log('[RobotContext] Discovery already in progress, skipping...');
       return;
     }
     
@@ -58,6 +47,8 @@ export const RobotProvider = ({ children }) => {
       isDiscoveringRef.current = true;
       setIsLoading(true);
       setError(null);
+      
+      console.log('[RobotContext] Discovering robots...');
       
       const response = await fetch('/robots/list');
       const result = await response.json();
@@ -79,54 +70,48 @@ export const RobotProvider = ({ children }) => {
         
         setAvailableRobots(allRobots);
         console.log('[RobotContext] Discovered robots:', allRobots.length);
+        console.log('[RobotContext] Categories:', data.length);
       } else {
         setError(result.message || 'Failed to scan robots directory');
       }
     } catch (err) {
-      console.error('[RobotContext] Discovery error:', err);
-      setError('Error connecting to server');
+      console.error('[RobotContext] Robot discovery error:', err);
+      setError('Error connecting to server. Please ensure the server is running on port 3001.');
     } finally {
       setIsLoading(false);
       isDiscoveringRef.current = false;
     }
   }, []);
   
-  const discoverTools = useCallback(async () => {
-    try {
-      const response = await fetch('/api/tcp/scan');
-      const result = await response.json();
-      
-      if (result.success) {
-        setAvailableTools(result.tools || []);
-        console.log('[RobotContext] Discovered tools:', result.tools?.length || 0);
-      }
-    } catch (err) {
-      console.error('[RobotContext] Tool discovery error:', err);
-    }
-  }, []);
+  // ========== WORKSPACE MANAGEMENT OPERATIONS ==========
   
-  // ========== WORKSPACE OPERATIONS ==========
+  // Load workspace robots from localStorage on mount
   useEffect(() => {
-    // Load workspace from localStorage
     try {
-      const saved = localStorage.getItem('workspaceRobots');
-      if (saved) {
-        setWorkspaceRobots(JSON.parse(saved));
+      const savedRobots = localStorage.getItem('workspaceRobots');
+      if (savedRobots) {
+        const robots = JSON.parse(savedRobots);
+        setWorkspaceRobots(robots);
+        console.log('[RobotContext] Loaded workspace robots from localStorage:', robots.length);
       }
     } catch (error) {
-      console.error('[RobotContext] Error loading workspace:', error);
+      console.error('[RobotContext] Error loading saved robots:', error);
+      setError('Failed to load saved robots');
     }
   }, []);
-  
+
+  // Save workspace robots to localStorage whenever it changes
   useEffect(() => {
-    // Save workspace to localStorage
     try {
       localStorage.setItem('workspaceRobots', JSON.stringify(workspaceRobots));
+      console.log('[RobotContext] Saved workspace robots to localStorage:', workspaceRobots.length);
     } catch (error) {
-      console.error('[RobotContext] Error saving workspace:', error);
+      console.error('[RobotContext] Error saving robots:', error);
+      setError('Failed to save robots');
     }
   }, [workspaceRobots]);
-  
+
+  // Add robot to workspace
   const addRobotToWorkspace = useCallback((robotData) => {
     const newRobot = {
       id: `${robotData.id}_${Date.now()}`,
@@ -139,11 +124,14 @@ export const RobotProvider = ({ children }) => {
     };
     
     setWorkspaceRobots(prev => {
+      // Check if robot already exists
       const exists = prev.some(r => r.robotId === robotData.id);
       if (exists) {
-        console.log('[RobotContext] Robot already in workspace');
+        console.log('[RobotContext] Robot already in workspace:', robotData.name);
         return prev;
       }
+      
+      console.log('[RobotContext] Adding robot to workspace:', newRobot);
       return [...prev, newRobot];
     });
     
@@ -152,135 +140,108 @@ export const RobotProvider = ({ children }) => {
     
     return newRobot;
   }, []);
-  
+
+  // Remove robot from workspace
   const removeRobotFromWorkspace = useCallback((workspaceRobotId) => {
-    setWorkspaceRobots(prev => prev.filter(r => r.id !== workspaceRobotId));
+    setWorkspaceRobots(prev => {
+      const robotToRemove = prev.find(r => r.id === workspaceRobotId);
+      const updated = prev.filter(r => r.id !== workspaceRobotId);
+      console.log('[RobotContext] Removing robot from workspace:', robotToRemove?.name);
+      return updated;
+    });
+    
     setSuccessMessage('Robot removed from workspace');
     setTimeout(() => setSuccessMessage(''), 3000);
   }, []);
+
+  // Check if robot is in workspace
+  const isRobotInWorkspace = useCallback((robotId) => {
+    return workspaceRobots.some(r => r.robotId === robotId);
+  }, [workspaceRobots]);
+
+  // Get workspace robot by ID
+  const getWorkspaceRobot = useCallback((workspaceRobotId) => {
+    return workspaceRobots.find(r => r.id === workspaceRobotId);
+  }, [workspaceRobots]);
+
+  // Clear workspace
+  const clearWorkspace = useCallback(() => {
+    if (window.confirm('Clear all robots from workspace?')) {
+      setWorkspaceRobots([]);
+      console.log('[RobotContext] Cleared all robots from workspace');
+      setSuccessMessage('Workspace cleared');
+      setTimeout(() => setSuccessMessage(''), 3000);
+    }
+  }, []);
+
+  // ========== ROBOT LOADING OPERATIONS ==========
   
-  // ========== ROBOT LOADING (SCENE) ==========
-  const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
-    const {
-      position = { x: 0, y: 0, z: 0 },
-      makeActive = true,
-      clearOthers = false
-    } = options;
+  // 🚨 FIXED: Synchronized setActiveRobotId that also updates activeRobot
+  const setActiveRobotId = useCallback((robotId) => {
+    console.log(`[RobotContext] Setting active robot ID to: ${robotId}`);
+    setActiveRobotIdState(robotId);
     
-    if (!sceneSetupRef.current || !urdfLoaderRef.current) {
-      throw new Error('Scene not initialized');
+    if (robotId) {
+      const robotData = loadedRobots.get(robotId);
+      if (robotData) {
+        console.log(`[RobotContext] Setting active robot object for: ${robotId}`);
+        setActiveRobot(robotData.robot);
+        
+        // Emit event for other components
+        EventBus.emit('robot:active-changed', { 
+          robotId, 
+          robot: robotData.robot 
+        });
+      } else {
+        console.warn(`[RobotContext] Robot ${robotId} not found in loaded robots`);
+        setActiveRobot(null);
+      }
+    } else {
+      setActiveRobot(null);
+    }
+  }, [loadedRobots]);
+  
+  // Load robot using viewer
+  const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
+    if (!viewerInstance) {
+      throw new Error('Viewer not initialized');
     }
     
     try {
       setIsLoading(true);
       setError(null);
       
-      // Clear other robots if requested
-      if (clearOthers) {
-        for (const [id, robotData] of loadedRobots) {
-          if (id !== robotId) {
-            unloadRobot(id);
-          }
-        }
-      }
+      console.log(`[RobotContext] Loading robot ${robotId} from ${urdfPath}`);
       
-      // Extract package path
-      const packagePath = urdfPath.substring(0, urdfPath.lastIndexOf('/'));
+      const robot = await viewerInstance.loadRobot(robotId, urdfPath, options);
       
-      // Reset loader
-      urdfLoaderRef.current.resetLoader();
-      urdfLoaderRef.current.packages = packagePath;
-      urdfLoaderRef.current.currentRobotName = robotId;
-      
-      // Setup mesh loading
-      urdfLoaderRef.current.loadMeshCb = (path, manager, done, material) => {
-        const filename = path.split('/').pop();
-        const resolvedPath = `${packagePath}/${filename}`;
-        
-        MeshLoader.load(resolvedPath, manager, (obj, err) => {
-          if (err) {
-            done(null, err);
-            return;
-          }
-          
-          if (obj) {
-            obj.traverse(child => {
-              if (child instanceof THREE.Mesh) {
-                if (!child.material || child.material.name === '' || child.material.name === 'default') {
-                  child.material = material;
-                }
-                child.castShadow = true;
-                child.receiveShadow = true;
-              }
-            });
-            done(obj);
-          }
-        }, material);
-      };
-      
-      console.log(`[RobotContext] Loading robot ${robotId}`);
-      
-      // Load the URDF
-      const robot = await new Promise((resolve, reject) => {
-        urdfLoaderRef.current.load(urdfPath, resolve, null, reject);
+      // Update loaded robots map
+      setLoadedRobots(prev => {
+        const newMap = new Map(prev);
+        newMap.set(robotId, {
+          id: robotId,
+          robot: robot,
+          urdfPath,
+          isActive: options.makeActive !== false,
+          loadedAt: new Date().toISOString()
+        });
+        return newMap;
       });
       
-      // Add to scene
-      const robotContainer = new THREE.Object3D();
-      robotContainer.name = `${robotId}_container`;
-      robotContainer.add(robot);
-      robotContainer.position.set(position.x, position.y, position.z);
-      
-      sceneSetupRef.current.robotRoot.add(robotContainer);
-      
-      // Store robot data
-      const robotData = {
-        id: robotId,
-        robot: robot,
-        container: robotContainer,
-        urdfPath: urdfPath,
-        isActive: makeActive,
-        loadedAt: new Date().toISOString()
-      };
-      
-      setLoadedRobots(prev => new Map(prev).set(robotId, robotData));
-      
-      // Set as active if requested
-      if (makeActive) {
-        setActiveRobotId(robotId);
-        setActiveRobot(robot);
-      }
-      
-      // Update scene
-      if (sceneSetupRef.current.setUpAxis) {
-        sceneSetupRef.current.setUpAxis('+Z');
-      }
-      
-      // Focus on robot
-      if (sceneSetupRef.current.focusOnObject) {
+      // Set as active if requested (use the synchronized method)
+      if (options.makeActive !== false) {
+        // Use setTimeout to ensure loadedRobots state is updated first
         setTimeout(() => {
-          sceneSetupRef.current.focusOnObject(robot, 0.8);
-        }, 100);
+          setActiveRobotId(robotId);
+        }, 0);
       }
-      
-      // Emit events
-      EventBus.emit('robot:loaded', { 
-        robotId, 
-        robotName: robotId,
-        robot 
-      });
-      
-      EventBus.emit('robot:registered', { 
-        robotId, 
-        robotName: robotId,
-        robot 
-      });
       
       setSuccessMessage(`${robotId} loaded successfully!`);
       setTimeout(() => setSuccessMessage(''), 3000);
       
-      return robot;
+      EventBus.emit('robot:loaded', { robotId, robot });
       
+      return robot;
     } catch (err) {
       console.error('[RobotContext] Error loading robot:', err);
       setError('Failed to load robot: ' + err.message);
@@ -288,263 +249,245 @@ export const RobotProvider = ({ children }) => {
     } finally {
       setIsLoading(false);
     }
+  }, [viewerInstance, setActiveRobotId]);
+  
+  // Check if robot is loaded
+  const isRobotLoaded = useCallback((robotId) => {
+    return loadedRobots.has(robotId);
   }, [loadedRobots]);
   
-  const unloadRobot = useCallback((robotId) => {
-    const robotData = loadedRobots.get(robotId);
-    if (!robotData) return;
-    
-    // Remove from scene
-    if (robotData.container && sceneSetupRef.current) {
-      sceneSetupRef.current.robotRoot.remove(robotData.container);
-      
-      // Dispose resources
-      robotData.container.traverse(child => {
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) {
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material.dispose();
-          }
-        }
-      });
-    }
-    
-    // Remove from state
-    setLoadedRobots(prev => {
-      const newMap = new Map(prev);
-      newMap.delete(robotId);
-      return newMap;
-    });
-    
-    // Clear active if this was the active robot
-    if (activeRobotId === robotId) {
-      setActiveRobotId(null);
-      setActiveRobot(null);
-    }
-    
-    EventBus.emit('robot:unloaded', { robotId });
-    EventBus.emit('robot:removed', { robotId, robotName: robotId });
-  }, [loadedRobots, activeRobotId]);
-  
-  // ========== JOINT CONTROL ==========
-  const setJointValue = useCallback((robotId, jointName, value) => {
-    const robotData = loadedRobots.get(robotId);
-    if (!robotData) return false;
-    
-    const robot = robotData.robot;
-    
-    try {
-      let success = false;
-      
-      // Try robot's setJointValue method
-      if (robot.setJointValue) {
-        success = robot.setJointValue(jointName, value);
-      }
-      
-      // Try direct joint access
-      if (!success && robot.joints && robot.joints[jointName]) {
-        if (robot.joints[jointName].setJointValue) {
-          success = robot.joints[jointName].setJointValue(value);
-        }
-      }
-      
-      if (success) {
-        EventBus.emit('robot:joint-changed', {
-          robotId,
-          robotName: robotId,
-          jointName,
-          value
-        });
-      }
-      
-      return success;
-    } catch (error) {
-      console.error('[RobotContext] Error setting joint:', error);
-      return false;
-    }
-  }, [loadedRobots]);
-  
-  const setJointValues = useCallback((robotId, values) => {
-    const robotData = loadedRobots.get(robotId);
-    if (!robotData) return false;
-    
-    const robot = robotData.robot;
-    let success = false;
-    
-    try {
-      if (robot.setJointValues) {
-        success = robot.setJointValues(values);
-      } else {
-        // Set individual joints
-        success = true;
-        Object.entries(values).forEach(([jointName, value]) => {
-          if (!setJointValue(robotId, jointName, value)) {
-            success = false;
-          }
-        });
-      }
-      
-      if (success) {
-        EventBus.emit('robot:joints-changed', {
-          robotId,
-          robotName: robotId,
-          values
-        });
-      }
-      
-      return success;
-    } catch (error) {
-      console.error('[RobotContext] Error setting joints:', error);
-      return false;
-    }
-  }, [loadedRobots, setJointValue]);
-  
-  const getJointValues = useCallback((robotId) => {
-    const robotData = loadedRobots.get(robotId);
-    if (!robotData) return {};
-    
-    const robot = robotData.robot;
-    const values = {};
-    
-    if (robot.joints) {
-      Object.values(robot.joints).forEach(joint => {
-        if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
-          values[joint.name] = joint.angle;
-        }
-      });
-    }
-    
-    return values;
-  }, [loadedRobots]);
-  
-  const resetJoints = useCallback((robotId) => {
-    const joints = getJointValues(robotId);
-    const resetValues = {};
-    
-    Object.keys(joints).forEach(jointName => {
-      resetValues[jointName] = 0;
-    });
-    
-    return setJointValues(robotId, resetValues);
-  }, [getJointValues, setJointValues]);
-  
-  // ========== UTILITY METHODS ==========
+  // Get robot by ID
   const getRobot = useCallback((robotId) => {
     const robotData = loadedRobots.get(robotId);
     return robotData?.robot;
   }, [loadedRobots]);
   
-  const isRobotLoaded = useCallback((robotId) => {
-    return loadedRobots.has(robotId);
-  }, [loadedRobots]);
-  
-  const isRobotInWorkspace = useCallback((robotId) => {
-    return workspaceRobots.some(r => r.robotId === robotId);
-  }, [workspaceRobots]);
-  
-  const clearWorkspace = useCallback(() => {
-    if (window.confirm('Clear all robots from workspace?')) {
-      setWorkspaceRobots([]);
-      setSuccessMessage('Workspace cleared');
-      setTimeout(() => setSuccessMessage(''), 3000);
-    }
-  }, []);
-  
-  // ========== IMPORT/EXPORT ==========
-  const exportWorkspace = useCallback(() => {
-    const data = JSON.stringify(workspaceRobots, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+  // Unload robot
+  const unloadRobot = useCallback((robotId) => {
+    if (!viewerInstance) return;
     
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `workspace_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [workspaceRobots]);
-  
-  const importWorkspace = useCallback((data) => {
     try {
-      setWorkspaceRobots(data);
-      setSuccessMessage(`Imported ${data.length} robots`);
+      // Remove from viewer if it has unloadRobot method
+      if (viewerInstance.unloadRobot) {
+        viewerInstance.unloadRobot(robotId);
+      }
+      
+      setLoadedRobots(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(robotId);
+        return newMap;
+      });
+      
+      if (activeRobotId === robotId) {
+        setActiveRobotId(null);
+      }
+      
+      setSuccessMessage(`${robotId} unloaded`);
       setTimeout(() => setSuccessMessage(''), 3000);
+      
+      EventBus.emit('robot:unloaded', { robotId });
+    } catch (err) {
+      console.error('[RobotContext] Error unloading robot:', err);
+      setError(err.message);
+    }
+  }, [viewerInstance, activeRobotId, setActiveRobotId]);
+
+  // ========== ROBOT STATUS OPERATIONS ==========
+  
+  const getRobotLoadStatus = useCallback((robot) => {
+    const loaded = isRobotLoaded(robot.id);
+    return {
+      isLoaded: loaded,
+      statusText: loaded ? 'Loaded' : 'Click to Load'
+    };
+  }, [isRobotLoaded]);
+
+  // ========== IMPORT/EXPORT OPERATIONS ==========
+  
+  // Import robots (from file)
+  const importRobots = useCallback((robotsData) => {
+    try {
+      setWorkspaceRobots(robotsData);
+      setSuccessMessage(`Imported ${robotsData.length} robots`);
+      setTimeout(() => setSuccessMessage(''), 3000);
+      console.log('[RobotContext] Imported robots:', robotsData.length);
     } catch (error) {
-      setError('Failed to import workspace');
+      console.error('[RobotContext] Error importing robots:', error);
+      setError('Failed to import robots');
+    }
+  }, []);
+
+  // Export robots (to file)
+  const exportRobots = useCallback(() => {
+    try {
+      const dataStr = JSON.stringify(workspaceRobots, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `workspace_robots_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      URL.revokeObjectURL(url);
+      setSuccessMessage('Robots exported successfully');
+      setTimeout(() => setSuccessMessage(''), 3000);
+      console.log('[RobotContext] Exported robots to file');
+    } catch (error) {
+      console.error('[RobotContext] Error exporting robots:', error);
+      setError('Failed to export robots');
+    }
+  }, [workspaceRobots]);
+
+  // ========== EVENT LISTENERS ==========
+  
+  // Listen for robot events
+  useEffect(() => {
+    const handleRobotRemoved = (data) => {
+      if (data.robotName === activeRobotId) {
+        setActiveRobotId(null);
+      }
+      
+      setLoadedRobots(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(data.robotName);
+        return newMap;
+      });
+    };
+    
+    const unsubscribeRemoved = EventBus.on('robot:removed', handleRobotRemoved);
+    
+    return () => {
+      unsubscribeRemoved();
+    };
+  }, [activeRobotId, setActiveRobotId]);
+  
+  // ========== TCP TOOL DISCOVERY (Fixed like EnvironmentContext) ==========
+  
+  // Load available tools (simplified like environment pattern)
+  const loadAvailableTools = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      console.log('[RobotContext] Scanning available tools...');
+      
+      const response = await fetch('/api/tcp/scan');
+      const result = await response.json();
+      
+      if (result.success) {
+        const tools = result.tools || [];
+        setAvailableTools(tools);
+        console.log(`[RobotContext] Found ${tools.length} available tools`);
+      } else {
+        setError(result.message || 'Failed to scan TCP tools');
+      }
+    } catch (err) {
+      console.error('[RobotContext] Error scanning tools:', err);
+      setError('Error connecting to server. Please ensure the server is running.');
+    } finally {
+      setIsLoading(false);
     }
   }, []);
   
-  // ========== INITIALIZATION ==========
+  // Initialize tools on mount
   useEffect(() => {
     if (isViewerReady && !hasInitializedRef.current) {
+      console.log('[RobotContext] Viewer ready, discovering robots and tools...');
       hasInitializedRef.current = true;
       discoverRobots();
-      discoverTools();
+      loadAvailableTools();
     }
-  }, [isViewerReady, discoverRobots, discoverTools]);
+  }, [isViewerReady, discoverRobots, loadAvailableTools]);
+
+  // ========== INITIALIZATION ==========
   
-  // ========== CLEANUP ==========
+  // Initialize on mount with deduplication
   useEffect(() => {
-    return () => {
-      // Unload all robots on unmount
-      for (const [robotId] of loadedRobots) {
-        unloadRobot(robotId);
-      }
-    };
-  }, [loadedRobots, unloadRobot]);
+    if (isViewerReady && !hasInitializedRef.current) {
+      console.log('[RobotContext] Viewer ready, discovering robots and tools...');
+      hasInitializedRef.current = true;
+      discoverRobots();
+      loadAvailableTools();
+    }
+  }, [isViewerReady, discoverRobots, loadAvailableTools]);
+
+  // ========== ERROR HANDLING ==========
+  
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  const clearSuccess = useCallback(() => {
+    setSuccessMessage('');
+  }, []);
+
+  // ========== CONTEXT VALUE ==========
   
   const value = {
-    // ========== DISCOVERY ==========
+    // ========== STATE ==========
+    // Robot Discovery
     availableRobots,
     categories,
+    
+    // TCP Tool Discovery
     availableTools,
-    discoverRobots,
-    discoverTools,
     
-    // ========== WORKSPACE ==========
+    // Workspace Management
     workspaceRobots,
-    addRobotToWorkspace,
-    removeRobotFromWorkspace,
-    isRobotInWorkspace,
-    clearWorkspace,
-    exportWorkspace,
-    importWorkspace,
     
-    // ========== SCENE MANAGEMENT ==========
-    loadedRobots,
+    // Active Robot Management
     activeRobotId,
     activeRobot,
-    loadRobot,
-    unloadRobot,
-    getRobot,
-    isRobotLoaded,
-    setActiveRobotId: (id) => {
-      setActiveRobotId(id);
-      setActiveRobot(id ? getRobot(id) : null);
-    },
+    loadedRobots,
     
-    // ========== JOINT CONTROL ==========
-    setJointValue,
-    setJointValues,
-    getJointValues,
-    resetJoints,
-    
-    // ========== STATE ==========
+    // Loading & Error States
     isLoading,
     error,
     successMessage,
-    clearError: () => setError(null),
-    clearSuccess: () => setSuccessMessage(''),
     
-    // ========== COMPUTED VALUES ==========
-    robotCount: loadedRobots.size,
-    workspaceCount: workspaceRobots.length,
-    hasLoadedRobots: loadedRobots.size > 0,
+    // ========== ROBOT DISCOVERY OPERATIONS ==========
+    discoverRobots,
+    refresh: discoverRobots,
+    
+    // ========== TCP TOOL OPERATIONS ==========
+    loadAvailableTools,
+    
+    // ========== WORKSPACE OPERATIONS ==========
+    addRobotToWorkspace,
+    removeRobotFromWorkspace,
+    isRobotInWorkspace,
+    getWorkspaceRobot,
+    clearWorkspace,
+    importRobots,
+    exportRobots,
+    
+    // ========== ROBOT LOADING OPERATIONS ==========
+    loadRobot,
+    unloadRobot,
+    isRobotLoaded,
+    getRobot,
+    setActiveRobotId,
+    setActiveRobot,
+    getRobotLoadStatus,
+    
+    // ========== CONVENIENCE METHODS ==========
+    getLoadedRobots: () => loadedRobots,
+    
+    // ========== COMPUTED PROPERTIES ==========
+    robotCount: workspaceRobots.length,
+    isEmpty: workspaceRobots.length === 0,
     hasWorkspaceRobots: workspaceRobots.length > 0,
-    hasActiveRobot: !!activeRobotId
+    hasAvailableRobots: availableRobots.length > 0,
+    hasLoadedRobots: loadedRobots.size > 0,
+    hasActiveRobot: !!activeRobotId,
+    hasAvailableTools: availableTools.length > 0,
+    
+    // ========== ERROR HANDLING ==========
+    clearError,
+    clearSuccess
   };
   
   return (
@@ -557,7 +500,7 @@ export const RobotProvider = ({ children }) => {
 export const useRobotContext = () => {
   const context = useContext(RobotContext);
   if (!context) {
-    throw new Error('useRobotContext must be used within RobotProvider');
+    throw new Error('useRobotContext must be used within a RobotProvider');
   }
   return context;
 };

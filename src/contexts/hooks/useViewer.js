@@ -1,7 +1,7 @@
 // src/contexts/hooks/useViewer.js - FIXED IMPORTS
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useViewer as useViewerBase } from '../ViewerContext'; // Import useViewer, not useViewerContext
-import { useRobot } from './useRobot';
+import { useRobotManager } from './useRobotManager';
 import EventBus from '../../utils/EventBus';
 
 // ========== MAIN HOOK (re-export the base hook) ==========
@@ -63,21 +63,19 @@ export const useViewerCamera = () => {
 
 export const useViewerDragControls = () => {
   const viewer = useViewerBase();
-  const { 
-    getJointValues,
-    activeRobotId
-  } = useRobot();
+  const robotManager = useRobotManager();
   const [enabled, setEnabled] = useState(false);
   
   // Listen for drag events and update joint values
   useEffect(() => {
     const handleDragEnd = (data) => {
       const { joint } = data;
-      if (joint && activeRobotId) {
-        const jointValues = getJointValues(activeRobotId);
+      if (joint && robotManager.getCurrentRobotName) {
+        const robotName = robotManager.getCurrentRobotName();
+        const jointValues = robotManager.getJointValues(robotName);
         
         EventBus.emit('viewer:joint-values-updated', {
-          robotId: activeRobotId,
+          robotName,
           jointName: joint.name,
           values: jointValues
         });
@@ -86,7 +84,7 @@ export const useViewerDragControls = () => {
     
     const unsubscribe = EventBus.on('viewer:drag-end', handleDragEnd);
     return () => unsubscribe();
-  }, [activeRobotId, getJointValues]);
+  }, [robotManager]);
   
   return {
     enabled,
@@ -182,14 +180,7 @@ export const useViewerConfig = () => {
 // ========== COMBINED VIEWER CONTROL HOOK ==========
 export const useViewerControl = () => {
   const viewer = useViewerBase();
-  const { 
-    loadRobot,
-    getRobot,
-    isLoading,
-    error,
-    activeRobotId,
-    activeRobot
-  } = useRobot();
+  const robotManager = useRobotManager();
   const camera = useViewerCamera();
   const containerRef = useRef(null);
   
@@ -225,13 +216,15 @@ export const useViewerControl = () => {
     
     // Viewer state
     isReady: viewer.isViewerReady,
-    isLoading,
-    error,
+    isLoading: robotManager.isLoading,
+    error: robotManager.error,
     
     // Combined methods
-    loadRobot,
-    focusOnRobot: (robotId) => {
-      const robot = robotId ? getRobot(robotId) : activeRobot;
+    loadRobot: robotManager.loadRobot,
+    focusOnRobot: (robotName) => {
+      const robot = robotName 
+        ? robotManager.getRobot(robotName)
+        : robotManager.getCurrentRobot();
       if (robot) {
         camera.focusOn(robot, 0.8);
       }
@@ -239,6 +232,7 @@ export const useViewerControl = () => {
     
     // Direct access to contexts
     viewer,
+    robotManager,
     camera
   };
 };
