@@ -5,6 +5,45 @@ import EventBus from '../../../utils/EventBus';
 
 const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
   const [imageError, setImageError] = useState(false);
+  const [logoError, setLogoError] = useState(false);
+  
+  // Helper for consistent manufacturer letter icon
+  const getLetterIcon = (name) => {
+    const colorMap = {
+      'kuka': '#007bff',
+      'ur': '#28a745',
+      'fanuc': '#ffc107',
+      'abb': '#dc3545',
+      'yaskawa': '#6f42c1',
+      'default': '#6c757d'
+    };
+    const initial = name.charAt(0).toUpperCase();
+    const color = colorMap[name.toLowerCase()] || colorMap.default;
+    
+    return (
+      <div
+        style={{
+          width: '20px',
+          height: '20px',
+          borderRadius: '50%',
+          backgroundColor: color,
+          color: '#fff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '0.7rem',
+          fontWeight: 'bold'
+        }}
+      >
+        {initial}
+      </div>
+    );
+  };
+
+  // Add debugging
+  console.log('Workspace Robot data:', robot);
+  console.log('Workspace Image path:', robot.imagePath);
+  console.log('Workspace Image error state:', imageError);
   
   return (
     <div 
@@ -33,8 +72,8 @@ const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
         <div 
           style={{
             width: '100%',
-            height: '180px',
-            marginBottom: '0.5rem',
+            height: '200px',
+            marginBottom: '10px',
             borderRadius: '4px',
             overflow: 'hidden',
             backgroundColor: '#f8f9fa',
@@ -53,27 +92,44 @@ const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
                 height: '100%',
                 objectFit: 'contain'
               }}
-              onError={() => setImageError(true)}
+              onError={(e) => {
+                console.error('Workspace Image failed to load:', e.target.src);
+                setImageError(true);
+              }}
+              onLoad={() => console.log('Workspace Image loaded successfully:', robot.imagePath)}
             />
           ) : (
             <div style={{
-              width: '100px',
-              height: '100px',
+              width: '120px',
+              height: '120px',
               backgroundColor: '#e9ecef',
               borderRadius: '8px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               color: '#6c757d',
-              fontSize: '2.5rem'
+              fontSize: '1rem',
+              fontWeight: 'bold'
             }}>
-              🤖
+              NO IMAGE
             </div>
           )}
         </div>
         
         <h5 className="controls-h5 controls-mb-1">{robot.name}</h5>
-        <small className="controls-text-muted">{robot.manufacturer}</small>
+        <p className="controls-text-muted controls-small controls-mb-3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {robot.manufacturerLogo && !logoError ? (
+            <img
+              src={robot.manufacturerLogo}
+              alt={`${robot.manufacturer} Logo`}
+              style={{ width: '20px', height: '20px', marginRight: '5px', objectFit: 'contain' }}
+              onError={() => setLogoError(true)}
+            />
+          ) : (
+            getLetterIcon(robot.manufacturer)
+          )}
+          {robot.manufacturer}
+        </p>
         
         {/* Status badge */}
         <div style={{ marginTop: '0.5rem' }}>

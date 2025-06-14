@@ -64,6 +64,7 @@ export const RobotProvider = ({ children }) => {
               ...robot,
               category: category.id,
               categoryName: category.name,
+              manufacturerLogoPath: category.manufacturerLogoPath,
               // imagePath is already included from the server response
             });
           });
@@ -121,7 +122,6 @@ export const RobotProvider = ({ children }) => {
       manufacturer: robotData.manufacturer || robotData.categoryName,
       urdfPath: robotData.urdfPath,
       imagePath: robotData.imagePath, // Include the image path
-      icon: '🤖',
       addedAt: new Date().toISOString()
     };
     

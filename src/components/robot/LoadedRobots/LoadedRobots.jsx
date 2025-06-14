@@ -9,8 +9,47 @@ const LoadedRobots = ({
   setShowRobotSelection
 }) => {
   const [imageError, setImageError] = useState(false);
+  const [logoError, setLogoError] = useState(false);
   const activeRobot = workspaceRobots.find(r => r.id === activeRobotId);
   
+  // Helper for consistent manufacturer letter icon
+  const getLetterIcon = (name) => {
+    const colorMap = {
+      'kuka': '#007bff',
+      'ur': '#28a745',
+      'fanuc': '#ffc107',
+      'abb': '#dc3545',
+      'yaskawa': '#6f42c1',
+      'default': '#6c757d'
+    };
+    const initial = name.charAt(0).toUpperCase();
+    const color = colorMap[name.toLowerCase()] || colorMap.default;
+    
+    return (
+      <div
+        style={{
+          width: '20px',
+          height: '20px',
+          borderRadius: '50%',
+          backgroundColor: color,
+          color: '#fff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '0.7rem',
+          fontWeight: 'bold'
+        }}
+      >
+        {initial}
+      </div>
+    );
+  };
+
+  // Add debugging
+  console.log('[LoadedRobots] Active robot:', activeRobot);
+  console.log('[LoadedRobots] Image path:', activeRobot?.imagePath);
+  console.log('[LoadedRobots] Image error state:', imageError);
+
   const goBackToSelection = () => {
     // Don't clear the robot - just go back to selection
     setShowRobotSelection(true);
@@ -59,7 +98,11 @@ const LoadedRobots = ({
                     height: '100%',
                     objectFit: 'contain'
                   }}
-                  onError={() => setImageError(true)}
+                  onError={(e) => {
+                    console.error('[LoadedRobots] Image failed to load:', e.target.src);
+                    setImageError(true);
+                  }}
+                  onLoad={() => console.log('[LoadedRobots] Image loaded successfully:', activeRobot.imagePath)}
                 />
               ) : (
                 <div style={{
@@ -70,16 +113,27 @@ const LoadedRobots = ({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: '#28a745',
-                  fontSize: '2.5rem'
+                  color: '#6c757d',
+                  fontSize: '1rem',
+                  fontWeight: 'bold'
                 }}>
-                  ✓
+                  NO IMAGE
                 </div>
               )}
             </div>
             
             <h5 className="controls-h5">{activeRobot.name}</h5>
-            <p className="controls-text-muted controls-mb-2">
+            <p className="controls-text-muted controls-mb-2" style={{ display: 'flex', alignItems: 'center' }}>
+              {activeRobot.manufacturerLogo && !logoError ? (
+                <img
+                  src={activeRobot.manufacturerLogo}
+                  alt={`${activeRobot.manufacturer} Logo`}
+                  style={{ width: '20px', height: '20px', marginRight: '5px', objectFit: 'contain' }}
+                  onError={() => setLogoError(true)}
+                />
+              ) : (
+                getLetterIcon(activeRobot.manufacturer)
+              )}
               {activeRobot.manufacturer}
             </p>
             <div className="controls-d-flex controls-justify-content-between controls-align-items-center">

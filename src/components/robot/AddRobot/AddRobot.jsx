@@ -3,6 +3,83 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useRobotWorkspace, useRobotDiscovery, useRobotLoading } from '../../../contexts/hooks/useRobot';
 
+// New CategoryCard component
+const CategoryCard = ({ category, onSelect }) => {
+  const [logoError, setLogoError] = useState(false);
+  
+  // Helper for consistent manufacturer letter icon
+  const getLetterIcon = (name) => {
+    const colorMap = {
+      'kuka': '#007bff',
+      'ur': '#28a745',
+      'fanuc': '#ffc107',
+      'abb': '#dc3545',
+      'yaskawa': '#6f42c1',
+      'default': '#6c757d'
+    };
+    const initial = name.charAt(0).toUpperCase();
+    const color = colorMap[name.toLowerCase()] || colorMap.default;
+    
+    return (
+      <div
+        style={{
+          width: '60px',
+          height: '60px',
+          borderRadius: '50%',
+          backgroundColor: color,
+          color: '#fff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        {initial}
+      </div>
+    );
+  };
+
+  return (
+    <div
+      className="controls-card"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        console.log('[AddRobot] Selecting category:', category.name);
+        onSelect(category);
+      }}
+      style={{
+        cursor: 'pointer',
+        transition: 'all 0.2s'
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'translateY(-2px)';
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = '';
+      }}
+    >
+      <div className="controls-card-body controls-text-center controls-p-4">
+        <div style={{ marginBottom: '0.5rem' }}>
+          {category.manufacturerLogoPath && !logoError ? (
+            <img
+              src={category.manufacturerLogoPath}
+              alt={`${category.name} Logo`}
+              style={{ width: '60px', height: '60px', objectFit: 'contain' }}
+              onError={() => setLogoError(true)}
+            />
+          ) : (
+            getLetterIcon(category.name)
+          )}
+        </div>
+        <h5 className="controls-h5 controls-mb-1">{category.name}</h5>
+        <small className="controls-text-muted">{category.robots.length} robots</small>
+      </div>
+    </div>
+  );
+};
+
 const RobotCard = ({ robot, manufacturer, inWorkspace, onSelect }) => {
   const [imageError, setImageError] = useState(false);
   
@@ -63,9 +140,10 @@ const RobotCard = ({ robot, manufacturer, inWorkspace, onSelect }) => {
               alignItems: 'center',
               justifyContent: 'center',
               color: '#6c757d',
-              fontSize: '3rem'
+              fontSize: '1rem',
+              fontWeight: 'bold'
             }}>
-              📦
+              NO IMAGE
             </div>
           )}
         </div>
@@ -139,8 +217,18 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
         id: robot.id,
         name: robot.name,
         manufacturer: robot.manufacturer,
-        urdfPath: robot.urdfPath
+        manufacturerLogo: robot.manufacturerLogo,
+        urdfPath: robot.urdfPath,
+        imagePath: robot.imagePath,
+        categoryName: robot.categoryName,
+        directoryName: robot.directoryName
       };
+      
+      console.log('[AddRobot] Creating robot data with image:', {
+        name: robot.name,
+        imagePath: robot.imagePath,
+        fullRobotData: robot
+      });
       
       // Add to workspace
       const workspaceRobot = addRobotToWorkspace(robotData);
@@ -164,15 +252,50 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
   };
 
   // ========== UI HELPER FUNCTIONS ==========
-  const getIconForManufacturer = (name) => {
-    const iconMap = {
-      'kuka': '🤖',
-      'ur': '🦾',
-      'fanuc': '🏭',
-      'abb': '⚙️',
-      'yaskawa': '🔧'
+  // Moved getIconForManufacturer logic into CategoryCard or inline rendering for flexibility
+  const renderManufacturerIcon = (category) => {
+    const colorMap = {
+      'kuka': '#007bff',
+      'ur': '#28a745',
+      'fanuc': '#ffc107',
+      'abb': '#dc3545',
+      'yaskawa': '#6f42c1',
+      'default': '#6c757d'
     };
-    return iconMap[name.toLowerCase()] || '🤖';
+    const initial = category.name.charAt(0).toUpperCase();
+    const color = colorMap[category.name.toLowerCase()] || colorMap.default;
+
+    return (
+      <div
+        style={{
+          width: '40px',
+          height: '40px',
+          borderRadius: '50%',
+          backgroundColor: color,
+          color: '#fff',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '1.2rem',
+          fontWeight: 'bold',
+          marginRight: '0.5rem'
+        }}
+      >
+        {category.manufacturerLogoPath ? (
+          <img
+            src={category.manufacturerLogoPath}
+            alt={`${category.name} Logo`}
+            style={{ width: '100%', height: '100%', objectFit: 'contain', borderRadius: '50%' }}
+            onError={(e) => {
+              console.error(`[AddRobot] Manufacturer logo failed to load for ${category.name}:`, e.target.src);
+              // No local state update here to avoid Hook violation
+            }}
+          />
+        ) : (
+          initial
+        )}
+      </div>
+    );
   };
 
   // ========== RENDER CONDITIONS ==========
@@ -183,7 +306,8 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
     <div className="controls-modal-overlay">
       <div className="controls-modal" style={{ maxWidth: '800px', maxHeight: '600px' }}>
         <div className="controls-modal-header">
-          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>
+          <h2 style={{ margin: 0, fontSize: '1.5rem', display: 'flex', alignItems: 'center' }}>
+            {selectedCategory && renderManufacturerIcon(selectedCategory)}
             {selectedCategory ? `${selectedCategory.name} Robots` : 'Add Robot to Workspace'}
           </h2>
           <button 
@@ -225,9 +349,10 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
           
           {isLoading && categories.length === 0 ? (
             <div className="controls-text-center controls-p-5">
-              <div className="controls-spinner-border" role="status">
-                <span className="controls-sr-only">Scanning robots...</span>
-              </div>
+              <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 2s linear infinite', color: '#007bff' }}>
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M16.24 7.76l-2.12 2.12M12 2v10M12 12l-4.24 4.24"></path>
+              </svg>
               <p className="controls-mt-3">Scanning local robots...</p>
             </div>
           ) : !selectedCategory ? (
@@ -236,36 +361,11 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
               <h4 className="controls-h4 controls-mb-3">Available Manufacturers</h4>
               <div className="controls-grid controls-grid-cols-3 controls-gap-3">
                 {categories.map(category => (
-                  <div
-                    key={category.id}
-                    className="controls-card"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      console.log('[AddRobot] Selecting category:', category.name);
-                      setSelectedCategory(category);
-                    }}
-                    style={{
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '';
-                    }}
-                  >
-                    <div className="controls-card-body controls-text-center controls-p-4">
-                      <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>
-                        {getIconForManufacturer(category.name)}
-                      </div>
-                      <h5 className="controls-h5 controls-mb-1">{category.name}</h5>
-                      <small className="controls-text-muted">{category.robots.length} robots</small>
-                    </div>
-                  </div>
+                  <CategoryCard 
+                    key={category.id} 
+                    category={category} 
+                    onSelect={setSelectedCategory} 
+                  />
                 ))}
               </div>
             </div>
@@ -286,8 +386,9 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
                 ← Back to Manufacturers
               </button>
               
-              <h4 className="controls-h4 controls-mb-3">
-                {getIconForManufacturer(selectedCategory.name)} {selectedCategory.name} Robots
+              <h4 className="controls-h4 controls-mb-3" style={{ display: 'flex', alignItems: 'center' }}>
+                {renderManufacturerIcon(selectedCategory)}
+                {selectedCategory.name} Robots
               </h4>
               
               <div className="controls-grid controls-grid-cols-2 controls-gap-3">
@@ -299,7 +400,10 @@ const AddRobot = ({ isOpen, onClose, onSuccess }) => {
                     inWorkspace={isRobotInWorkspace(robot.id)}
                     onSelect={() => handleSelectRobot({
                       ...robot,
-                      manufacturer: selectedCategory.name
+                      manufacturer: selectedCategory.name,
+                      manufacturerLogo: selectedCategory.manufacturerLogoPath,
+                      categoryName: selectedCategory.name,
+                      directoryName: selectedCategory.name
                     })}
                   />
                 ))}

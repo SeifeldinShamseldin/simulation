@@ -20,7 +20,8 @@
           ],
           "imagePath": "/robots/fanuc/crx10ial/crx-10ial.png"
         }
-      ]
+      ],
+      "manufacturerLogoPath": "/robots/fanuc/Fanuc_logo.svg.png"
     },
     {
       "id": "kuka",
@@ -39,9 +40,11 @@
             "link_4.stl",
             "link_5.stl",
             "link_6.stl"
-          ]
+          ],
+          "imagePath": "/robots/kuka/kr3r540/images.jpeg"
         }
-      ]
+      ],
+      "manufacturerLogoPath": "/robots/kuka/Kuka-logo.svg.png"
     },
     {
       "id": "techmanroboter",
@@ -57,9 +60,11 @@
             "tm12-arm2.stl",
             "tm12-base.stl",
             "tmr_750w_01.stl"
-          ]
+          ],
+          "imagePath": "/robots/techmanroboter/tm12/Product-TM12_img.png"
         }
-      ]
+      ],
+      "manufacturerLogoPath": "/robots/techmanroboter/techman-logo_trans.png"
     },
     {
       "id": "universalrobot",
@@ -85,7 +90,8 @@
             "wrist2.stl",
             "wrist3.dae",
             "wrist3.stl"
-          ]
+          ],
+          "imagePath": "/robots/universalrobot/ur10/343x480.webp"
         },
         {
           "id": "ur10e",
@@ -107,7 +113,8 @@
             "wrist2.stl",
             "wrist3.dae",
             "wrist3.stl"
-          ]
+          ],
+          "imagePath": "/robots/universalrobot/ur10e/343x480.webp"
         },
         {
           "id": "ur5",
@@ -129,7 +136,8 @@
             "wrist2.stl",
             "wrist3.dae",
             "wrist3.stl"
-          ]
+          ],
+          "imagePath": "/robots/universalrobot/ur5/Product_images2FUniversalRobots_UR10e_1_6873764d.webp"
         },
         {
           "id": "ur5e",
@@ -151,9 +159,11 @@
             "wrist2.stl",
             "wrist3.dae",
             "wrist3.stl"
-          ]
+          ],
+          "imagePath": "/robots/universalrobot/ur5e/Product_images2FUniversalRobots_UR10e_1_6873764d.webp"
         }
-      ]
+      ],
+      "manufacturerLogoPath": "/robots/universalrobot/Universal_robots_logo.svg.png"
     }
   ]
 }

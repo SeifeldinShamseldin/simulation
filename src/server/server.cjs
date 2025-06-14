@@ -248,6 +248,15 @@ function generateRobotIndex() {
         const categoryName = dirent.name;
         const categoryDir = path.join(robotsDir, categoryName);
         
+        // Look for a manufacturer logo in the category directory
+        const categoryFiles = fs.readdirSync(categoryDir, { withFileTypes: true });
+        const manufacturerLogoFile = categoryFiles.find(file => file.isFile() && isImageFile(file.name));
+        let manufacturerLogoPath = null;
+        if (manufacturerLogoFile) {
+          manufacturerLogoPath = `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(manufacturerLogoFile.name)}`;
+          console.log(`[generateRobotIndex] Found manufacturer logo for ${categoryName}:`, manufacturerLogoPath);
+        }
+
         try {
           // Get all robot directories in this category
           const robotDirs = fs.readdirSync(categoryDir, { withFileTypes: true })
@@ -262,8 +271,15 @@ function generateRobotIndex() {
                 const urdfFile = files.find(file => file.endsWith('.urdf'));
                 const hasMeshes = files.some(file => file.endsWith('.stl') || file.endsWith('.dae'));
                 
-                // Look for image files
-                const imageFile = files.find(file => isImageFile(file));
+                // Look for image files - just find ANY image in the directory
+                const imageFiles = files.filter(file => isImageFile(file));
+                const imageFile = imageFiles.length > 0 ? imageFiles[0] : null; // Use first image found
+                
+                if (imageFile) {
+                  console.log(`Found image file for ${robotId}:`, imageFile);
+                } else {
+                  console.log(`No image file found for ${robotId} in files:`, files);
+                }
                 
                 if (urdfFile && hasMeshes) {
                   const robotData = {
@@ -291,7 +307,8 @@ function generateRobotIndex() {
           return {
             id: categoryName.toLowerCase().replace(/\s+/g, '_'),
             name: categoryName,
-            robots: robotDirs
+            robots: robotDirs,
+            manufacturerLogoPath: manufacturerLogoPath // Add logo path to category
           };
         } catch (error) {
           console.warn(`Error reading category directory ${categoryDir}:`, error.message);
@@ -335,6 +352,15 @@ app.get('/robots/list', (req, res) => {
         const categoryName = categoryDir.name;
         const categoryPath = path.join(robotsDir, categoryName);
         
+        // Look for a manufacturer logo in the category directory
+        const categoryFiles = fs.readdirSync(categoryPath, { withFileTypes: true });
+        const manufacturerLogoFile = categoryFiles.find(file => file.isFile() && isImageFile(file.name));
+        let manufacturerLogoPath = null;
+        if (manufacturerLogoFile) {
+          manufacturerLogoPath = `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(manufacturerLogoFile.name)}`;
+          console.log(`[Server] Found manufacturer logo for ${categoryName}:`, manufacturerLogoPath);
+        }
+
         try {
           // Get all robot directories in this category
           const robotDirs = fs.readdirSync(categoryPath, { withFileTypes: true })
@@ -354,9 +380,15 @@ app.get('/robots/list', (req, res) => {
               const urdfFile = files.find(file => file.endsWith('.urdf'));
               const hasMeshes = files.some(file => file.endsWith('.stl') || file.endsWith('.dae'));
               
-              // Look for image files
-              const imageFile = files.find(file => isImageFile(file));
-              console.log(`Image file for ${robotId}:`, imageFile); // Debug log
+              // Look for image files - just find ANY image in the directory
+              const imageFiles = files.filter(file => isImageFile(file));
+              const imageFile = imageFiles.length > 0 ? imageFiles[0] : null; // Use first image found
+              
+              if (imageFile) {
+                console.log(`Found image file for ${robotId}:`, imageFile);
+              } else {
+                console.log(`No image file found for ${robotId} in files:`, files);
+              }
               
               if (urdfFile && hasMeshes) {
                 const robotData = {
@@ -384,7 +416,8 @@ app.get('/robots/list', (req, res) => {
             categories.push({
               id: categoryName.toLowerCase().replace(/\s+/g, '_'),
               name: categoryName,
-              robots: robots
+              robots: robots,
+              manufacturerLogoPath: manufacturerLogoPath // Add logo path to category
             });
           }
         } catch (error) {
