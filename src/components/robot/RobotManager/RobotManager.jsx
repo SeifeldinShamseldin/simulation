@@ -1,28 +1,10 @@
 // src/components/robot/RobotManager/RobotManager.jsx - PURE UI COMPONENT
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRobotWorkspace, useRobotManagement, useRobotLoading } from '../../../contexts/hooks/useRobot';
-import { useCreateLogo } from '../../../contexts/hooks/useCreateLogo';
 import EventBus from '../../../utils/EventBus';
 
 const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
-  const {
-    initializePreview,
-    loadRobot: loadRobotPreview,
-    cleanup
-  } = useCreateLogo();
-  
-  const previewRef = useRef(null);
-  
-  useEffect(() => {
-    if (previewRef.current) {
-      initializePreview(previewRef.current);
-      loadRobotPreview(robot);
-    }
-    
-    return () => {
-      cleanup();
-    };
-  }, [robot]);
+  const [imageError, setImageError] = useState(false);
   
   return (
     <div 
@@ -47,9 +29,8 @@ const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
         className="controls-card-body controls-text-center controls-p-4"
         onClick={onLoad}
       >
-        {/* Robot Preview */}
+        {/* Robot Preview - Image or Placeholder */}
         <div 
-          ref={previewRef}
           style={{
             width: '100%',
             height: '180px',
@@ -57,9 +38,39 @@ const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
             borderRadius: '4px',
             overflow: 'hidden',
             backgroundColor: '#f8f9fa',
-            border: '1px solid #dee2e6'
+            border: '1px solid #dee2e6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
           }}
-        />
+        >
+          {robot.imagePath && !imageError ? (
+            <img
+              src={robot.imagePath}
+              alt={robot.name}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain'
+              }}
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <div style={{
+              width: '100px',
+              height: '100px',
+              backgroundColor: '#e9ecef',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#6c757d',
+              fontSize: '2.5rem'
+            }}>
+              🤖
+            </div>
+          )}
+        </div>
         
         <h5 className="controls-h5 controls-mb-1">{robot.name}</h5>
         <small className="controls-text-muted">{robot.manufacturer}</small>
@@ -77,25 +88,36 @@ const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
       
       {/* Remove button */}
       <button
-        className="controls-btn controls-btn-danger controls-btn-sm"
-        style={{
-          position: 'absolute',
-          top: '0.5rem',
-          right: '0.5rem',
-          padding: '0.25rem 0.5rem',
-          fontSize: '0.75rem',
-          opacity: 0,
-          transition: 'opacity 0.2s'
-        }}
         onClick={(e) => {
           e.stopPropagation();
           onRemove();
         }}
+        className="controls-close"
+        style={{
+          position: 'absolute',
+          top: '0.5rem',
+          right: '0.5rem',
+          width: '28px',
+          height: '28px',
+          padding: 0,
+          borderRadius: '50%',
+          border: 'none',
+          backgroundColor: 'rgba(220, 53, 69, 0.1)',
+          color: '#dc3545',
+          fontSize: '1.2rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          transition: 'all 0.2s'
+        }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.opacity = '1';
+          e.currentTarget.style.backgroundColor = 'rgba(220, 53, 69, 0.2)';
+          e.currentTarget.style.transform = 'scale(1.1)';
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.opacity = '0';
+          e.currentTarget.style.backgroundColor = 'rgba(220, 53, 69, 0.1)';
+          e.currentTarget.style.transform = 'scale(1)';
         }}
       >
         ×

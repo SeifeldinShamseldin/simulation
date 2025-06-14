@@ -63,7 +63,8 @@ export const RobotProvider = ({ children }) => {
             allRobots.push({
               ...robot,
               category: category.id,
-              categoryName: category.name
+              categoryName: category.name,
+              // imagePath is already included from the server response
             });
           });
         });
@@ -117,8 +118,9 @@ export const RobotProvider = ({ children }) => {
       id: `${robotData.id}_${Date.now()}`,
       robotId: robotData.id,
       name: robotData.name,
-      manufacturer: robotData.manufacturer,
+      manufacturer: robotData.manufacturer || robotData.categoryName,
       urdfPath: robotData.urdfPath,
+      imagePath: robotData.imagePath, // Include the image path
       icon: '🤖',
       addedAt: new Date().toISOString()
     };

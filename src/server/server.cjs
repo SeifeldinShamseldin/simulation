@@ -5,6 +5,12 @@ const multer = require('multer');
 const cors = require('cors');
 const app = express();
 
+// Helper function to check if a file is an image
+function isImageFile(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  return ['.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif'].includes(ext);
+}
+
 // Enable CORS for development
 app.use(cors({
   origin: 'http://localhost:3000',
@@ -54,8 +60,8 @@ const upload = multer({
   fileFilter: function (req, file, cb) {
     console.log('Processing file:', file.originalname, 'Type:', file.mimetype);
     
-    // Accept URDF and mesh files
-    const allowedExtensions = ['.urdf', '.stl', '.dae'];
+    // Accept URDF, mesh files, and images
+    const allowedExtensions = ['.urdf', '.stl', '.dae', '.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif'];
     const ext = path.extname(file.originalname).toLowerCase();
     
     if (allowedExtensions.includes(ext)) {
@@ -79,7 +85,8 @@ app.post('/api/robots/add', (req, res) => {
   // Use multer middleware
   upload.fields([
     { name: 'urdf', maxCount: 1 },
-    { name: 'meshes', maxCount: 50 }
+    { name: 'meshes', maxCount: 50 },
+    { name: 'image', maxCount: 1 }
   ])(req, res, function (err) {
     if (err) {
       console.error('Multer error:', err);
@@ -255,14 +262,24 @@ function generateRobotIndex() {
                 const urdfFile = files.find(file => file.endsWith('.urdf'));
                 const hasMeshes = files.some(file => file.endsWith('.stl') || file.endsWith('.dae'));
                 
+                // Look for image files
+                const imageFile = files.find(file => isImageFile(file));
+                
                 if (urdfFile && hasMeshes) {
-                  return {
+                  const robotData = {
                     id: robotId.toLowerCase().replace(/\s+/g, '_'),
                     name: robotId.charAt(0).toUpperCase() + robotId.slice(1),
                     urdfPath: `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}/${encodeURIComponent(urdfFile)}`,
                     packagePath: `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}`,
                     meshFiles: files.filter(file => file.endsWith('.stl') || file.endsWith('.dae'))
                   };
+                  
+                  // Add image path if found
+                  if (imageFile) {
+                    robotData.imagePath = `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}/${encodeURIComponent(imageFile)}`;
+                  }
+                  
+                  return robotData;
                 }
               } catch (error) {
                 console.warn(`Error reading robot directory ${robotDir}:`, error.message);
@@ -332,17 +349,31 @@ app.get('/robots/list', (req, res) => {
             try {
               // Check if this directory contains a URDF file and mesh files
               const files = fs.readdirSync(robotPath);
+              console.log(`Files in ${robotId}:`, files); // Debug log
+              
               const urdfFile = files.find(file => file.endsWith('.urdf'));
               const hasMeshes = files.some(file => file.endsWith('.stl') || file.endsWith('.dae'));
               
+              // Look for image files
+              const imageFile = files.find(file => isImageFile(file));
+              console.log(`Image file for ${robotId}:`, imageFile); // Debug log
+              
               if (urdfFile && hasMeshes) {
-                robots.push({
+                const robotData = {
                   id: robotId.toLowerCase().replace(/\s+/g, '_'),
                   name: robotId.charAt(0).toUpperCase() + robotId.slice(1),
                   urdfPath: `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}/${encodeURIComponent(urdfFile)}`,
                   packagePath: `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}`,
                   meshFiles: files.filter(file => file.endsWith('.stl') || file.endsWith('.dae'))
-                });
+                };
+                
+                // Add image path if found
+                if (imageFile) {
+                  robotData.imagePath = `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}/${encodeURIComponent(imageFile)}`;
+                  console.log(`Set imagePath for ${robotId}:`, robotData.imagePath); // Debug log
+                }
+                
+                robots.push(robotData);
               }
             } catch (error) {
               console.warn(`Error reading robot directory ${robotPath}:`, error.message);

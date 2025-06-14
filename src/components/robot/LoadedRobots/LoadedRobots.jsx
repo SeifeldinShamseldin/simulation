@@ -1,6 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import EventBus from '../../../utils/EventBus';
-import { useCreateLogo } from '../../../contexts/hooks/useCreateLogo';
 
 const LoadedRobots = ({ 
   viewerRef, 
@@ -9,25 +8,8 @@ const LoadedRobots = ({
   setActiveRobotId,
   setShowRobotSelection
 }) => {
-  const {
-    initializePreview,
-    loadRobot: loadRobotPreview,
-    cleanup
-  } = useCreateLogo();
-  
-  const previewRef = useRef(null);
+  const [imageError, setImageError] = useState(false);
   const activeRobot = workspaceRobots.find(r => r.id === activeRobotId);
-  
-  useEffect(() => {
-    if (previewRef.current && activeRobot) {
-      initializePreview(previewRef.current);
-      loadRobotPreview(activeRobot);
-    }
-    
-    return () => {
-      cleanup();
-    };
-  }, [activeRobot]);
   
   const goBackToSelection = () => {
     // Don't clear the robot - just go back to selection
@@ -53,9 +35,8 @@ const LoadedRobots = ({
       <div className="controls-card-body">
         <div className="controls-card">
           <div className="controls-card-body">
-            {/* Robot Preview */}
+            {/* Robot Preview - Image or Placeholder */}
             <div 
-              ref={previewRef}
               style={{
                 width: '100%',
                 height: '180px',
@@ -63,9 +44,39 @@ const LoadedRobots = ({
                 borderRadius: '4px',
                 overflow: 'hidden',
                 backgroundColor: '#f8f9fa',
-                border: '1px solid #dee2e6'
+                border: '1px solid #dee2e6',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
               }}
-            />
+            >
+              {activeRobot.imagePath && !imageError ? (
+                <img
+                  src={activeRobot.imagePath}
+                  alt={activeRobot.name}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'contain'
+                  }}
+                  onError={() => setImageError(true)}
+                />
+              ) : (
+                <div style={{
+                  width: '100px',
+                  height: '100px',
+                  backgroundColor: '#e9ecef',
+                  borderRadius: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#28a745',
+                  fontSize: '2.5rem'
+                }}>
+                  ✓
+                </div>
+              )}
+            </div>
             
             <h5 className="controls-h5">{activeRobot.name}</h5>
             <p className="controls-text-muted controls-mb-2">

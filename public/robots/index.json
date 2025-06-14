@@ -17,7 +17,8 @@
             "link_4.stl",
             "link_5.stl",
             "link_6.stl"
-          ]
+          ],
+          "imagePath": "/robots/fanuc/crx10ial/crx-10ial.png"
         }
       ]
     },

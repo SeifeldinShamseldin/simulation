@@ -1,31 +1,10 @@
 // src/components/robot/AddRobot/AddRobot.jsx - PURE UI COMPONENT with Robot Preview
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useRobotWorkspace, useRobotDiscovery, useRobotLoading } from '../../../contexts/hooks/useRobot';
-import { useCreateLogo } from '../../../contexts/hooks/useCreateLogo';
 
 const RobotCard = ({ robot, manufacturer, inWorkspace, onSelect }) => {
-  const {
-    initializePreview,
-    loadRobot: loadRobotPreview,
-    cleanup
-  } = useCreateLogo();
-  
-  const previewRef = useRef(null);
-  
-  useEffect(() => {
-    if (previewRef.current) {
-      initializePreview(previewRef.current);
-      loadRobotPreview({
-        ...robot,
-        manufacturer
-      });
-    }
-    
-    return () => {
-      cleanup();
-    };
-  }, [robot, manufacturer]);
+  const [imageError, setImageError] = useState(false);
   
   return (
     <div
@@ -39,9 +18,8 @@ const RobotCard = ({ robot, manufacturer, inWorkspace, onSelect }) => {
       }}
     >
       <div className="controls-card-body">
-        {/* Robot Preview */}
+        {/* Robot Preview - Image or Placeholder */}
         <div 
-          ref={previewRef}
           style={{
             width: '100%',
             height: '200px',
@@ -49,9 +27,39 @@ const RobotCard = ({ robot, manufacturer, inWorkspace, onSelect }) => {
             borderRadius: '4px',
             overflow: 'hidden',
             backgroundColor: '#f8f9fa',
-            border: '1px solid #dee2e6'
+            border: '1px solid #dee2e6',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
           }}
-        />
+        >
+          {robot.imagePath && !imageError ? (
+            <img
+              src={robot.imagePath}
+              alt={robot.name}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain'
+              }}
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <div style={{
+              width: '120px',
+              height: '120px',
+              backgroundColor: '#e9ecef',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#6c757d',
+              fontSize: '3rem'
+            }}>
+              📦
+            </div>
+          )}
+        </div>
         
         <h5 className="controls-h5 controls-mb-2">{robot.name}</h5>
         <p className="controls-text-muted controls-small controls-mb-3">
@@ -63,7 +71,7 @@ const RobotCard = ({ robot, manufacturer, inWorkspace, onSelect }) => {
           }`}
           disabled={inWorkspace}
         >
-          {inWorkspace ? '✓ In Workspace' : '+ Add to Workspace'}
+          {inWorkspace ? 'In Workspace' : 'Add to Workspace'}
         </button>
       </div>
     </div>
