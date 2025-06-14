@@ -1,4 +1,4 @@
-// src/contexts/IKContext.jsx - Fixed animation completion handling
+// src/contexts/IKContext.jsx - Fixed dynamic IK solver loading
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { useRobotSelection, useRobotManagement } from './hooks/useRobot';
@@ -23,123 +23,175 @@ export const IKProvider = ({ children }) => {
   const [isAnimating, setIsAnimating] = useState(false);
   const [solverStatus, setSolverStatus] = useState('Initializing...');
   const [currentSolver, setCurrentSolver] = useState('CCD');
-  const [availableSolvers, setAvailableSolvers] = useState(['CCD', 'HalimIK']);
+  const [availableSolvers, setAvailableSolvers] = useState(['CCD', 'HalimIK']); // Default fallback
+  const [loadedSolvers, setLoadedSolvers] = useState([]);
   const solversRef = useRef({});
   const isReady = useRef(false);
+  const loadingRef = useRef(false);
 
-  // Initialize solvers
+  // Fetch available IK solvers from backend
   useEffect(() => {
-    const initializeSolvers = async () => {
+    const fetchAvailableSolvers = async () => {
       try {
-        const { default: CCD } = await import('../components/controls/IKSolvers/CCD');
-        const { default: HalimIK } = await import('../components/controls/IKSolvers/HalimIK');
+        const response = await fetch('/api/ik-solvers');
+        const data = await response.json();
         
-        // Initialize solvers with default configurations
-        solversRef.current = {
-          CCD: new CCD({
-            maxIterations: 10,
-            tolerance: 0.01,
-            dampingFactor: 0.5,
-            angleLimit: 0.2,
-            orientationWeight: 0.1
-          }),
-          HalimIK: new HalimIK({
-            regularizationParameter: 0.001,
-            maxIterations: 100,
-            tolerance: 0.001,
-            orientationMode: null,
-            noPosition: false,
-            orientationCoeff: 0.5,
-            learningRate: 0.1
-          })
-        };
-        
-        isReady.current = true;
-        setSolverStatus('Ready');
+        if (data.success && data.solvers) {
+          const solverNames = data.solvers.map(s => s.name);
+          setAvailableSolvers(solverNames);
+          console.log('[IK] Available solvers from backend:', solverNames);
+          
+          // Load default solver if available
+          if (solverNames.includes(currentSolver)) {
+            await loadSolver(currentSolver);
+          } else if (solverNames.length > 0) {
+            await loadSolver(solverNames[0]);
+            setCurrentSolver(solverNames[0]);
+          }
+        }
       } catch (error) {
-        console.error('Error initializing IK solvers:', error);
-        setSolverStatus('Error initializing solvers');
+        console.error('[IK] Failed to fetch available solvers:', error);
+        setSolverStatus('Failed to fetch solvers');
       }
     };
     
-    initializeSolvers();
+    fetchAvailableSolvers();
   }, []);
+
+  // Load a specific IK solver dynamically
+  const loadSolver = async (solverName) => {
+    try {
+      console.log(`[IK] Loading solver: ${solverName}`);
+      
+      // Dynamically import the solver module from public directory
+      const module = await import(`/IKSolvers/${solverName}.jsx`);
+      const SolverClass = module.default;
+      
+      // Initialize solver with default configurations based on type
+      let solverInstance;
+      if (solverName === 'CCD') {
+        solverInstance = new SolverClass({
+          maxIterations: 10,
+          tolerance: 0.01,
+          dampingFactor: 0.5,
+          angleLimit: 0.2,
+          orientationWeight: 0.1
+        });
+      } else if (solverName === 'HalimIK') {
+        solverInstance = new SolverClass({
+          regularizationParameter: 0.001,
+          maxIterations: 100,
+          tolerance: 0.001,
+          orientationMode: null,
+          noPosition: false,
+          orientationCoeff: 0.5,
+          learningRate: 0.1
+        });
+      } else {
+        // Default configuration for unknown solvers
+        solverInstance = new SolverClass({});
+      }
+      
+      solversRef.current[solverName] = solverInstance;
+      
+      // Mark this solver as loaded
+      setLoadedSolvers(prev => [...prev, solverName]);
+      
+      if (solverName === currentSolver) {
+        isReady.current = true;
+        setSolverStatus('Ready');
+      }
+      
+      console.log(`[IK] Successfully loaded solver: ${solverName}`);
+      return true;
+    } catch (error) {
+      console.error(`[IK] Failed to load solver ${solverName}:`, error);
+      setSolverStatus(`Failed to load ${solverName}`);
+      return false;
+    }
+  };
+
+  // Handle solver change
+  useEffect(() => {
+    const handleSolverChange = async () => {
+      if (currentSolver && availableSolvers.includes(currentSolver)) {
+        // Check if solver is already loaded
+        if (!loadedSolvers.includes(currentSolver)) {
+          isReady.current = false;
+          setSolverStatus(`Loading ${currentSolver}...`);
+          const success = await loadSolver(currentSolver);
+          if (!success) {
+            setSolverStatus(`Failed to load ${currentSolver}`);
+          }
+        } else {
+          isReady.current = true;
+          setSolverStatus('Ready');
+        }
+      }
+    };
+    
+    handleSolverChange();
+  }, [currentSolver, availableSolvers, loadedSolvers]);
 
   // Listen for TCP changes and update status
   useEffect(() => {
-    if (isUsingTCP) {
-      setSolverStatus(`Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})`);
-    } else {
-      setSolverStatus('Ready (Robot End Effector)');
+    if (isReady.current) {
+      if (isUsingTCP) {
+        setSolverStatus(`Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})`);
+      } else {
+        setSolverStatus('Ready (Robot End Effector)');
+      }
     }
   }, [isUsingTCP, getEndEffectorInfo]);
 
   // Listen for TCP end effector updates
   useEffect(() => {
     const handleTCPEndEffectorUpdate = (data) => {
-      if (data.robotId === activeRobotId && !isAnimating) {
+      if (data.robotId === activeRobotId && !isAnimating && isReady.current) {
         const endEffectorType = data.hasTCP ? 'TCP' : 'Robot';
         setSolverStatus(`Ready (${endEffectorType} End Effector - Position Updated)`);
         
         // Reset status after a delay
         setTimeout(() => {
-          setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
+          if (isReady.current) {
+            setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
+          }
         }, 2000);
       }
     };
     
-    const unsubscribe = EventBus.on('tcp:endeffector-updated', handleTCPEndEffectorUpdate);
+    const unsubscribe = EventBus.on('tcp:end-effector-updated', handleTCPEndEffectorUpdate);
     return () => unsubscribe();
-  }, [activeRobotId, isUsingTCP, getEndEffectorInfo, isAnimating]);
+  }, [activeRobotId, isAnimating, isUsingTCP, getEndEffectorInfo]);
 
   // Listen for animation completion from JointContext
   useEffect(() => {
     const handleAnimationComplete = (data) => {
       if (data.robotId === activeRobotId) {
-        console.log(`[IK Context] Animation completion received for ${activeRobotId}:`, data);
-        
+        console.log(`[IK Context] Animation complete for ${activeRobotId}, success: ${data.success}`);
         setIsAnimating(false);
+        setSolverStatus(data.success ? 'Movement Complete' : 'Movement Stopped');
         
-        if (data.success) {
-          setSolverStatus('Move Complete');
-          
-          // Reset status after a delay
-          setTimeout(() => {
+        // Reset status after a delay
+        setTimeout(() => {
+          if (isReady.current) {
             setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
-          }, 2000);
-        } else {
-          setSolverStatus('Move Cancelled');
-          
-          // Reset status after a delay
-          setTimeout(() => {
-            setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
-          }, 1000);
-        }
+          }
+        }, 2000);
       }
     };
-
+    
     const unsubscribe = EventBus.on('ik:animation-complete', handleAnimationComplete);
     return () => unsubscribe();
   }, [activeRobotId, isUsingTCP, getEndEffectorInfo]);
 
-  // Simplified end effector getter - creates virtual end effector at final position
-  const getEffectiveEndEffector = useCallback((robot) => {
-    // Create a virtual end effector object at the final calculated position
-    // This works for both TCP and robot end effector since currentEndEffectorPoint
-    // already contains the final calculated position (robot + tcp)
-    const virtualEndEffector = new THREE.Object3D();
-    virtualEndEffector.name = 'virtual_end_effector';
-    
-    // Position it at the current calculated end effector point
-    virtualEndEffector.position.set(
-      currentEndEffectorPoint.x,
-      currentEndEffectorPoint.y,
-      currentEndEffectorPoint.z
+  // Create virtual end effector position (for solver reference)
+  const getVirtualEndEffectorPosition = useCallback(() => {
+    const virtualEndEffector = new THREE.Vector3(
+      currentEndEffectorPoint.x || 0,
+      currentEndEffectorPoint.y || 0,
+      currentEndEffectorPoint.z || 0
     );
-    
-    // Make sure it has the necessary matrices
-    virtualEndEffector.updateMatrix();
-    virtualEndEffector.updateMatrixWorld(true);
     
     const endEffectorType = isUsingTCP ? 'TCP' : 'Robot';
     console.log(`[IK] Using ${endEffectorType} end effector at: (${currentEndEffectorPoint.x.toFixed(3)}, ${currentEndEffectorPoint.y.toFixed(3)}, ${currentEndEffectorPoint.z.toFixed(3)})`);
@@ -161,7 +213,7 @@ export const IKProvider = ({ children }) => {
     console.log(`[IK Context] Target orientation:`, options.targetOrientation);
     console.log(`[IK Context] Current orientation:`, options.currentOrientation);
     
-    // Pass the actual robot to CCD with orientation data
+    // Pass the actual robot to solver with orientation data
     return await solver.solve(
       robot, 
       targetPos, 
@@ -178,6 +230,9 @@ export const IKProvider = ({ children }) => {
     const robot = getRobot(activeRobotId);
     if (!robot || !isReady.current || isAnimating) {
       console.log(`[IK Context] Cannot execute: robot=${!!robot}, ready=${isReady.current}, animating=${isAnimating}`);
+      if (!isReady.current) {
+        console.log(`[IK Context] Current solver: ${currentSolver}, loaded: ${loadedSolvers.join(', ')}`);
+      }
       return false;
     }
     
@@ -204,7 +259,7 @@ export const IKProvider = ({ children }) => {
         // Emit event to Joint Control with the goal angles
         EventBus.emit('ik:joint-values-calculated', {
           robotId: activeRobotId,
-          jointValues: result, // CCD now returns goal angles starting from current position
+          jointValues: result, // Solver returns goal angles starting from current position
           animate: options.animate,
           duration: options.duration || 1000
         });
@@ -223,7 +278,7 @@ export const IKProvider = ({ children }) => {
       setIsAnimating(false);
       return false;
     }
-  }, [activeRobotId, getRobot, solve, isAnimating]);
+  }, [activeRobotId, getRobot, solve, isAnimating, currentSolver, loadedSolvers]);
 
   const stopAnimation = useCallback(() => {
     console.log(`[IK Context] Stopping animation for ${activeRobotId}`);
@@ -236,24 +291,43 @@ export const IKProvider = ({ children }) => {
     
     // Reset status after a delay
     setTimeout(() => {
-      setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
+      if (isReady.current) {
+        setSolverStatus(isUsingTCP ? `Ready (TCP: ${getEndEffectorInfo()?.toolName || 'Tool'})` : 'Ready (Robot End Effector)');
+      }
     }, 1000);
   }, [activeRobotId, isUsingTCP, getEndEffectorInfo]);
 
   const configureSolver = useCallback((solverName, config) => {
     const solver = solversRef.current[solverName];
-    if (solver) {
-      Object.assign(solver, config);
+    if (solver && solver.configure) {
+      solver.configure(config);
       console.log(`[IK] Configured solver ${solverName}:`, config);
+    } else if (solver) {
+      // Fallback for solvers without configure method
+      Object.assign(solver, config);
+      console.log(`[IK] Updated solver ${solverName} properties:`, config);
     }
   }, []);
 
   const getSolverSettings = useCallback((solverName) => {
     const solver = solversRef.current[solverName];
     if (solver) {
-      return { ...solver };
+      // Return only the configuration properties, not methods
+      const settings = {};
+      const configKeys = [
+        'maxIterations', 'tolerance', 'dampingFactor', 'angleLimit', 'orientationWeight',
+        'regularizationParameter', 'orientationMode', 'noPosition', 'orientationCoeff', 'learningRate'
+      ];
+      
+      configKeys.forEach(key => {
+        if (key in solver) {
+          settings[key] = solver[key];
+        }
+      });
+      
+      return settings;
     }
-    return null;
+    return {};
   }, []);
 
   return (

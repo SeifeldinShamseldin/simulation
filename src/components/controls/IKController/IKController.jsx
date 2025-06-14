@@ -37,6 +37,10 @@ const IKController = () => {
     const settings = getSolverSettings(currentSolver);
     if (settings) {
       setSolverSettings(settings);
+    } else {
+      // Set default settings if getSolverSettings returns null
+      setSolverSettings({});
+      console.warn(`[IKController] No settings found for solver: ${currentSolver}`);
     }
   }, [currentSolver, getSolverSettings]);
 

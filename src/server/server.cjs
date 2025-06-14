@@ -229,6 +229,47 @@ app.delete('/api/robots/:manufacturer/:model', (req, res) => {
   }
 });
 
+// Get available IK solvers
+app.get('/api/ik-solvers', (req, res) => {
+  try {
+    const ikSolversPath = path.join(__dirname, '..', '..', 'public', 'IKSolvers');
+    
+    if (!fs.existsSync(ikSolversPath)) {
+      console.log('IK Solvers directory does not exist');
+      return res.json({ success: true, solvers: [] });
+    }
+    
+    const solvers = [];
+    
+    // Read all files in the IKSolvers directory
+    const files = fs.readdirSync(ikSolversPath, { withFileTypes: true });
+    
+    files.forEach(file => {
+      if (file.isFile() && file.name.endsWith('.jsx')) {
+        const solverName = file.name.replace('.jsx', '');
+        solvers.push({
+          id: solverName.toLowerCase(),
+          name: solverName,
+          filename: file.name,
+          path: `/IKSolvers/${file.name}`
+        });
+        console.log(`Found IK solver: ${solverName}`);
+      }
+    });
+    
+    console.log(`Found ${solvers.length} IK solvers`);
+    res.json({ success: true, solvers });
+    
+  } catch (error) {
+    console.error('Error scanning IK solvers:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error scanning IK solvers',
+      error: error.message 
+    });
+  }
+});
+
 // Function to regenerate robot index after changes
 function generateRobotIndex() {
   try {
