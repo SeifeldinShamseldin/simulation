@@ -96,6 +96,8 @@ const IKController = () => {
       console.log(`[IKController] Moving to target position:`, targetPosition);
       console.log(`[IKController] Moving to target orientation:`, targetOrientation);
       console.log(`[IKController] Orientation mode:`, orientationMode);
+      console.log(`[IKController] Current solver:`, currentSolver);
+      console.log(`[IKController] Solver settings:`, solverSettings);
       
       // Convert target orientation from degrees to radians for the solver
       const targetOrientationRad = {
@@ -104,20 +106,35 @@ const IKController = () => {
         yaw: targetOrientation.yaw * Math.PI / 180
       };
       
-      // Configure solver for orientation mode
-      if (orientationMode) {
+      // Configure solver based on type and settings
+      if (currentSolver === 'HalimIK') {
+        // Pass HalimIK-specific settings
         configureSolver(currentSolver, {
-          orientationWeight: 0.8, // High orientation weight
-          maxIterations: 20,      // More iterations for orientation
-          tolerance: 0.02,        // Slightly relaxed position tolerance
-          dampingFactor: 0.5      // Lower damping for better orientation reach
+          ...solverSettings,
+          orientationMode: solverSettings.orientationMode || (orientationMode ? 'all' : null),
+          noPosition: solverSettings.noPosition || false,
+          // Adjust learning rate based on orientation mode
+          learningRate: solverSettings.orientationMode ? 0.05 : 0.1,
+          // Adjust regularization based on orientation mode
+          regularizationParameter: solverSettings.orientationMode ? 0.0005 : 0.001
+        });
+      } else if (currentSolver === 'CCD') {
+        // CCD solver configuration
+        configureSolver(currentSolver, {
+          ...solverSettings,
+          // Adjust parameters based on orientation mode
+          orientationWeight: orientationMode ? 0.8 : 0.1,
+          maxIterations: orientationMode ? 20 : 10,
+          tolerance: orientationMode ? 0.02 : 0.01,
+          dampingFactor: orientationMode ? 0.5 : 0.7,
+          angleLimit: orientationMode ? 0.15 : 0.2
         });
       }
       
       await executeIK(targetPosition, { 
         animate,
         targetOrientation: targetOrientationRad,
-        orientationMode
+        orientationMode: currentSolver === 'HalimIK' ? solverSettings.orientationMode : orientationMode
       });
       
     } catch (error) {
@@ -210,37 +227,99 @@ const IKController = () => {
         <div className="controls-card controls-p-3 controls-mb-3">
           <h5 className="controls-h6">{currentSolver} Settings:</h5>
           
-          <div className="controls-form-group">
-            <label className="controls-form-label">
-              <input
-                type="checkbox"
-                checked={orientationMode}
-                onChange={(e) => setOrientationMode(e.target.checked)}
-                style={{ marginRight: '0.5rem' }}
-              />
-              Orientation Priority Mode
-            </label>
-            <small className="controls-text-muted">
-              Prioritizes reaching target orientation over exact position
-            </small>
-          </div>
+          {currentSolver === 'HalimIK' && (
+            <>
+              <div className="controls-form-group">
+                <label className="controls-form-label">Orientation Mode:</label>
+                <select
+                  className="controls-form-select"
+                  value={solverSettings.orientationMode || ''}
+                  onChange={(e) => handleSettingChange('orientationMode', e.target.value || null)}
+                  disabled={isAnimating}
+                >
+                  <option value="">None (Position Only)</option>
+                  <option value="X">Target X Axis</option>
+                  <option value="Y">Target Y Axis</option>
+                  <option value="Z">Target Z Axis</option>
+                  <option value="all">Target All Axes</option>
+                </select>
+              </div>
+              
+              <div className="controls-form-group">
+                <label className="controls-form-label">
+                  <input
+                    type="checkbox"
+                    checked={solverSettings.noPosition || false}
+                    onChange={(e) => handleSettingChange('noPosition', e.target.checked)}
+                    style={{ marginRight: '0.5rem' }}
+                    disabled={isAnimating || !solverSettings.orientationMode}
+                  />
+                  Orientation Only (No Position)
+                </label>
+                <small className="controls-text-muted">
+                  Only optimize for orientation, ignore position
+                </small>
+              </div>
+            </>
+          )}
           
-          {Object.entries(solverSettings).map(([key, value]) => (
-            <div key={key} className="controls-form-group">
+          {currentSolver === 'CCD' && (
+            <div className="controls-form-group">
               <label className="controls-form-label">
-                {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:
+                <input
+                  type="checkbox"
+                  checked={orientationMode}
+                  onChange={(e) => setOrientationMode(e.target.checked)}
+                  style={{ marginRight: '0.5rem' }}
+                />
+                Orientation Priority Mode
               </label>
-              <input
-                type="number"
-                className="controls-form-control"
-                value={value}
-                onChange={(e) => handleSettingChange(key, e.target.value)}
-                step={key.includes('Factor') || key.includes('Limit') ? 0.1 : 1}
-                min={0}
-                disabled={isAnimating}
-              />
+              <small className="controls-text-muted">
+                Prioritizes reaching target orientation over exact position
+              </small>
             </div>
-          ))}
+          )}
+          
+          {Object.entries(solverSettings).map(([key, value]) => {
+            // Skip special settings we already handled
+            if (key === 'orientationMode' || key === 'noPosition') return null;
+            
+            // Skip orientationWeight for CCD if not in orientation mode
+            if (currentSolver === 'CCD' && key === 'orientationWeight' && !orientationMode) return null;
+            
+            return (
+              <div key={key} className="controls-form-group">
+                <label className="controls-form-label">
+                  {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}:
+                </label>
+                <input
+                  type="number"
+                  className="controls-form-control"
+                  value={value}
+                  onChange={(e) => handleSettingChange(key, e.target.value)}
+                  step={key.includes('Factor') || key.includes('Limit') || key.includes('Coeff') || key.includes('Rate') ? 0.1 : 1}
+                  min={0}
+                  max={key === 'learningRate' ? 1 : undefined}
+                  disabled={isAnimating}
+                />
+                {key === 'learningRate' && (
+                  <small className="controls-text-muted">
+                    Step size for gradient descent (0-1)
+                  </small>
+                )}
+                {key === 'regularizationParameter' && (
+                  <small className="controls-text-muted">
+                    Controls joint movement penalties
+                  </small>
+                )}
+                {key === 'orientationCoeff' && (
+                  <small className="controls-text-muted">
+                    Weight for orientation vs position
+                  </small>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

@@ -23,7 +23,7 @@ export const IKProvider = ({ children }) => {
   const [isAnimating, setIsAnimating] = useState(false);
   const [solverStatus, setSolverStatus] = useState('Initializing...');
   const [currentSolver, setCurrentSolver] = useState('CCD');
-  const [availableSolvers, setAvailableSolvers] = useState(['CCD']);
+  const [availableSolvers, setAvailableSolvers] = useState(['CCD', 'HalimIK']);
   const solversRef = useRef({});
   const isReady = useRef(false);
 
@@ -32,9 +32,26 @@ export const IKProvider = ({ children }) => {
     const initializeSolvers = async () => {
       try {
         const { default: CCD } = await import('../components/controls/IKSolvers/CCD');
+        const { default: HalimIK } = await import('../components/controls/IKSolvers/HalimIK');
         
+        // Initialize solvers with default configurations
         solversRef.current = {
-          CCD: new CCD()
+          CCD: new CCD({
+            maxIterations: 10,
+            tolerance: 0.01,
+            dampingFactor: 0.5,
+            angleLimit: 0.2,
+            orientationWeight: 0.1
+          }),
+          HalimIK: new HalimIK({
+            regularizationParameter: 0.001,
+            maxIterations: 100,
+            tolerance: 0.001,
+            orientationMode: null,
+            noPosition: false,
+            orientationCoeff: 0.5,
+            learningRate: 0.1
+          })
         };
         
         isReady.current = true;

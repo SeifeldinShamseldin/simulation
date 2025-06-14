@@ -468,9 +468,18 @@ export const JointProvider = ({ children }) => {
   }, [stopAnimation, setRobotJointValues_Internal]);
 
   // Animate to target joint values with FIXED current value detection
-  const animateToJointValues = useCallback(async (robotId, targetValues, duration = 1000) => {
+  const animateToJointValues = useCallback(async (robotId, targetValues, options = {}) => {
+    const {
+      duration = 1000,
+      tolerance = 0.001,
+      maxDuration = 10000, // Maximum animation time (10 seconds)
+      animationSpeed = 1.0,
+      onProgress = null,
+      easing = 'exponential' // New option for easing function
+    } = options;
+    
     return new Promise((resolve) => {
-      console.log(`[JointContext] Starting animation for ${robotId}`);
+      console.log(`[JointContext] Starting animation for ${robotId} with tolerance ${tolerance}`);
       
       // Cancel any existing animation for this robot
       const existingFrameId = animationFrameRef.current.get(robotId);
@@ -479,30 +488,67 @@ export const JointProvider = ({ children }) => {
         console.log(`[JointContext] Cancelled existing animation for ${robotId}`);
       }
       
-      // 🚨 CRITICAL FIX: Get ACTUAL current joint values using enhanced getter
+      // Get current joint values
       const currentValues = getRobotJointValues(robotId);
-      console.log(`[JointContext] Got ACTUAL current joint values:`, currentValues);
+      console.log(`[JointContext] Current joint values:`, currentValues);
       
       const startTime = Date.now();
+      const robot = findRobotWithFallbacks(robotId);
+      
+      // Calculate total error at start
+      let initialError = 0;
+      Object.keys(targetValues).forEach(jointName => {
+        const start = currentValues[jointName] || 0;
+        const end = targetValues[jointName];
+        const diff = end - start;
+        initialError += diff * diff;
+      });
+      initialError = Math.sqrt(initialError);
       
       // Set animation state
       setIsAnimating(prev => new Map(prev).set(robotId, true));
       console.log(`[JointContext] Set isAnimating=true for ${robotId}`);
       
       console.log(`[JointContext] Animating ${robotId} from:`, currentValues, 'to:', targetValues);
+      console.log(`[JointContext] Initial error: ${initialError}, tolerance: ${tolerance}`);
+      
+      // Easing functions
+      const easingFunctions = {
+        linear: t => t,
+        exponential: t => 1 - Math.exp(-5 * t),
+        smoothstep: t => t * t * (3 - 2 * t),
+        smootherstep: t => t * t * t * (t * (t * 6 - 15) + 10)
+      };
+      
+      const getEasing = (t) => {
+        const func = easingFunctions[easing] || easingFunctions.exponential;
+        return func(t);
+      };
       
       const animate = () => {
         const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / duration, 1);
+        const timeProgress = Math.min(elapsed / duration, 1);
+        
+        // Apply easing function
+        const smoothProgress = getEasing(timeProgress);
         
         // Interpolate joint values
         const interpolatedValues = {};
+        let currentError = 0;
+        let maxJointError = 0;
+        
         Object.keys(targetValues).forEach(jointName => {
           const start = currentValues[jointName] || 0;
           const end = targetValues[jointName];
-          const value = start + (end - start) * progress;
+          const value = start + (end - start) * smoothProgress;
           interpolatedValues[jointName] = value;
+          
+          // Calculate current error
+          const diff = end - value;
+          currentError += diff * diff;
+          maxJointError = Math.max(maxJointError, Math.abs(diff));
         });
+        currentError = Math.sqrt(currentError);
         
         // Apply to robot
         const success = setRobotJointValues_Internal(robotId, interpolatedValues);
@@ -517,16 +563,44 @@ export const JointProvider = ({ children }) => {
           });
         }
         
-        // Update progress
-        setAnimationProgress(prev => new Map(prev).set(robotId, progress));
+        // Calculate error-based progress
+        const errorProgress = initialError > 0 ? 1 - (currentError / initialError) : 1;
         
-        if (progress < 1) {
-          // Continue animation
-          const frameId = requestAnimationFrame(animate);
-          animationFrameRef.current.set(robotId, frameId);
-        } else {
+        // Update progress based on both time and error
+        const combinedProgress = Math.max(timeProgress, errorProgress);
+        setAnimationProgress(prev => new Map(prev).set(robotId, combinedProgress));
+        
+        // Call progress callback if provided
+        if (onProgress) {
+          onProgress({
+            timeProgress,
+            errorProgress,
+            currentError,
+            maxJointError,
+            tolerance,
+            elapsed
+          });
+        }
+        
+        // Check completion conditions
+        const withinTolerance = currentError <= tolerance;
+        const timeExpired = elapsed >= maxDuration;
+        const shouldStop = withinTolerance || timeExpired || timeProgress >= 1;
+        
+        if (shouldStop) {
+          // If within tolerance, apply exact target values
+          if (withinTolerance) {
+            console.log(`[JointContext] Within tolerance (${currentError} <= ${tolerance}), applying exact values`);
+            setRobotJointValues_Internal(robotId, targetValues);
+            setRobotJointValues(prev => {
+              const newMap = new Map(prev);
+              newMap.set(robotId, targetValues);
+              return newMap;
+            });
+          }
+          
           // Animation complete
-          console.log(`[JointContext] Animation complete for ${robotId}`);
+          console.log(`[JointContext] Animation complete for ${robotId}. Final error: ${currentError}, Within tolerance: ${withinTolerance}`);
           
           // Clean up animation state
           setIsAnimating(prev => new Map(prev).set(robotId, false));
@@ -539,10 +613,31 @@ export const JointProvider = ({ children }) => {
           // Notify IK that animation is complete
           EventBus.emit('ik:animation-complete', {
             robotId,
-            success: true
+            success: true,
+            withinTolerance,
+            finalError: currentError,
+            maxJointError,
+            duration: elapsed
           });
           
-          resolve();
+          resolve({
+            success: true,
+            withinTolerance,
+            finalError: currentError,
+            maxJointError,
+            duration: elapsed
+          });
+        } else {
+          // Calculate adaptive speed based on error
+          const errorRatio = currentError / tolerance;
+          const speedMultiplier = errorRatio > 10 ? animationSpeed * 1.5 :
+                                errorRatio > 5 ? animationSpeed * 1.2 :
+                                errorRatio > 2 ? animationSpeed :
+                                animationSpeed * 0.8;
+          
+          // Schedule next frame with adaptive timing
+          const frameId = requestAnimationFrame(animate);
+          animationFrameRef.current.set(robotId, frameId);
         }
       };
       
@@ -550,7 +645,7 @@ export const JointProvider = ({ children }) => {
       const frameId = requestAnimationFrame(animate);
       animationFrameRef.current.set(robotId, frameId);
     });
-  }, [getRobotJointValues, setRobotJointValues_Internal]);
+  }, [findRobotWithFallbacks, getRobotJointValues, setRobotJointValues_Internal]);
 
   // Update the setJointValue method (around line 200)
   const setJointValue = useCallback((robotId, jointName, value) => {

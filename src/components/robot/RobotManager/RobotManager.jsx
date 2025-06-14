@@ -117,7 +117,7 @@ const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
         </div>
         
         <h5 className="controls-h5 controls-mb-1">{robot.name}</h5>
-        <p className="controls-text-muted controls-small controls-mb-3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="controls-text-muted controls-small controls-mb-3" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {robot.manufacturerLogo && !logoError ? (
             <img
               src={robot.manufacturerLogo}
@@ -129,7 +129,7 @@ const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
             getLetterIcon(robot.manufacturer)
           )}
           {robot.manufacturer}
-        </p>
+        </div>
         
         {/* Status badge */}
         <div style={{ marginTop: '0.5rem' }}>
