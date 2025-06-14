@@ -1,15 +1,25 @@
 import * as THREE from 'three';
 
-class HalimIKSolver {
-  constructor(options = {}) {
-    // Solver parameters
-    this.regularizationParameter = options.regularizationParameter || 0.001;
-    this.maxIterations = options.maxIterations || 100;
-    this.tolerance = options.tolerance || 0.001;
-    this.orientationMode = options.orientationMode || null; // null, 'X', 'Y', 'Z', 'all'
-    this.noPosition = options.noPosition || false;
-    this.orientationCoeff = options.orientationCoeff || 0.5;
-    this.learningRate = options.learningRate || 0.1;
+class HalimIK {
+  static metadata = {
+    name: "Halim's Gradient Descent IK",
+    description: "Gradient-based IK with orientation support",
+    author: "Halim",
+    version: "2.0.0"
+  };
+
+  static defaultConfig = {
+    regularizationParameter: 0.001,
+    maxIterations: 100,
+    tolerance: 0.001,
+    orientationMode: null, // null, 'X', 'Y', 'Z', 'all'
+    noPosition: false,
+    orientationCoeff: 0.5,
+    learningRate: 0.1
+  };
+
+  constructor(config = {}) {
+    Object.assign(this, HalimIK.defaultConfig, config);
     
     // Reusable objects to reduce GC
     this.matrices = {
@@ -32,6 +42,24 @@ class HalimIKSolver {
       currentQuat: new THREE.Quaternion(),
       tempQuat: new THREE.Quaternion()
     };
+  }
+
+  // Optional: Method to get current config
+  getConfig() {
+    return {
+      regularizationParameter: this.regularizationParameter,
+      maxIterations: this.maxIterations,
+      tolerance: this.tolerance,
+      orientationMode: this.orientationMode,
+      noPosition: this.noPosition,
+      orientationCoeff: this.orientationCoeff,
+      learningRate: this.learningRate
+    };
+  }
+
+  // Optional: Method to update config
+  configure(config) {
+    Object.assign(this, config);
   }
 
   /**
@@ -366,14 +394,6 @@ class HalimIKSolver {
     
     return gradient;
   }
-
-  /**
-   * Update solver settings
-   */
-  configure(settings) {
-    Object.assign(this, settings);
-  }
 }
 
-
-export default HalimIKSolver;
+export default HalimIK;

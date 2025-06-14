@@ -59,38 +59,43 @@ export const IKProvider = ({ children }) => {
   }, []);
 
   // Load a specific IK solver dynamically
-  const loadSolver = async (solverName) => {
+  const loadSolver = useCallback(async (solverName) => {
     try {
       console.log(`[IK] Loading solver: ${solverName}`);
       
-      // Dynamically import the solver module from public directory
-      const module = await import(`/IKSolvers/${solverName}.jsx`);
-      const SolverClass = module.default;
+      // Fetch the solver code as text
+      const response = await fetch(`/IKSolvers/${solverName}.jsx`);
+      const solverCode = await response.text();
       
-      // Initialize solver with default configurations based on type
-      let solverInstance;
-      if (solverName === 'CCD') {
-        solverInstance = new SolverClass({
-          maxIterations: 10,
-          tolerance: 0.01,
-          dampingFactor: 0.5,
-          angleLimit: 0.2,
-          orientationWeight: 0.1
-        });
-      } else if (solverName === 'HalimIK') {
-        solverInstance = new SolverClass({
-          regularizationParameter: 0.001,
-          maxIterations: 100,
-          tolerance: 0.001,
-          orientationMode: null,
-          noPosition: false,
-          orientationCoeff: 0.5,
-          learningRate: 0.1
-        });
-      } else {
-        // Default configuration for unknown solvers
-        solverInstance = new SolverClass({});
-      }
+      // Remove the import statement and wrap the code to inject THREE
+      const modifiedCode = solverCode
+        .replace(/import\s+.*?from\s+['"]three['"];?/g, '') // Remove Three.js imports
+        .replace(/export\s+default\s+/, 'return '); // Replace export with return
+      
+      // Create a function that returns the solver class with THREE injected
+      const createSolver = new Function('THREE', modifiedCode);
+      const SolverClass = createSolver(THREE);
+      
+      // Check if solver has static metadata (name, description, default config)
+      const metadata = {
+        name: SolverClass.metadata?.name || solverName,
+        description: SolverClass.metadata?.description || `${solverName} IK Solver`,
+        author: SolverClass.metadata?.author || 'Unknown',
+        version: SolverClass.metadata?.version || '1.0.0'
+      };
+      
+      console.log(`[IK] Loading ${metadata.name} v${metadata.version} by ${metadata.author}`);
+      
+      // Get default configuration from the solver class itself
+      const defaultConfig = SolverClass.defaultConfig || SolverClass.DEFAULT_CONFIG || {};
+      console.log(`[IK] Using solver's default config:`, defaultConfig);
+      
+      // Initialize solver with its own default configuration
+      const solverInstance = new SolverClass(defaultConfig);
+      
+      // Store metadata with the solver
+      solverInstance._metadata = metadata;
+      solverInstance._defaultConfig = defaultConfig;
       
       solversRef.current[solverName] = solverInstance;
       
@@ -109,7 +114,7 @@ export const IKProvider = ({ children }) => {
       setSolverStatus(`Failed to load ${solverName}`);
       return false;
     }
-  };
+  }, [currentSolver]);
 
   // Handle solver change
   useEffect(() => {

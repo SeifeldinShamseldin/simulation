@@ -1,25 +1,42 @@
 import * as THREE from 'three';
 
-class CCDSolver {
-  constructor(options = {}) {
-    this.maxIterations = options.maxIterations || 10;
-    this.tolerance = options.tolerance || 0.01;
-    this.dampingFactor = options.dampingFactor || 0.5;
-    this.angleLimit = options.angleLimit || 0.2; // Max angle change per iteration
-    this.orientationWeight = options.orientationWeight || 0.1; // Weight for orientation vs position
-    
-    // Reusable vectors to reduce GC
-    this.vectors = {
-      worldEndPos: new THREE.Vector3(),
-      jointPos: new THREE.Vector3(),
-      toEnd: new THREE.Vector3(),
-      toTarget: new THREE.Vector3(),
-      axis: new THREE.Vector3(),
-      tempQuat: new THREE.Quaternion(),
-      cross: new THREE.Vector3(),
-      targetQuat: new THREE.Quaternion(),
-      currentQuat: new THREE.Quaternion()
+class CCD {
+  // Static metadata for the solver
+  static metadata = {
+    name: "Cyclic Coordinate Descent",
+    description: "Fast iterative IK solver for chain-based robots",
+    author: "Your Name",
+    version: "1.0.0"
+  };
+
+  // Static default configuration
+  static defaultConfig = {
+    maxIterations: 10,
+    tolerance: 0.01,
+    dampingFactor: 0.5,
+    angleLimit: 0.2,
+    orientationWeight: 0.1
+  };
+
+  constructor(config = {}) {
+    // Merge default config with provided config
+    Object.assign(this, CCD.defaultConfig, config);
+  }
+
+  // Optional: Method to get current config
+  getConfig() {
+    return {
+      maxIterations: this.maxIterations,
+      tolerance: this.tolerance,
+      dampingFactor: this.dampingFactor,
+      angleLimit: this.angleLimit,
+      orientationWeight: this.orientationWeight
     };
+  }
+
+  // Optional: Method to update config
+  configure(config) {
+    Object.assign(this, config);
   }
 
   /**
@@ -266,13 +283,6 @@ class CCDSolver {
     return virtualAngles;
   }
 
-  /**
-   * Update solver settings
-   */
-  configure(settings) {
-    Object.assign(this, settings);
-  }
-
   // Add this helper method in CCDSolver class
   verifyStartingAngles(robot, startingAngles) {
     let hasNonZeroAngles = false;
@@ -309,4 +319,4 @@ class CCDSolver {
   }
 }
 
-export default CCDSolver;
+export default CCD;

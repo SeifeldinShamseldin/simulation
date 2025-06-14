@@ -17,6 +17,13 @@ class OptimizedTCPManager {
     this.urdfLoader = null;
     this.robotRegistry = new Map(); // Enhanced robot registry
     this._notFoundWarnings = new Set();
+    
+    // Centralized end effector configuration
+    this.endEffectorPatterns = [
+      'tool0', 'ee_link', 'end_effector', 'gripper_link', 
+      'link_6', 'link_7', 'wrist_3_link', 'tool_link',
+      'flange', 'tool_flange', 'tcp'
+    ];
   }
 
   /**
@@ -368,20 +375,16 @@ class OptimizedTCPManager {
   }
 
   /**
-   * Find robot end effector for attachment
+   * Find end effector link using centralized patterns
    */
   findEndEffector(robot) {
-    const endEffectorNames = [
-      'end_effector', 'tool0', 'ee_link', 'gripper_link', 
-      'link_6', 'link_7', 'wrist_3_link', 'tool_link',
-      'flange', 'tool_flange'
-    ];
+    if (!robot) return null;
     
     // Try to find by name first
     if (robot.links) {
-      for (const name of endEffectorNames) {
-        if (robot.links[name]) {
-          return robot.links[name];
+      for (const pattern of this.endEffectorPatterns) {
+        if (robot.links[pattern]) {
+          return robot.links[pattern];
         }
       }
     }
@@ -390,15 +393,15 @@ class OptimizedTCPManager {
     let deepestLink = null;
     let maxDepth = 0;
     
-    const findDeepestLink = (obj, depth = 0) => {
+    const findDeepest = (obj, depth = 0) => {
       if (obj.isURDFLink && depth > maxDepth) {
         maxDepth = depth;
         deepestLink = obj;
       }
-      obj.children?.forEach(child => findDeepestLink(child, depth + 1));
+      obj.children?.forEach(child => findDeepest(child, depth + 1));
     };
     
-    findDeepestLink(robot);
+    findDeepest(robot);
     return deepestLink;
   }
 
