@@ -6,6 +6,11 @@ import { useRobotWorkspace, useRobotDiscovery, useRobotLoading } from '../../../
 const RobotCard = ({ robot, manufacturer, inWorkspace, onSelect }) => {
   const [imageError, setImageError] = useState(false);
   
+  // Add debugging
+  console.log('Robot data:', robot);
+  console.log('Image path:', robot.imagePath);
+  console.log('Image error state:', imageError);
+  
   return (
     <div
       className="controls-card"
@@ -42,7 +47,11 @@ const RobotCard = ({ robot, manufacturer, inWorkspace, onSelect }) => {
                 height: '100%',
                 objectFit: 'contain'
               }}
-              onError={() => setImageError(true)}
+              onError={(e) => {
+                console.error('Image failed to load:', e.target.src);
+                setImageError(true);
+              }}
+              onLoad={() => console.log('Image loaded successfully:', robot.imagePath)}
             />
           ) : (
             <div style={{
