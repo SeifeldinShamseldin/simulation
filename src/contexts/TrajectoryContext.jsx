@@ -244,12 +244,11 @@ export const TrajectoryProvider = ({ children }) => {
         
         console.log(`[TrajectoryContext] Playing frame ${targetFrameIndex}/${state.trajectory.frames.length}`);
         
-        // Apply frame via callback (EventBus alternative)
-        try {
-          state.applyCallback(frame, endEffectorFrame);
-        } catch (error) {
-          console.error(`[TrajectoryContext] Error applying frame:`, error);
-        }
+        // Use high-frequency update pattern for frame application
+        EventBus.emit('animation-frame-request', {
+          robotId,
+          jointValues: frame.jointValues
+        });
         
         // Call frame callback (direct function call)
         state.onFrame(frame, endEffectorFrame, progress);

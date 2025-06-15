@@ -1,6 +1,7 @@
 // src/components/controls/ControlJoints/ControlJoints.jsx - Updated to use useJoints
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useJoints } from '../../../contexts/hooks/useJoints';
+import { useRobotManagerContext } from '../../../contexts/RobotManagerContext';
 
 const ControlJoints = () => {
   const {
@@ -18,14 +19,35 @@ const ControlJoints = () => {
     getMovableJoints
   } = useJoints();
 
-  const handleJointChange = (jointName, value) => {
-    const numValue = parseFloat(value);
-    setJointValue(jointName, numValue);
-  };
+  const { isRobotReady } = useRobotManagerContext();
 
-  const handleReset = () => {
-    resetJoints();
-  };
+  const handleJointChange = useCallback((jointName, value) => {
+    if (!isRobotReady(robotId)) {
+      console.warn('[ControlJoints] Robot not ready for joint updates');
+      return;
+    }
+    
+    const numValue = parseFloat(value);
+    const success = setJointValue(jointName, numValue);
+    
+    if (!success) {
+      console.warn(`[ControlJoints] Failed to update joint ${jointName}`);
+      // You could add a toast notification here
+    }
+  }, [robotId, isRobotReady, setJointValue]);
+
+  const handleReset = useCallback(() => {
+    if (!isRobotReady(robotId)) {
+      console.warn('[ControlJoints] Robot not ready for reset');
+      return;
+    }
+    
+    const success = resetJoints();
+    if (!success) {
+      console.warn('[ControlJoints] Failed to reset joints');
+      // You could add a toast notification here
+    }
+  }, [robotId, isRobotReady, resetJoints]);
 
   // Get movable joints for display
   const movableJoints = getMovableJoints();
@@ -48,6 +70,8 @@ const ControlJoints = () => {
     );
   }
 
+  const isRobotReadyForControl = isRobotReady(robotId);
+
   return (
     <div className="controls-section">
       <h3 className="controls-section-title">
@@ -55,6 +79,11 @@ const ControlJoints = () => {
         {isAnimating && (
           <span className="controls-badge controls-badge-info controls-ml-2">
             IK Moving... {Math.round(animationProgress * 100)}%
+          </span>
+        )}
+        {!isRobotReadyForControl && (
+          <span className="controls-badge controls-badge-warning controls-ml-2">
+            Robot Loading...
           </span>
         )}
       </h3>
@@ -84,7 +113,7 @@ const ControlJoints = () => {
                   step={step}
                   value={value}
                   onChange={(e) => handleJointChange(joint.name, e.target.value)}
-                  disabled={isAnimating}
+                  disabled={isAnimating || !isRobotReadyForControl}
                 />
                 <span className="joint-value-display">
                   {value.toFixed(2)} rad
@@ -103,7 +132,7 @@ const ControlJoints = () => {
       <button 
         onClick={handleReset} 
         className="controls-btn controls-btn-warning controls-btn-block controls-mt-3"
-        disabled={isAnimating}
+        disabled={isAnimating || !isRobotReadyForControl}
       >
         Reset All Joints
       </button>

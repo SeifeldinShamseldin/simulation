@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { useRobotSelection, useRobotManagement } from './hooks/useRobot';
 import { useTCP } from './hooks/useTCP';
 import EventBus from '../utils/EventBus';
+import { useRobotManagerContext } from './RobotManagerContext';
 
 const IKContext = createContext(null);
 
@@ -18,6 +19,7 @@ export const IKProvider = ({ children }) => {
     getEndEffectorInfo,
     getEndEffectorType
   } = useTCP();
+  const { isRobotReady } = useRobotManagerContext();
 
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
   const [isAnimating, setIsAnimating] = useState(false);
@@ -207,7 +209,10 @@ export const IKProvider = ({ children }) => {
   const solve = useCallback(async (targetPos, currentPos, options = {}) => {
     const robot = getRobot(activeRobotId);
     if (!robot || !isReady.current) return null;
-    
+    if (!isRobotReady || !isRobotReady(activeRobotId)) {
+      console.warn(`[IK Context] Robot ${activeRobotId} not ready for IK solve`);
+      return null;
+    }
     const solver = solversRef.current[currentSolver];
     if (!solver) {
       setSolverStatus(`Unknown solver: ${currentSolver}`);
@@ -229,7 +234,7 @@ export const IKProvider = ({ children }) => {
         currentOrientation: options.currentOrientation
       }
     );
-  }, [activeRobotId, getRobot, currentSolver]);
+  }, [activeRobotId, getRobot, currentSolver, isRobotReady]);
 
   const executeIK = useCallback(async (target, options = {}) => {
     const robot = getRobot(activeRobotId);

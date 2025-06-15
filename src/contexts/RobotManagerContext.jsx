@@ -8,6 +8,14 @@ import EventBus from '../utils/EventBus';
 
 const RobotManagerContext = createContext(null);
 
+// Loading state constants
+const LOADING_STATES = {
+  IDLE: 'idle',
+  LOADING: 'loading',
+  LOADED: 'loaded',
+  ERROR: 'error'
+};
+
 /**
  * Validate robot structure after loading
  */
@@ -63,6 +71,7 @@ export const RobotManagerProvider = ({ children }) => {
   
   // State
   const [robots, setRobots] = useState(new Map());
+  const [loadingStates, setLoadingStates] = useState(new Map()); // Track loading state per robot
   const [activeRobots, setActiveRobots] = useState(new Set());
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -86,6 +95,18 @@ export const RobotManagerProvider = ({ children }) => {
   }, [isViewerReady, getSceneSetup]);
   
   /**
+   * Check if a robot is ready for operations
+   */
+  const isRobotReady = useCallback((robotId) => {
+    const robot = robots.get(robotId)?.model;
+    const loadingState = loadingStates.get(robotId);
+    
+    return robot && 
+           robot.setJointValues && 
+           loadingState === LOADING_STATES.LOADED;
+  }, [robots, loadingStates]);
+  
+  /**
    * Load a URDF model and add to scene
    */
   const loadRobot = useCallback(async (robotName, urdfPath, options = {}) => {
@@ -102,6 +123,9 @@ export const RobotManagerProvider = ({ children }) => {
     try {
       setIsLoading(true);
       setError(null);
+      
+      // Set loading state for this robot
+      setLoadingStates(prev => new Map(prev).set(robotName, LOADING_STATES.LOADING));
       
       // Extract package path from urdf path
       const packagePath = urdfPath.substring(0, urdfPath.lastIndexOf('/'));
@@ -175,6 +199,9 @@ export const RobotManagerProvider = ({ children }) => {
       // Store the robot
       setRobots(prev => new Map(prev).set(robotName, robotData));
       
+      // Set loading state to loaded
+      setLoadingStates(prev => new Map(prev).set(robotName, LOADING_STATES.LOADED));
+      
       if (makeActive) {
         setActiveRobots(prev => new Set(prev).add(robotName));
       }
@@ -198,6 +225,10 @@ export const RobotManagerProvider = ({ children }) => {
     } catch (error) {
       console.error(`Error loading robot ${robotName}:`, error);
       setError(`Failed to load robot: ${error.message}`);
+      
+      // Set loading state to error
+      setLoadingStates(prev => new Map(prev).set(robotName, LOADING_STATES.ERROR));
+      
       throw error;
     } finally {
       setIsLoading(false);
@@ -207,8 +238,8 @@ export const RobotManagerProvider = ({ children }) => {
   /**
    * Get a specific robot by name
    */
-  const getRobot = useCallback((robotName) => {
-    const robotData = robots.get(robotName);
+  const getRobot = useCallback((robotId) => {
+    const robotData = robots.get(robotId);
     return robotData ? robotData.model : null;
   }, [robots]);
   
@@ -354,10 +385,15 @@ export const RobotManagerProvider = ({ children }) => {
   /**
    * Set multiple joint values for a specific robot
    */
-  const setJointValues = useCallback((robotName, values) => {
-    const robotData = robots.get(robotName);
+  const setJointValues = useCallback((robotId, values) => {
+    if (!isRobotReady(robotId)) {
+      console.warn(`[RobotManager] Robot ${robotId} not ready for joint updates`);
+      return false;
+    }
+    
+    const robotData = robots.get(robotId);
     if (!robotData) {
-      console.warn(`Robot ${robotName} not found for joint updates`);
+      console.warn(`[RobotManager] Robot ${robotId} not found for joint updates`);
       return false;
     }
     
@@ -369,19 +405,19 @@ export const RobotManagerProvider = ({ children }) => {
         anySuccess = true;
       }
     } catch (error) {
-      console.error(`Error setting multiple joints on robot ${robotName}:`, error);
+      console.error(`[RobotManager] Error setting multiple joints on robot ${robotId}:`, error);
     }
     
     if (anySuccess) {
       EventBus.emit('robot:joints-changed', { 
-        robotName, 
-        robotId: robotName,
+        robotId, 
+        robotName: robotId,
         values
       });
     }
     
     return anySuccess;
-  }, [robots]);
+  }, [robots, isRobotReady]);
   
   /**
    * Get current joint values for a specific robot
@@ -463,6 +499,7 @@ export const RobotManagerProvider = ({ children }) => {
     activeRobots,
     isLoading,
     error,
+    loadingStates,
     
     // Robot Management Methods
     loadRobot,
@@ -482,7 +519,8 @@ export const RobotManagerProvider = ({ children }) => {
     getCurrentRobot,
     getCurrentRobotName,
     
-    // State Checks
+    // Robot State Checks
+    isRobotReady,
     hasRobots: robots.size > 0,
     robotCount: robots.size,
     activeRobotCount: activeRobots.size,
@@ -501,7 +539,7 @@ export const RobotManagerProvider = ({ children }) => {
 export const useRobotManagerContext = () => {
   const context = useContext(RobotManagerContext);
   if (!context) {
-    throw new Error('useRobotManagerContext must be used within RobotManagerProvider');
+    throw new Error('useRobotManagerContext must be used within a RobotManagerProvider');
   }
   return context;
 };
