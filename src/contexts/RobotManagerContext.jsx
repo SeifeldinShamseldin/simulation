@@ -8,6 +8,56 @@ import EventBus from '../utils/EventBus';
 
 const RobotManagerContext = createContext(null);
 
+/**
+ * Validate robot structure after loading
+ */
+const validateRobotStructure = (robot, robotName) => {
+  console.log(`[RobotManager] Validating robot structure for ${robotName}`);
+  
+  const validation = {
+    hasJoints: false,
+    jointCount: 0,
+    hasSetJointValue: false,
+    hasSetJointValues: false,
+    jointMethods: [],
+    issues: []
+  };
+  
+  // Check if robot has joints
+  if (robot.joints && typeof robot.joints === 'object') {
+    validation.hasJoints = true;
+    validation.jointCount = Object.keys(robot.joints).length;
+    
+    // Check each joint
+    Object.entries(robot.joints).forEach(([jointName, joint]) => {
+      if (joint.jointType !== 'fixed') {
+        const jointInfo = {
+          name: jointName,
+          hasSetJointValue: typeof joint.setJointValue === 'function',
+          hasAngle: typeof joint.angle !== 'undefined',
+          hasSetPosition: typeof joint.setPosition === 'function'
+        };
+        
+        validation.jointMethods.push(jointInfo);
+        
+        if (!jointInfo.hasSetJointValue) {
+          validation.issues.push(`Joint ${jointName} missing setJointValue method`);
+        }
+      }
+    });
+  } else {
+    validation.issues.push('Robot has no joints object');
+  }
+  
+  // Check robot-level methods
+  validation.hasSetJointValue = typeof robot.setJointValue === 'function';
+  validation.hasSetJointValues = typeof robot.setJointValues === 'function';
+  
+  console.log(`[RobotManager] Validation results for ${robotName}:`, validation);
+  
+  return validation;
+};
+
 export const RobotManagerProvider = ({ children }) => {
   const { isViewerReady, getSceneSetup } = useViewer();
   
@@ -98,12 +148,19 @@ export const RobotManagerProvider = ({ children }) => {
         urdfLoaderRef.current.load(urdfPath, resolve, null, reject);
       });
       
+      // Validate robot structure
+      const validation = validateRobotStructure(robot, robotName);
+      if (validation.issues.length > 0) {
+        console.warn(`[RobotManager] Robot structure issues:`, validation.issues);
+      }
+      
       // Store the robot with metadata
       const robotData = {
         name: robotName,
         model: robot,
         urdfPath: urdfPath,
-        isActive: makeActive
+        isActive: makeActive,
+        validation // Store validation results
       };
       
       // Add to scene with a container
@@ -131,7 +188,8 @@ export const RobotManagerProvider = ({ children }) => {
         robotName, 
         robot,
         totalRobots: robots.size + 1,
-        activeRobots: Array.from(activeRobots)
+        activeRobots: Array.from(activeRobots),
+        validation // Include validation in event
       });
       
       console.info(`Successfully loaded robot: ${robotName}`);

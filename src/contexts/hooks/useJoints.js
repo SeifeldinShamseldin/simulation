@@ -1,7 +1,8 @@
-// src/contexts/hooks/useJoints.js - Simple data transfer hook
+// src/contexts/hooks/useJoints.js - Enhanced joint management hook
 import { useCallback } from 'react';
 import { useJointContext } from '../JointContext';
 import { useRobotSelection } from './useRobot';
+import EventBus from '../../utils/EventBus';
 
 export const useJoints = (robotId = null) => {
   const {
@@ -10,7 +11,7 @@ export const useJoints = (robotId = null) => {
     isAnimating,
     animationProgress,
     setJointValue,
-    setJointValues,
+    setJointValues: contextSetJointValues,
     resetJoints,
     getJointInfo,
     getJointValues,
@@ -31,19 +32,64 @@ export const useJoints = (robotId = null) => {
   const isRobotAnimating_current = targetRobotId ? isRobotAnimating(targetRobotId) : false;
   const animationProgress_current = targetRobotId ? getAnimationProgress(targetRobotId) : 0;
   
-  // Robot-specific methods
+  // Enhanced joint value setting with fallback mechanisms
   const setRobotJointValue = useCallback((jointName, value) => {
-    if (!targetRobotId) return false;
-    return setJointValue(targetRobotId, jointName, value);
-  }, [targetRobotId, setJointValue]);
-  
+    if (!targetRobotId) {
+      console.warn('[useJoints] No target robot for joint control');
+      return false;
+    }
+
+    console.log(`[useJoints] Setting joint ${jointName} = ${value} for robot ${targetRobotId}`);
+    
+    // Try context's setJointValue first
+    const success = setJointValue(targetRobotId, jointName, value);
+    
+    if (success) {
+      // Emit joint change event
+      EventBus.emit('robot:joint-changed', {
+        robotId: targetRobotId,
+        robotName: targetRobotId,
+        jointName,
+        value,
+        allValues: getJointValues(targetRobotId)
+      });
+    }
+    
+    return success;
+  }, [targetRobotId, setJointValue, getJointValues]);
+
+  // Enhanced multiple joint value setting
   const setRobotJointValues = useCallback((values) => {
-    if (!targetRobotId) return false;
-    return setJointValues(targetRobotId, values);
-  }, [targetRobotId, setJointValues]);
+    if (!targetRobotId) {
+      console.warn('[useJoints] No target robot for joint control');
+      return false;
+    }
+
+    console.log(`[useJoints] Setting joint values for robot ${targetRobotId}:`, values);
+    
+    // Try context's setJointValues first
+    const success = contextSetJointValues(targetRobotId, values);
+    
+    if (success) {
+      // Emit joint change event
+      EventBus.emit('robot:joints-changed', {
+        robotId: targetRobotId,
+        robotName: targetRobotId,
+        values,
+        allValues: { ...getJointValues(targetRobotId), ...values }
+      });
+    }
+    
+    return success;
+  }, [targetRobotId, contextSetJointValues, getJointValues]);
   
   const resetRobotJoints = useCallback(() => {
-    if (!targetRobotId) return;
+    if (!targetRobotId) {
+      console.warn('[useJoints] No target robot for joint reset');
+      return;
+    }
+    
+    console.log(`[useJoints] Resetting joints for robot ${targetRobotId}`);
     resetJoints(targetRobotId);
   }, [targetRobotId, resetJoints]);
   
@@ -53,7 +99,12 @@ export const useJoints = (robotId = null) => {
   }, [targetRobotId, getJointLimits]);
   
   const stopRobotAnimation = useCallback(() => {
-    if (!targetRobotId) return;
+    if (!targetRobotId) {
+      console.warn('[useJoints] No target robot for animation stop');
+      return;
+    }
+    
+    console.log(`[useJoints] Stopping animation for robot ${targetRobotId}`);
     stopAnimation(targetRobotId);
   }, [targetRobotId, stopAnimation]);
   

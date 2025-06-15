@@ -21,6 +21,22 @@ class CCD {
   constructor(config = {}) {
     // Merge default config with provided config
     Object.assign(this, CCD.defaultConfig, config);
+    
+    // Initialize reusable THREE.js objects to avoid GC pressure
+    this.vectors = {
+      // Position vectors
+      worldEndPos: new THREE.Vector3(),
+      jointPos: new THREE.Vector3(),
+      toEnd: new THREE.Vector3(),
+      toTarget: new THREE.Vector3(),
+      cross: new THREE.Vector3(),
+      axis: new THREE.Vector3(),
+      
+      // Orientation quaternions
+      targetQuat: new THREE.Quaternion(),
+      currentQuat: new THREE.Quaternion(),
+      tempQuat: new THREE.Quaternion()
+    };
   }
 
   // Optional: Method to get current config
