@@ -1,10 +1,12 @@
 /**
    * Calculate robot positions (deprecated, return empty array)
    */
-const calculateRobotPositions = useCallback(() => {
+const calculateRobotPositions = () => {
   console.warn('[RobotContext] calculateRobotPositions is deprecated');
   return [];
-}, []);// src/contexts/RobotContext.jsx - UNIFIED ROBOT CONTEXT (Discovery + Loading + Management)
+};
+
+// src/contexts/RobotContext.jsx - UNIFIED ROBOT CONTEXT (Discovery + Loading + Management)
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useViewer } from './ViewerContext';
