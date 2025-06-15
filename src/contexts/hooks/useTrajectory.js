@@ -1,10 +1,8 @@
-// src/contexts/hooks/useTrajectory.js - OPTIMIZED HYBRID APPROACH
-import { useCallback, useState } from 'react';
+// src/contexts/hooks/useTrajectory.js - SIMPLIFIED FOR NEW ARCHITECTURE
+import { useCallback, useState, useEffect } from 'react';
 import { useTrajectoryContext } from '../TrajectoryContext';
-import { useJoints } from './useJoints';
-import { useTCP } from './useTCP';
 import { useRobotSelection } from './useRobotManager';
-import { useRobotControl } from './useRobotControl';
+import EventBus from '../../utils/EventBus';
 
 export const useTrajectory = (robotId = null) => {
   const context = useTrajectoryContext();
@@ -13,234 +11,132 @@ export const useTrajectory = (robotId = null) => {
   // Use provided robotId or fall back to active robot
   const targetRobotId = robotId || activeRobotId;
   
-  // Get joint and TCP data for the target robot
-  const {
-    jointValues,
-    setJointValues,
-    setJointValue,
-    hasJoints,
-    getJointValues: getCurrentJointValues
-  } = useJoints(targetRobotId);
-  
-  const {
-    currentEndEffectorPoint,
-    currentEndEffectorOrientation,
-    hasValidEndEffector,
-    isUsingTCP
-  } = useTCP(targetRobotId);
-
-  // Direct robot control access for both recording and playback
-  const { 
-    getJointValues: getRobotJointValues,
-    setJointValues: setRobotJointValues
-  } = useRobotControl();
-
-  // Local state for UI feedback (no EventBus needed)
+  // Local state for UI feedback
   const [lastRecordedFrame, setLastRecordedFrame] = useState(null);
-  const [playbackStatus, setPlaybackStatus] = useState({ isPlaying: false, progress: 0 });
+  const [playbackStatus, setPlaybackStatus] = useState({ 
+    isPlaying: false, 
+    progress: 0,
+    currentPosition: null 
+  });
 
-  // ========== DATA COLLECTION CALLBACK (for recording) ==========
-  const getFrameData = useCallback(() => {
-    if (!targetRobotId || !hasJoints) return null;
-    
-    // Get LIVE joint values using multiple methods
-    let liveJointValues = {};
-    
-    // Method 1: Try useJoints getCurrentJointValues
-    if (getCurrentJointValues) {
-      liveJointValues = getCurrentJointValues();
-      console.log(`[useTrajectory] Got joint values from useJoints:`, liveJointValues);
-    }
-    
-    // Method 2: Fallback to useRobotControl if useJoints failed
-    if (!liveJointValues || Object.keys(liveJointValues).length === 0) {
-      if (getRobotJointValues) {
-        liveJointValues = getRobotJointValues();
-        console.log(`[useTrajectory] Got joint values from useRobotControl:`, liveJointValues);
-      }
-    }
-    
-    // Method 3: Last resort - use cached jointValues
-    if (!liveJointValues || Object.keys(liveJointValues).length === 0) {
-      liveJointValues = jointValues || {};
-      console.warn(`[useTrajectory] Using cached joint values (may be stale):`, liveJointValues);
-    }
-    
-    const frameData = {
-      jointValues: liveJointValues,
-      endEffectorPosition: hasValidEndEffector ? currentEndEffectorPoint : null,
-      endEffectorOrientation: hasValidEndEffector ? currentEndEffectorOrientation : null
-    };
-    
-    // Update UI feedback with live values (direct state)
-    setLastRecordedFrame({
-      timestamp: Date.now(),
-      jointCount: Object.keys(frameData.jointValues).length,
-      hasEndEffector: !!frameData.endEffectorPosition,
-      isUsingTCP,
-      sampleJoint: Object.values(frameData.jointValues)[0],
-      allJointValues: frameData.jointValues
-    });
-    
-    return frameData;
-  }, [targetRobotId, hasJoints, getCurrentJointValues, getRobotJointValues, jointValues, hasValidEndEffector, currentEndEffectorPoint, currentEndEffectorOrientation, isUsingTCP]);
+  // ========== EVENT LISTENERS FOR UI UPDATES ==========
+  useEffect(() => {
+    if (!targetRobotId) return;
 
-  // ========== DATA APPLICATION CALLBACK (for playback) ==========
-  const applyFrameData = useCallback((frame, endEffectorFrame) => {
-    if (!targetRobotId || !hasJoints || !frame) {
-      console.warn(`[useTrajectory] Cannot apply frame - robotId: ${targetRobotId}, hasJoints: ${hasJoints}, frame: ${!!frame}`);
-      return;
-    }
-    
-    // Apply joint values using multiple methods
-    if (frame.jointValues && Object.keys(frame.jointValues).length > 0) {
-      console.log(`[useTrajectory] Applying joint values for playback:`, frame.jointValues);
-      
-      // Method 1: Try useJoints setJointValues
-      let success = false;
-      if (setJointValues) {
-        success = setJointValues(frame.jointValues);
-        console.log(`[useTrajectory] useJoints.setJointValues result: ${success}`);
-      }
-      
-      // Method 2: Try useRobotControl setJointValues as fallback
-      if (!success && setRobotJointValues) {
-        try {
-          success = setRobotJointValues(frame.jointValues);
-          console.log(`[useTrajectory] useRobotControl.setJointValues result: ${success}`);
-        } catch (error) {
-          console.error(`[useTrajectory] useRobotControl.setJointValues failed:`, error);
-        }
-      }
-      
-      // Method 3: Apply individual joint values as last resort
-      if (!success) {
-        console.log(`[useTrajectory] Applying individual joint values as fallback`);
-        let individualSuccess = true;
-        Object.entries(frame.jointValues).forEach(([jointName, value]) => {
-          try {
-            if (setJointValue) {
-              const result = setJointValue(jointName, value);
-              console.log(`[useTrajectory] Set ${jointName} = ${value}: ${result}`);
-              if (!result) individualSuccess = false;
-            }
-          } catch (error) {
-            console.error(`[useTrajectory] Failed to set joint ${jointName}:`, error);
-            individualSuccess = false;
-          }
+    // Listen for recording updates
+    const handleFrameRecorded = (data) => {
+      if (data.robotId === targetRobotId) {
+        setLastRecordedFrame({
+          timestamp: Date.now(),
+          frameCount: data.frameCount,
+          hasEndEffector: data.hasEndEffector
         });
-        success = individualSuccess;
       }
-      
-      if (success) {
-        console.log(`[useTrajectory] ✅ Successfully applied joint values to robot ${targetRobotId}`);
-      } else {
-        console.error(`[useTrajectory] ❌ Failed to apply joint values for robot ${targetRobotId}`);
-      }
-    }
-    
-    // Update playback status for UI (direct state)
-    if (endEffectorFrame && endEffectorFrame.position) {
-      setPlaybackStatus(prev => ({
-        ...prev,
-        currentPosition: endEffectorFrame.position
-      }));
-    }
-  }, [targetRobotId, hasJoints, setJointValues, setRobotJointValues, setJointValue]);
+    };
 
-  // ========== RECORDING METHODS (same interface, optimized internals) ==========
+    // Listen for playback updates
+    const handleFramePlayed = (data) => {
+      if (data.robotId === targetRobotId) {
+        setPlaybackStatus(prev => ({
+          ...prev,
+          progress: data.progress
+        }));
+      }
+    };
+
+    const handlePlaybackStarted = (data) => {
+      if (data.robotId === targetRobotId) {
+        setPlaybackStatus({
+          isPlaying: true,
+          progress: 0,
+          currentPosition: null
+        });
+      }
+    };
+
+    const handlePlaybackStopped = (data) => {
+      if (data.robotId === targetRobotId) {
+        setPlaybackStatus({
+          isPlaying: false,
+          progress: 0,
+          currentPosition: null
+        });
+      }
+    };
+
+    const unsubscribes = [
+      EventBus.on('trajectory:frame-recorded', handleFrameRecorded),
+      EventBus.on('trajectory:frame-played', handleFramePlayed),
+      EventBus.on('trajectory:playback-started', handlePlaybackStarted),
+      EventBus.on('trajectory:playback-stopped', handlePlaybackStopped),
+      EventBus.on('trajectory:playback-completed', handlePlaybackStopped),
+      EventBus.on('trajectory:recording-started', () => setLastRecordedFrame(null)),
+      EventBus.on('trajectory:recording-stopped', () => setLastRecordedFrame(null))
+    ];
+
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [targetRobotId]);
+
+  // ========== RECORDING METHODS ==========
   const startRecording = useCallback((trajectoryName, options = {}) => {
     if (!targetRobotId) {
       console.warn('[useTrajectory] No robot ID available for recording');
       return false;
     }
 
-    if (!hasJoints) {
-      console.warn('[useTrajectory] Robot has no joints to record');
-      return false;
-    }
-
     console.log(`[useTrajectory] Starting recording "${trajectoryName}" for robot ${targetRobotId}`);
     
-    // Direct context call (no EventBus for UI)
-    const success = context.startRecording(
-      trajectoryName, 
-      targetRobotId, 
-      getFrameData, // Pass data collection callback
-      options.interval || 100
-    );
-
-    if (success) {
-      setLastRecordedFrame(null);
-    }
-
-    return success;
-  }, [targetRobotId, hasJoints, context, getFrameData]);
+    return context.startRecording(trajectoryName, targetRobotId, options);
+  }, [targetRobotId, context]);
 
   const stopRecording = useCallback(() => {
     if (!targetRobotId) return null;
     
-    const trajectory = context.stopRecording(targetRobotId);
-    if (trajectory) {
-      setLastRecordedFrame(null);
-    }
-    
-    return trajectory;
+    return context.stopRecording(targetRobotId);
   }, [targetRobotId, context]);
 
-  // Direct state access (no EventBus)
   const isRecording = useCallback(() => {
     if (!targetRobotId) return false;
     return context.isRecording(targetRobotId);
   }, [targetRobotId, context]);
 
-  // ========== PLAYBACK METHODS (same interface, optimized internals) ==========
+  // ========== PLAYBACK METHODS ==========
   const playTrajectory = useCallback((trajectoryName, options = {}) => {
     if (!targetRobotId) {
       console.warn('[useTrajectory] No robot ID available for playback');
       return false;
     }
 
-    if (!hasJoints) {
-      console.warn('[useTrajectory] Robot has no joints for playback');
-      return false;
-    }
-
     console.log(`[useTrajectory] Playing trajectory "${trajectoryName}" for robot ${targetRobotId}`);
     
-    // Direct state update
-    setPlaybackStatus({ isPlaying: true, progress: 0 });
-    
-    return context.playTrajectory(
-      trajectoryName, 
-      targetRobotId, 
-      applyFrameData, // Pass data application callback
-      {
-        ...options,
-        onComplete: () => {
-          setPlaybackStatus({ isPlaying: false, progress: 0 });
-          if (options.onComplete) options.onComplete();
-        },
-        onFrame: (frame, endEffectorFrame, progress) => {
-          setPlaybackStatus(prev => ({ ...prev, progress }));
-          if (options.onFrame) options.onFrame(frame, endEffectorFrame, progress);
+    // Enhance options with local callbacks
+    const enhancedOptions = {
+      ...options,
+      onFrame: (frame, endEffectorFrame, progress) => {
+        // Update local state
+        if (endEffectorFrame && endEffectorFrame.position) {
+          setPlaybackStatus(prev => ({
+            ...prev,
+            currentPosition: endEffectorFrame.position
+          }));
+        }
+        
+        // Call original callback if provided
+        if (options.onFrame) {
+          options.onFrame(frame, endEffectorFrame, progress);
         }
       }
-    );
-  }, [targetRobotId, hasJoints, context, applyFrameData]);
+    };
+    
+    return context.playTrajectory(trajectoryName, targetRobotId, enhancedOptions);
+  }, [targetRobotId, context]);
 
   const stopPlayback = useCallback(() => {
     if (!targetRobotId) return false;
     
-    const success = context.stopPlayback(targetRobotId);
-    if (success) {
-      setPlaybackStatus({ isPlaying: false, progress: 0 });
-    }
-    
-    return success;
+    return context.stopPlayback(targetRobotId);
   }, [targetRobotId, context]);
 
-  // Direct state access (no EventBus)
   const isPlaying = useCallback(() => {
     if (!targetRobotId) return false;
     return context.isPlaying(targetRobotId);
@@ -251,7 +147,7 @@ export const useTrajectory = (robotId = null) => {
     return context.getPlaybackProgress(targetRobotId);
   }, [targetRobotId, context]);
 
-  // ========== TRAJECTORY MANAGEMENT (direct state access) ==========
+  // ========== TRAJECTORY MANAGEMENT ==========
   const getTrajectories = useCallback(() => {
     if (!targetRobotId) return [];
     return context.getTrajectoryNames(targetRobotId);
@@ -282,18 +178,7 @@ export const useTrajectory = (robotId = null) => {
     return context.analyzeTrajectory(trajectoryName, targetRobotId);
   }, [targetRobotId, context]);
 
-  // ========== STATE CHECKS (direct state access) ==========
-  const hasTrajectories = useCallback(() => {
-    if (!targetRobotId) return false;
-    return context.hasTrajectories(targetRobotId);
-  }, [targetRobotId, context]);
-
-  const getTrajectoryCount = useCallback(() => {
-    if (!targetRobotId) return 0;
-    return context.getTrajectoryCount(targetRobotId);
-  }, [targetRobotId, context]);
-
-  // ========== RETURN COMPLETE INTERFACE (same as before) ==========
+  // ========== RETURN INTERFACE ==========
   return {
     // Robot identification
     robotId: targetRobotId,
@@ -309,14 +194,14 @@ export const useTrajectory = (robotId = null) => {
     playbackStatus,
     playTrajectory,
     stopPlayback,
-    getPlaybackProgress: getPlaybackProgress(),
+    progress: getPlaybackProgress(),
     
     // Trajectory management
     trajectories: getTrajectories(),
     getTrajectory,
     deleteTrajectory,
-    hasTrajectories: hasTrajectories(),
-    trajectoryCount: getTrajectoryCount(),
+    hasTrajectories: context.hasTrajectories(targetRobotId),
+    count: context.getTrajectoryCount(targetRobotId),
     
     // Import/Export
     exportTrajectory,
@@ -325,102 +210,63 @@ export const useTrajectory = (robotId = null) => {
     // Analysis
     analyzeTrajectory,
     
-    // Robot capabilities
-    hasJoints,
-    hasValidEndEffector,
-    isUsingTCP,
-    
-    // Current robot state
-    currentJointValues: jointValues,
-    currentEndEffectorPosition: currentEndEffectorPoint,
-    currentEndEffectorOrientation: currentEndEffectorOrientation,
-    
     // Context state
     isLoading: context.isLoading,
     error: context.error,
     clearError: context.clearError,
     
     // State checks
-    canRecord: !!(targetRobotId && hasJoints),
-    canPlay: !!(targetRobotId && hasJoints),
-    isReady: !!(targetRobotId && hasJoints)
+    canRecord: !!targetRobotId,
+    canPlay: !!targetRobotId,
+    isReady: !!targetRobotId
   };
 };
 
-// ========== SPECIALIZED HOOKS (same interface, optimized internals) ==========
+// ========== SPECIALIZED HOOKS (simplified) ==========
 
 export const useTrajectoryRecording = (robotId = null) => {
-  const {
-    robotId: targetRobotId,
-    isRecording,
-    startRecording,
-    stopRecording,
-    lastRecordedFrame,
-    canRecord,
-    currentJointValues,
-    currentEndEffectorPosition
-  } = useTrajectory(robotId);
+  const trajectory = useTrajectory(robotId);
   
   return {
-    robotId: targetRobotId,
-    isRecording,
-    startRecording,
-    stopRecording,
-    lastRecordedFrame,
-    canRecord,
-    currentState: {
-      joints: currentJointValues,
-      endEffector: currentEndEffectorPosition
-    }
+    robotId: trajectory.robotId,
+    isRecording: trajectory.isRecording,
+    startRecording: trajectory.startRecording,
+    stopRecording: trajectory.stopRecording,
+    lastRecordedFrame: trajectory.lastRecordedFrame,
+    canRecord: trajectory.canRecord,
+    // Simplified - no need for current state since TrajectoryContext handles it
+    currentState: null
   };
 };
 
 export const useTrajectoryPlayback = (robotId = null) => {
-  const {
-    robotId: targetRobotId,
-    isPlaying,
-    playbackStatus,
-    playTrajectory,
-    stopPlayback,
-    getPlaybackProgress,
-    canPlay
-  } = useTrajectory(robotId);
+  const trajectory = useTrajectory(robotId);
   
   return {
-    robotId: targetRobotId,
-    isPlaying,
-    playbackStatus,
-    playTrajectory,
-    stopPlayback,
-    progress: getPlaybackProgress,
-    currentPosition: playbackStatus.currentPosition || { x: 0, y: 0, z: 0 },
-    canPlay
+    robotId: trajectory.robotId,
+    isPlaying: trajectory.isPlaying,
+    playbackStatus: trajectory.playbackStatus,
+    playTrajectory: trajectory.playTrajectory,
+    stopPlayback: trajectory.stopPlayback,
+    progress: trajectory.progress,
+    currentPosition: trajectory.playbackStatus.currentPosition,
+    canPlay: trajectory.canPlay
   };
 };
 
 export const useTrajectoryManagement = (robotId = null) => {
-  const {
-    robotId: targetRobotId,
-    trajectories,
-    getTrajectory,
-    deleteTrajectory,
-    hasTrajectories,
-    trajectoryCount,
-    exportTrajectory,
-    importTrajectory,
-    analyzeTrajectory
-  } = useTrajectory(robotId);
+  const trajectory = useTrajectory(robotId);
   
   return {
-    robotId: targetRobotId,
-    trajectories,
-    getTrajectory,
-    deleteTrajectory,
-    hasTrajectories,
-    count: trajectoryCount,
-    exportTrajectory,
-    importTrajectory,
-    analyzeTrajectory
+    robotId: trajectory.robotId,
+    trajectories: trajectory.trajectories,
+    getTrajectory: trajectory.getTrajectory,
+    deleteTrajectory: trajectory.deleteTrajectory,
+    hasTrajectories: trajectory.hasTrajectories,
+    count: trajectory.count,
+    exportTrajectory: trajectory.exportTrajectory,
+    importTrajectory: trajectory.importTrajectory,
+    analyzeTrajectory: trajectory.analyzeTrajectory
   };
 };
 

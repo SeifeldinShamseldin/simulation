@@ -1,10 +1,11 @@
 // src/contexts/EnvironmentContext.jsx
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { useViewer } from './ViewerContext';
 import humanManager from '../components/Environment/Human/HumanController';
 import EventBus from '../utils/EventBus';
+import { createCameraController } from '../utils/cameraUtils';
 
 const EnvironmentContext = createContext(null);
 
@@ -427,22 +428,22 @@ export const EnvironmentProvider = ({ children }) => {
   }, [loadedObjects]);
 
   // Camera controls (from useCameraControls)
+  const cameraController = useMemo(() => 
+    createCameraController(sceneSetupRef.current), 
+    [sceneSetupRef.current]
+  );
+
   const setCameraPosition = useCallback((position) => {
-    if (!sceneSetupRef.current?.camera) return;
-    sceneSetupRef.current.camera.position.set(position.x, position.y, position.z);
-    if (sceneSetupRef.current.controls) sceneSetupRef.current.controls.update();
-  }, []);
+    cameraController?.setPosition(position);
+  }, [cameraController]);
 
   const setCameraTarget = useCallback((target) => {
-    if (!sceneSetupRef.current?.controls) return;
-    sceneSetupRef.current.controls.target.set(target.x, target.y, target.z);
-    sceneSetupRef.current.controls.update();
-  }, []);
+    cameraController?.setTarget(target);
+  }, [cameraController]);
 
   const resetCamera = useCallback(() => {
-    setCameraPosition({ x: 2, y: 2, z: 2 });
-    setCameraTarget({ x: 0, y: 0, z: 0 });
-  }, [setCameraPosition, setCameraTarget]);
+    cameraController?.reset();
+  }, [cameraController]);
 
   const focusOnObject = useCallback((objectId) => {
     if (!sceneSetupRef.current) return;
@@ -450,8 +451,8 @@ export const EnvironmentProvider = ({ children }) => {
     const obj = sceneObjects.get(objectId);
     if (!obj) return;
     
-    sceneSetupRef.current.focusOnObject(obj);
-  }, [sceneObjects]);
+    cameraController?.focusOn(obj);
+  }, [sceneObjects, cameraController]);
 
   // Physics functions (from usePhysics)
   const createPhysicsBody = useCallback((id, shape, options = {}) => {
@@ -917,6 +918,7 @@ export const EnvironmentProvider = ({ children }) => {
     setCameraTarget,
     resetCamera,
     focusOnObject,
+    cameraController,
     
     // ========== PHYSICS (from usePhysics) ==========
     createPhysicsBody,

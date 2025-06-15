@@ -9,6 +9,7 @@ import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import * as CANNON from 'cannon-es';
 import { createStandardGrids } from '../../utils/threeHelpers';
 import EventBus from '../../utils/EventBus';
+import { createCameraController } from '../../utils/cameraUtils';
 
 const DEFAULT_CONFIG = {
   backgroundColor: '#f5f5f5',
@@ -55,6 +56,9 @@ class SceneSetup {
         this.initControls();
         this.initPhysics(); // Initialize physics before ground
         this.initGround();
+        
+        // Initialize camera controller
+        this.cameraController = createCameraController(this);
         
         // Add the renderer to the container
         this.container.appendChild(this.renderer.domElement);
@@ -397,81 +401,7 @@ class SceneSetup {
      * @param {number} [padding] - Extra padding around the object
      */
     focusOnObject(object, padding = 1.2) {
-        if (!object) return;
-        
-        // Create a bounding box
-        const bbox = new THREE.Box3();
-        bbox.makeEmpty();
-        
-        // Only include visual elements in the bounding box
-        object.traverse(c => {
-            if (c.isURDFVisual && c.children.length > 0) {
-                bbox.expandByObject(c);
-            }
-        });
-        
-        // Check if bounding box is valid
-        const size = bbox.getSize(new THREE.Vector3());
-        if (size.length() < 0.001) {
-            console.warn('Object has no visible geometry');
-            return;
-        }
-        
-        const center = bbox.getCenter(new THREE.Vector3());
-        
-        // Set controls target to center of object
-        this.controls.target.copy(center);
-        
-        // Calculate camera position to frame the object nicely
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const fov = this.camera.fov * (Math.PI / 180);
-        
-        // Calculate camera distance
-        let cameraDistance = (maxDim / 2) / Math.tan(fov / 2);
-        cameraDistance *= padding;
-        
-        // Use a better camera angle
-        const direction = new THREE.Vector3(0.5, 0.3, 1).normalize();
-        this.camera.position.copy(center).add(direction.multiplyScalar(cameraDistance));
-        
-        // Update controls
-        this.controls.update();
-        
-        // Update directional light to match camera position
-        const sphere = bbox.getBoundingSphere(new THREE.Sphere());
-        const lightDistance = sphere.radius * 2;
-        this.directionalLight.position.copy(center).add(
-            new THREE.Vector3(1, 2, 1).normalize().multiplyScalar(lightDistance)
-        );
-        this.directionalLight.target.position.copy(center);
-        
-        // Update shadow camera
-        if (this.enableShadows) {
-            const shadowCam = this.directionalLight.shadow.camera;
-            const shadowSize = sphere.radius * 1.5;
-            shadowCam.left = shadowCam.bottom = -shadowSize;
-            shadowCam.right = shadowCam.top = shadowSize;
-            shadowCam.updateProjectionMatrix();
-        }
-        
-        // Update ground position
-        if (this.ground) {
-            this.ground.position.y = bbox.min.y - 0.001;
-        }
-        
-        // Emit event for other components
-        EventBus.emit('scene:focus-changed', {
-            targetId: object.userData?.id || object.name,
-            position: center.toArray(),
-            bounds: {
-                min: bbox.min.toArray(),
-                max: bbox.max.toArray()
-            },
-            cameraDistance
-        });
-        
-        // Force rendering to update immediately
-        this.renderer.render(this.scene, this.camera);
+        this.cameraController?.focusOn(object, padding);
     }
     
     /**

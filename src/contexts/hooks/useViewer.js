@@ -23,44 +23,6 @@ export const useViewerScene = () => {
   };
 };
 
-export const useViewerCamera = () => {
-  const viewer = useViewerBase();
-  
-  const focusOnObject = useCallback((object, paddingMultiplier = 1.0) => {
-    const sceneSetup = viewer.getSceneSetup();
-    if (sceneSetup && object) {
-      sceneSetup.focusOnObject(object, paddingMultiplier);
-      EventBus.emit('viewer:camera-focused', { object });
-    }
-  }, [viewer]);
-  
-  const setCameraPosition = useCallback((position) => {
-    const sceneSetup = viewer.getSceneSetup();
-    if (sceneSetup && sceneSetup.camera) {
-      sceneSetup.camera.position.set(position.x, position.y, position.z);
-      if (sceneSetup.controls) {
-        sceneSetup.controls.update();
-      }
-      EventBus.emit('viewer:camera-moved', { position });
-    }
-  }, [viewer]);
-  
-  const setCameraTarget = useCallback((target) => {
-    const sceneSetup = viewer.getSceneSetup();
-    if (sceneSetup && sceneSetup.controls) {
-      sceneSetup.controls.target.set(target.x, target.y, target.z);
-      sceneSetup.controls.update();
-      EventBus.emit('viewer:camera-target-changed', { target });
-    }
-  }, [viewer]);
-  
-  return {
-    focusOn: focusOnObject,
-    setPosition: setCameraPosition,
-    setTarget: setCameraTarget
-  };
-};
-
 export const useViewerDragControls = () => {
   const viewer = useViewerBase();
   const robotManager = useRobotManager();
@@ -181,7 +143,6 @@ export const useViewerConfig = () => {
 export const useViewerControl = () => {
   const viewer = useViewerBase();
   const robotManager = useRobotManager();
-  const camera = useViewerCamera();
   const containerRef = useRef(null);
   
   // Initialize viewer when container is set
@@ -201,14 +162,14 @@ export const useViewerControl = () => {
       if (data.robot && viewer.isViewerReady) {
         // Delay to ensure robot is fully loaded
         setTimeout(() => {
-          camera.focusOn(data.robot, 0.8);
+          viewer.cameraController?.focusOn(data.robot, 0.8);
         }, 100);
       }
     };
     
     const unsubscribe = EventBus.on('robot:loaded', handleRobotLoaded);
     return () => unsubscribe();
-  }, [viewer, camera]);
+  }, [viewer]);
   
   return {
     // Container ref
@@ -226,14 +187,13 @@ export const useViewerControl = () => {
         ? robotManager.getRobot(robotName)
         : robotManager.getCurrentRobot();
       if (robot) {
-        camera.focusOn(robot, 0.8);
+        viewer.cameraController?.focusOn(robot, 0.8);
       }
     },
     
     // Direct access to contexts
     viewer,
-    robotManager,
-    camera
+    robotManager
   };
 };
 

@@ -58,11 +58,17 @@ const URDFViewer = React.forwardRef(({
     if (viewer.isViewerReady && robotName && urdfPath) {
       robotContext.loadRobot(robotName, urdfPath).then(robot => {
         if (onRobotLoad) onRobotLoad(robot);
-        // Focus on loaded robot
-        setTimeout(() => focusOnRobot(robotName), 100);
+        // Focus on loaded robot with a delay to ensure everything is ready
+        setTimeout(() => {
+          if (viewer.cameraController) {
+            viewer.cameraController.focusOn(robot, 0.8);
+          } else {
+            console.warn('[URDFViewer] Camera controller not available for focusing');
+          }
+        }, 100);
       });
     }
-  }, [viewer.isViewerReady, robotName, urdfPath, robotContext, onRobotLoad, focusOnRobot]);
+  }, [viewer.isViewerReady, robotName, urdfPath, robotContext, onRobotLoad]);
   
   // Listen for joint changes if handler provided
   useEffect(() => {
@@ -94,7 +100,12 @@ const URDFViewer = React.forwardRef(({
     updateJointValues: robotContext.setJointValues, // Alias for compatibility
     
     // Viewer methods
-    focusOnRobot,
+    focusOnRobot: (robotId) => {
+      const robot = robotContext.getRobot(robotId);
+      if (robot && viewer.cameraController) {
+        viewer.cameraController.focusOn(robot, 0.8);
+      }
+    },
     getCurrentRobot: robotContext.getCurrentRobot,
     getSceneSetup: viewer.getSceneSetup,
     
@@ -113,7 +124,7 @@ const URDFViewer = React.forwardRef(({
     toggleTable: () => {},
     isTableLoaded: () => false,
     isTableVisible: () => false
-  }), [robotContext, viewer, focusOnRobot]);
+  }), [robotContext, viewer]);
   
   return (
     <div 

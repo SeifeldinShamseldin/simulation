@@ -1,9 +1,10 @@
 // src/contexts/ViewerContext.jsx - ENHANCED VIEWER CONTEXT (Fixed exports)
-import React, { createContext, useContext, useRef, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import SceneSetup from '../core/Scene/SceneSetup';
 import { PointerURDFDragControls } from '../core/Loader/URDFControls';
 import EventBus from '../utils/EventBus';
+import { createCameraController } from '../utils/cameraUtils';
 
 const ViewerContext = createContext(null);
 
@@ -308,30 +309,22 @@ export const ViewerProvider = ({ children }) => {
   }, [tableState.loaded]);
   
   // ========== CAMERA CONTROLS ==========
+  const cameraController = useMemo(() => 
+    createCameraController(sceneSetupRef.current), 
+    [sceneSetupRef.current]
+  );
+
   const focusOnObject = useCallback((object, paddingMultiplier = 1.0) => {
-    if (!sceneSetupRef.current || !object) return;
-    
-    sceneSetupRef.current.focusOnObject(object, paddingMultiplier);
-    EventBus.emit('viewer:camera-focused', { object });
-  }, []);
-  
+    cameraController?.focusOn(object, paddingMultiplier);
+  }, [cameraController]);
+
   const setCameraPosition = useCallback((position) => {
-    if (!sceneSetupRef.current) return;
-    
-    sceneSetupRef.current.camera.position.set(position.x, position.y, position.z);
-    if (sceneSetupRef.current.controls) {
-      sceneSetupRef.current.controls.update();
-    }
-    EventBus.emit('viewer:camera-moved', { position });
-  }, []);
-  
+    cameraController?.setPosition(position);
+  }, [cameraController]);
+
   const setCameraTarget = useCallback((target) => {
-    if (!sceneSetupRef.current?.controls) return;
-    
-    sceneSetupRef.current.controls.target.set(target.x, target.y, target.z);
-    sceneSetupRef.current.controls.update();
-    EventBus.emit('viewer:camera-target-changed', { target });
-  }, []);
+    cameraController?.setTarget(target);
+  }, [cameraController]);
   
   // ========== RESIZE HANDLING ==========
   const handleResize = useCallback(() => {
@@ -456,6 +449,7 @@ export const ViewerProvider = ({ children }) => {
     focusOnObject,
     setCameraPosition,
     setCameraTarget,
+    cameraController,
     
     // ========== GETTERS ==========
     getScene,

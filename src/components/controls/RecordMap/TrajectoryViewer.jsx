@@ -1,15 +1,15 @@
-// src/components/controls/RecordMap/TrajectoryViewer.jsx - CLEAN UI ONLY
+// src/components/controls/RecordMap/TrajectoryViewer.jsx - UPDATED FOR NEW ARCHITECTURE
 import React, { useState, useEffect } from 'react';
 import { useTrajectory, useTrajectoryRecording, useTrajectoryPlayback, useTrajectoryManagement } from '../../../contexts/hooks/useTrajectory';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
 
 /**
- * Clean UI component for trajectory recording, playback, and management
- * NO BUSINESS LOGIC - only UI state and event handlers
+ * TrajectoryViewer component - UI for trajectory recording, playback, and management
+ * Now simplified since TrajectoryContext handles data collection directly
  */
 const TrajectoryViewer = ({ viewerRef }) => {
-  const { activeRobotId, isReady } = useRobotControl(viewerRef);
+  const { activeRobotId, isReady, hasJoints, hasValidEndEffector, isUsingTCP } = useRobotControl(viewerRef);
   
   // Use specialized hooks for clean separation
   const {
@@ -17,8 +17,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
     startRecording,
     stopRecording,
     lastRecordedFrame,
-    canRecord,
-    currentState
+    canRecord
   } = useTrajectoryRecording(activeRobotId);
   
   const {
@@ -42,14 +41,11 @@ const TrajectoryViewer = ({ viewerRef }) => {
     analyzeTrajectory
   } = useTrajectoryManagement(activeRobotId);
   
-  // Get main hook for error handling and robot info
+  // Get main hook for error handling
   const {
     error,
     isLoading,
-    clearError,
-    hasJoints,
-    hasValidEndEffector,
-    isUsingTCP
+    clearError
   } = useTrajectory(activeRobotId);
 
   // ========== UI-ONLY STATE ==========
@@ -58,7 +54,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
   const [recordInterval, setRecordInterval] = useState(100);
   const [showLiveGraph, setShowLiveGraph] = useState(false);
   const [playbackOptions, setPlaybackOptions] = useState({
-    speed: 0.5, // 🚨 FIX: Slower default speed to see movement better
+    speed: 0.5,
     loop: false
   });
   const [showAnalysis, setShowAnalysis] = useState(false);
@@ -239,7 +235,8 @@ const TrajectoryViewer = ({ viewerRef }) => {
           <span>Recording "{selectedTrajectory}"</span>
           {lastRecordedFrame && (
             <small className="controls-text-muted">
-              {lastRecordedFrame.jointCount} joints • {lastRecordedFrame.hasEndEffector ? 'End effector tracked' : 'No end effector'}
+              {lastRecordedFrame.frameCount} frames • 
+              {lastRecordedFrame.hasEndEffector ? ' End effector tracked' : ' No end effector'}
             </small>
           )}
         </div>
@@ -353,37 +350,6 @@ const TrajectoryViewer = ({ viewerRef }) => {
             </button>
           )}
         </div>
-
-        {/* Real-time recording feedback */}
-        {isRecording && currentState && lastRecordedFrame && (
-          <div className="controls-mt-3 controls-small controls-text-muted" style={{
-            padding: '0.75rem',
-            backgroundColor: '#f0f8ff',
-            borderRadius: '4px',
-            border: '1px solid #007bff'
-          }}>
-            <div><strong>Recording Live Data:</strong></div>
-            <div>Joints: {Object.keys(currentState.joints).length} detected</div>
-            {currentState.endEffector && (
-              <div>End effector: ({currentState.endEffector.x.toFixed(3)}, {currentState.endEffector.y.toFixed(3)}, {currentState.endEffector.z.toFixed(3)})</div>
-            )}
-            
-            {/* Show sample joint values for debugging */}
-            {lastRecordedFrame.allJointValues && Object.keys(lastRecordedFrame.allJointValues).length > 0 && (
-              <div className="controls-mt-2">
-                <strong>Sample Joint Values:</strong>
-                <div style={{ fontSize: '0.8rem', fontFamily: 'monospace' }}>
-                  {Object.entries(lastRecordedFrame.allJointValues).slice(0, 3).map(([name, value]) => (
-                    <div key={name}>{name}: {typeof value === 'number' ? value.toFixed(4) : value}</div>
-                  ))}
-                  {Object.keys(lastRecordedFrame.allJointValues).length > 3 && (
-                    <div>... and {Object.keys(lastRecordedFrame.allJointValues).length - 3} more</div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Playback Options */}
@@ -565,26 +531,6 @@ const TrajectoryViewer = ({ viewerRef }) => {
             {playbackPosition && (
               <div className="controls-small controls-text-muted">
                 End Effector: ({playbackPosition.x.toFixed(3)}, {playbackPosition.y.toFixed(3)}, {playbackPosition.z.toFixed(3)})
-              </div>
-            )}
-            
-            {/* Show current joint values during playback for debugging */}
-            {isPlaying && currentState && (
-              <div className="controls-mt-2" style={{
-                fontSize: '0.75rem',
-                fontFamily: 'monospace',
-                backgroundColor: '#f8f9fa',
-                padding: '0.5rem',
-                borderRadius: '3px',
-                border: '1px solid #dee2e6'
-              }}>
-                <strong>Current Joint Values:</strong>
-                {Object.entries(currentState.joints).slice(0, 3).map(([name, value]) => (
-                  <div key={name}>{name}: {typeof value === 'number' ? value.toFixed(4) : value}</div>
-                ))}
-                {Object.keys(currentState.joints).length > 3 && (
-                  <div>... and {Object.keys(currentState.joints).length - 3} more</div>
-                )}
               </div>
             )}
           </div>

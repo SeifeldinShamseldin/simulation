@@ -261,22 +261,6 @@ export const useEnvironmentScene = () => {
   };
 };
 
-export const useEnvironmentCamera = () => {
-  const {
-    setCameraPosition,
-    setCameraTarget,
-    resetCamera,
-    focusOnObject
-  } = useEnvironment();
-  
-  return {
-    setPosition: setCameraPosition,
-    setTarget: setCameraTarget,
-    reset: resetCamera,
-    focusOn: focusOnObject
-  };
-};
-
 export const useEnvironmentPhysics = () => {
   const {
     world,
