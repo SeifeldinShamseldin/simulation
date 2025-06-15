@@ -1,14 +1,14 @@
-// src/contexts/JointContext.jsx - Fixed robot manager sync and TCP integration
+// src/contexts/JointContext.jsx - Updated to use unified RobotContext
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useViewer } from './ViewerContext';
 import { useRobotSelection } from './hooks/useRobot';
 import EventBus from '../utils/EventBus';
-import { useRobotManagerContext } from './RobotManagerContext';
+import { useRobotContext } from './RobotContext'; // Updated import
 
 export const JointContext = createContext();
 
 export const JointProvider = ({ children }) => {
-  const { isRobotReady } = useRobotManagerContext();
+  const { isRobotReady } = useRobotContext(); // Updated to use unified context
   const { isViewerReady, getRobotManager } = useViewer();
   const { activeId: activeRobotId } = useRobotSelection();
   
@@ -711,7 +711,7 @@ export const JointProvider = ({ children }) => {
       const frameId = requestAnimationFrame(animate);
       animationFrameRef.current.set(robotId, frameId);
     });
-  }, [findRobotWithFallbacks, getRobotJointValues, setRobotJointValues_Internal]);
+  }, [findRobotWithFallbacks, getRobotJointValues, setRobotJointValues_Internal, isRobotReady]);
 
   // Update the setJointValue method (around line 200)
   const setJointValue = useCallback((robotId, jointName, value) => {

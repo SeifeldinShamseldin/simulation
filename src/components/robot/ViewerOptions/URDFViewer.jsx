@@ -1,8 +1,8 @@
-// src/components/robot/ViewerOptions/URDFViewer.jsx - REFACTORED
+// src/components/robot/ViewerOptions/URDFViewer.jsx - Updated to use unified RobotContext
 import React, { useEffect, useRef } from 'react';
 import { useViewer } from '../../../contexts/hooks/useViewer';
 import { useViewerControl } from '../../../contexts/hooks/useViewer';
-import { useRobotManager } from '../../../contexts/hooks/useRobotManager';
+import { useRobotContext } from '../../../contexts/RobotContext'; // Updated import
 import EventBus from '../../../utils/EventBus';
 
 const URDFViewer = React.forwardRef(({
@@ -21,23 +21,23 @@ const URDFViewer = React.forwardRef(({
   const containerRef = useRef(null);
   const viewer = useViewer();
   const { setContainer, focusOnRobot } = useViewerControl();
-  const robotManager = useRobotManager();
+  const robotContext = useRobotContext(); // Using unified context
   
   // Initialize viewer by setting it as the instance
   useEffect(() => {
     if (containerRef.current && viewer.setViewerInstance) {
       // Create a compatibility object that matches the old API
       const viewerCompat = {
-        loadRobot: robotManager.loadRobot,
+        loadRobot: robotContext.loadRobot,
         focusOnRobot,
-        resetJoints: robotManager.resetJoints,
+        resetJoints: robotContext.resetJoints,
         getSceneSetup: viewer.getSceneSetup,
-        robotLoaderRef: { current: robotManager }
+        robotLoaderRef: { current: robotContext } // Point to unified context
       };
       
       viewer.setViewerInstance(viewerCompat);
     }
-  }, [viewer, robotManager, focusOnRobot]);
+  }, [viewer, robotContext, focusOnRobot]);
   
   // Initialize enhanced viewer if available
   useEffect(() => {
@@ -56,64 +56,64 @@ const URDFViewer = React.forwardRef(({
   // Load robot when props change
   useEffect(() => {
     if (viewer.isViewerReady && robotName && urdfPath) {
-      robotManager.loadRobot(robotName, urdfPath).then(robot => {
+      robotContext.loadRobot(robotName, urdfPath).then(robot => {
         if (onRobotLoad) onRobotLoad(robot);
         // Focus on loaded robot
         setTimeout(() => focusOnRobot(robotName), 100);
       });
     }
-  }, [viewer.isViewerReady, robotName, urdfPath, robotManager, onRobotLoad, focusOnRobot]);
+  }, [viewer.isViewerReady, robotName, urdfPath, robotContext, onRobotLoad, focusOnRobot]);
   
   // Listen for joint changes if handler provided
   useEffect(() => {
     if (!onJointChange) return;
     
     const handleJointChange = (data) => {
-      const values = robotManager.getJointValues(data.robotName || robotManager.getCurrentRobotName());
+      const values = robotContext.getJointValues(data.robotName || robotContext.getCurrentRobotName());
       onJointChange(data.jointName, values);
     };
     
     const unsubscribe = EventBus.on('robot:joint-changed', handleJointChange);
     return () => unsubscribe();
-  }, [onJointChange, robotManager]);
+  }, [onJointChange, robotContext]);
   
   // Expose methods via ref (maintain compatibility)
   React.useImperativeHandle(ref, () => ({
     // Robot methods
-    loadRobot: robotManager.loadRobot,
-    getAllRobots: robotManager.getAllRobots,
-    getRobot: robotManager.getRobot,
-    setRobotActive: robotManager.setRobotActive,
-    removeRobot: robotManager.removeRobot,
+    loadRobot: robotContext.loadRobot,
+    getAllRobots: robotContext.getAllRobots,
+    getRobot: robotContext.getRobot,
+    setRobotActive: robotContext.setRobotActive,
+    removeRobot: robotContext.removeRobot,
     
     // Joint methods
-    setJointValue: robotManager.setJointValue,
-    setJointValues: robotManager.setJointValues,
-    getJointValues: robotManager.getJointValues,
-    resetJoints: robotManager.resetJoints,
-    updateJointValues: robotManager.setJointValues, // Alias for compatibility
+    setJointValue: robotContext.setJointValue,
+    setJointValues: robotContext.setJointValues,
+    getJointValues: robotContext.getJointValues,
+    resetJoints: robotContext.resetJoints,
+    updateJointValues: robotContext.setJointValues, // Alias for compatibility
     
     // Viewer methods
     focusOnRobot,
-    getCurrentRobot: robotManager.getCurrentRobot,
+    getCurrentRobot: robotContext.getCurrentRobot,
     getSceneSetup: viewer.getSceneSetup,
     
     // State getters
-    getRobotState: robotManager.getAllRobots,
+    getRobotState: robotContext.getAllRobots,
     getRobotInfo: () => ({
-      totalRobots: robotManager.robotCount,
-      activeRobots: robotManager.getActiveRobots()
+      totalRobots: robotContext.robotCount,
+      activeRobots: robotContext.getActiveRobots()
     }),
     
     // Compatibility
-    robotLoaderRef: { current: robotManager },
+    robotLoaderRef: { current: robotContext },
     
     // Table methods (TODO: implement in viewer context)
     loadTable: async () => false,
     toggleTable: () => {},
     isTableLoaded: () => false,
     isTableVisible: () => false
-  }), [robotManager, viewer, focusOnRobot]);
+  }), [robotContext, viewer, focusOnRobot]);
   
   return (
     <div 
@@ -130,7 +130,7 @@ const URDFViewer = React.forwardRef(({
         backgroundColor
       }}
     >
-      {robotManager.isLoading && (
+      {robotContext.isLoading && (
         <div style={{
           position: 'absolute',
           top: '50%',
@@ -146,7 +146,7 @@ const URDFViewer = React.forwardRef(({
         </div>
       )}
       
-      {robotManager.error && (
+      {robotContext.error && (
         <div style={{
           position: 'absolute',
           bottom: '20px',
@@ -157,7 +157,7 @@ const URDFViewer = React.forwardRef(({
           borderRadius: '4px',
           zIndex: 1000
         }}>
-          {robotManager.error}
+          {robotContext.error}
         </div>
       )}
     </div>

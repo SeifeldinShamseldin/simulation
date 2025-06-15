@@ -1,7 +1,7 @@
-// src/components/controls/ControlJoints/ControlJoints.jsx - Updated to use useJoints
+// src/components/controls/ControlJoints/ControlJoints.jsx - Updated to use unified RobotContext
 import React, { useCallback } from 'react';
 import { useJoints } from '../../../contexts/hooks/useJoints';
-import { useRobotManagerContext } from '../../../contexts/RobotManagerContext';
+import { useRobotContext } from '../../../contexts/RobotContext'; // Updated import
 
 const ControlJoints = () => {
   const {
@@ -19,7 +19,7 @@ const ControlJoints = () => {
     getMovableJoints
   } = useJoints();
 
-  const { isRobotReady } = useRobotManagerContext();
+  const { isRobotReady } = useRobotContext(); // Updated to use unified context
 
   const handleJointChange = useCallback((jointName, value) => {
     if (!isRobotReady(robotId)) {

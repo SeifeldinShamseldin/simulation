@@ -1,9 +1,9 @@
-// src/contexts/hooks/useRobotManager.js - Data Transfer Hook
+// src/contexts/hooks/useRobotManager.js - Updated to use unified RobotContext
 import { useCallback } from 'react';
-import { useRobotManagerContext } from '../RobotManagerContext';
+import { useRobotContext } from '../RobotContext';
 
 export const useRobotManager = () => {
-  const context = useRobotManagerContext();
+  const context = useRobotContext();
   
   return {
     // ========== STATE ==========
@@ -18,7 +18,7 @@ export const useRobotManager = () => {
     getRobot: context.getRobot,
     setRobotActive: context.setRobotActive,
     removeRobot: context.removeRobot,
-    clearAllRobots: context.clearAllRobots,
+    clearAllRobots: context.clearWorkspace, // Map to clearWorkspace for compatibility
     getActiveRobots: context.getActiveRobots,
     
     // ========== JOINT CONTROL METHODS ==========
@@ -28,13 +28,13 @@ export const useRobotManager = () => {
     resetJoints: context.resetJoints,
     
     // ========== UTILITY METHODS ==========
-    calculateRobotPositions: context.calculateRobotPositions,
+    calculateRobotPositions: () => {}, // Deprecated method, return empty function
     getCurrentRobot: context.getCurrentRobot,
     getCurrentRobotName: context.getCurrentRobotName,
     
     // ========== STATE CHECKS ==========
     hasRobots: context.hasRobots,
-    robotCount: context.robotCount,
+    robotCount: context.loadedRobots.size,
     activeRobotCount: context.activeRobotCount,
     
     // ========== ERROR HANDLING ==========
@@ -157,7 +157,7 @@ export const useRobotManagerCollection = () => {
     }, [robots]),
     
     getRobotModels: useCallback(() => {
-      return Array.from(robots.values()).map(robotData => robotData.model);
+      return Array.from(robots.values()).map(robotData => robotData.model || robotData.robot);
     }, [robots])
   };
 };

@@ -1,4 +1,4 @@
-// src/App.jsx - Fix real-time resize issue
+// src/App.jsx - Updated to use unified RobotContext
 import React, { useState, useEffect, useRef } from 'react';
 import URDFViewer from './components/robot/ViewerOptions/URDFViewer';
 import Controls from './components/controls/Controls';
@@ -6,7 +6,7 @@ import Robot from './components/robot/Robot';
 import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import ResizablePanel from './components/common/ResizablePanel';
-import { RobotProvider } from './contexts/RobotContext';
+import { RobotProvider } from './contexts/RobotContext'; // Unified context
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { IKProvider } from './contexts/IKContext';
@@ -15,7 +15,6 @@ import { JointProvider } from './contexts/JointContext';
 import { TrajectoryProvider } from './contexts/TrajectoryContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobot';
-import { RobotManagerProvider } from './contexts/RobotManagerContext';
 import WorldManager from './components/World/WorldManager';
 import './App.css';
 
@@ -204,27 +203,25 @@ const AppContent = () => {
   );
 };
 
-// Clean Provider Chain
+// Clean Provider Chain - REMOVED RobotManagerProvider
 const App = () => {
   return (
     <ViewerProvider>
-      <RobotManagerProvider>
-        <RobotProvider>
-          <EnvironmentProvider>
-            <TCPProvider>
-              <JointProvider>
-                <TrajectoryProvider>
-                  <IKProvider>
-                    <WorldProvider>
-                      <AppContent />
-                    </WorldProvider>
-                  </IKProvider>
-                </TrajectoryProvider>
-              </JointProvider>
-            </TCPProvider>
-          </EnvironmentProvider>
-        </RobotProvider>
-      </RobotManagerProvider>
+      <RobotProvider>
+        <EnvironmentProvider>
+          <TCPProvider>
+            <JointProvider>
+              <TrajectoryProvider>
+                <IKProvider>
+                  <WorldProvider>
+                    <AppContent />
+                  </WorldProvider>
+                </IKProvider>
+              </TrajectoryProvider>
+            </JointProvider>
+          </TCPProvider>
+        </EnvironmentProvider>
+      </RobotProvider>
     </ViewerProvider>
   );
 };
