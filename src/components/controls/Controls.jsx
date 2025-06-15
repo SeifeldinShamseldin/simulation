@@ -4,7 +4,7 @@ import ControlJoints from './ControlJoints/ControlJoints';
 import TCPController from './tcp/TCPController';
 import IKController from './IKController/IKController';
 import TrajectoryViewer from './RecordMap/TrajectoryViewer';
-import { useRobotSelection } from '../../contexts/hooks/useRobot';
+import { useRobotSelection } from '../../contexts/hooks/useRobotManager';
 
 const Controls = ({ viewerRef }) => {
   const { activeId: activeRobotId } = useRobotSelection();

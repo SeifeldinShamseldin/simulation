@@ -14,7 +14,7 @@ import { TCPProvider } from './contexts/TCPContext';
 import { JointProvider } from './contexts/JointContext';
 import { TrajectoryProvider } from './contexts/TrajectoryContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
-import { useRobotSelection } from './contexts/hooks/useRobot';
+import { useRobotSelection } from './contexts/hooks/useRobotManager';
 import WorldManager from './components/World/WorldManager';
 import './App.css';
 

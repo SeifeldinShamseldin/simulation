@@ -1,7 +1,7 @@
 // src/contexts/JointContext.jsx - Updated to use unified RobotContext
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useViewer } from './ViewerContext';
-import { useRobotSelection } from './hooks/useRobot';
+import { useRobotSelection } from './hooks/useRobotManager';
 import EventBus from '../utils/EventBus';
 import { useRobotContext } from './RobotContext'; // Updated import
 

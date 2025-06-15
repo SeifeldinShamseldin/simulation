@@ -1,7 +1,7 @@
 // src/contexts/hooks/useJoints.js - Enhanced joint management hook
 import { useCallback } from 'react';
 import { useJointContext } from '../JointContext';
-import { useRobotSelection } from './useRobot';
+import { useRobotSelection } from './useRobotManager';
 import EventBus from '../../utils/EventBus';
 
 export const useJoints = (robotId = null) => {

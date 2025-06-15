@@ -1,7 +1,7 @@
 // src/components/robot/AddRobot/AddRobot.jsx - PURE UI COMPONENT with Robot Preview
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { useRobotWorkspace, useRobotDiscovery, useRobotLoading } from '../../../contexts/hooks/useRobot';
+import { useRobotWorkspace, useRobotDiscovery, useRobotLoading } from '../../../contexts/hooks/useRobotManager';
 
 // New CategoryCard component
 const CategoryCard = ({ category, onSelect }) => {

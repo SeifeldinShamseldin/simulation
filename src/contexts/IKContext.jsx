@@ -1,7 +1,7 @@
 // src/contexts/IKContext.jsx - IK as Central API with Dynamic Solvers
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { useRobotSelection, useRobotManagement } from './hooks/useRobot';
+import { useRobotSelection, useRobotManagement } from './hooks/useRobotManager';
 import { useTCPContext } from './TCPContext';
 import EventBus from '../utils/EventBus';
 

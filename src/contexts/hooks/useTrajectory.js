@@ -3,7 +3,7 @@ import { useCallback, useState } from 'react';
 import { useTrajectoryContext } from '../TrajectoryContext';
 import { useJoints } from './useJoints';
 import { useTCP } from './useTCP';
-import { useRobotSelection } from './useRobot';
+import { useRobotSelection } from './useRobotManager';
 import { useRobotControl } from './useRobotControl';
 
 export const useTrajectory = (robotId = null) => {

@@ -1,6 +1,6 @@
 // src/components/robot/RobotManager/RobotManager.jsx - PURE UI COMPONENT
 import React, { useState, useEffect } from 'react';
-import { useRobotWorkspace, useRobotManagement, useRobotLoading } from '../../../contexts/hooks/useRobot';
+import { useRobotWorkspace, useRobotManagement, useRobotLoading } from '../../../contexts/hooks/useRobotManager';
 import EventBus from '../../../utils/EventBus';
 
 const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
