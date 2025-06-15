@@ -1,306 +1,163 @@
-// src/contexts/hooks/useIK.js - Enhanced with orientation support
-import { useContext, useState, useCallback } from 'react';
-import * as THREE from 'three';
-import IKContext from '../IKContext';
-import { useTCP } from './useTCP';
-import { useJoints } from './useJoints';
+// src/contexts/hooks/useIK.js - Clean IK API
+import { useCallback } from 'react';
+import { useIKContext } from '../IKContext';
 
 export const useIK = () => {
-  const context = useContext(IKContext);
-  const { 
-    currentEndEffectorPoint,
-    currentEndEffectorOrientation,
-    hasValidEndEffector,
-    isUsingTCP,
-    isUsingRobotEndEffector,
-    getEndEffectorInfo,
-    getEndEffectorType,
-    getEndEffectorEulerAngles
-  } = useTCP();
+  const context = useIKContext();
   
-  const {
-    robotId,
-    jointInfo,
-    jointValues,
-    isAnimating: isJointAnimating,
-    animationProgress
-  } = useJoints();
-
-  // Local state for target orientation
-  const [targetOrientation, setTargetOrientation] = useState({ roll: 0, pitch: 0, yaw: 0 });
-
   if (!context) {
     throw new Error('useIK must be used within IKProvider');
   }
   
   const {
     targetPosition,
+    targetOrientation,
+    currentEndEffector,
     isAnimating,
     solverStatus,
     currentSolver,
     availableSolvers,
     setTargetPosition,
+    setTargetOrientation,
     setCurrentSolver,
-    executeIK,
+    executeIK: contextExecuteIK,
     stopAnimation,
     configureSolver,
-    getSolverSettings
+    getSolverSettings,
+    isReady,
+    hasValidEndEffector
   } = context;
 
-  // Enhanced data for CCD solver
-  const getIKSolverData = () => {
-    if (!robotId || !jointInfo.length) return null;
-    
-    // Prepare comprehensive joint data for CCD
-    const movableJoints = jointInfo.filter(joint => joint.type !== 'fixed');
-    
-    const jointData = movableJoints.map(joint => ({
-      name: joint.name,
-      type: joint.type,
-      limits: joint.limits,
-      axis: joint.axis,
-      currentAngle: jointValues[joint.name] || 0,
-      // Additional data that CCD might need
-      hasLimits: !!(joint.limits && (joint.limits.lower !== undefined || joint.limits.upper !== undefined)),
-      range: joint.limits ? (joint.limits.upper || Math.PI) - (joint.limits.lower || -Math.PI) : 2 * Math.PI
-    }));
-    
-    return {
-      robotId,
-      joints: jointData,
-      endEffector: {
-        position: currentEndEffectorPoint,
-        orientation: currentEndEffectorOrientation,
-        eulerAngles: getEndEffectorEulerAngles(),
-        type: getEndEffectorType(),
-        isValid: hasValidEndEffector
-      },
-      currentJointValues: jointValues,
-      movableJointCount: movableJoints.length,
-      hasOrientation: isUsingTCP // TCP tools typically have orientation data
+  // Simplified execute function
+  const executeIK = useCallback(async (position, orientation = null, options = {}) => {
+    const ikOptions = {
+      ...options,
+      targetOrientation: orientation
     };
-  };
+    
+    return contextExecuteIK(position, ikOptions);
+  }, [contextExecuteIK]);
 
-  // Calculate distance between joints (useful for CCD)
-  const calculateJointDistances = () => {
-    // This would require the actual robot model to calculate real distances
-    // For now, return estimated distances based on joint hierarchy
-    const movableJoints = jointInfo.filter(joint => joint.type !== 'fixed');
-    const distances = {};
-    
-    movableJoints.forEach((joint, index) => {
-      // Estimate distance based on joint order and type
-      let estimatedDistance = 0.1; // Default distance
-      
-      switch (joint.type) {
-        case 'revolute':
-        case 'continuous':
-          estimatedDistance = 0.15; // Typical revolute joint reach
-          break;
-        case 'prismatic':
-          estimatedDistance = joint.limits ? 
-            Math.abs((joint.limits.upper || 1) - (joint.limits.lower || 0)) : 
-            0.5; // Prismatic joint travel
-          break;
-      }
-      
-      distances[joint.name] = {
-        toEndEffector: (movableJoints.length - index) * estimatedDistance,
-        toNext: estimatedDistance,
-        index
-      };
-    });
-    
-    return distances;
-  };
-
-  // Enhanced move to target with IK data including orientation
-  const moveToTarget = (animate = true, targetOrientationEuler = null) => {
-    const ikData = getIKSolverData();
-    if (!ikData) {
-      console.warn('[useIK] No IK solver data available');
-      return Promise.resolve(false);
-    }
-    
-    console.log('[useIK] Executing IK with data:', ikData);
-    console.log('[useIK] Target orientation:', targetOrientationEuler);
-    
-    return executeIK(targetPosition, { 
+  // Move to target with current settings
+  const moveToTarget = useCallback(async (animate = true) => {
+    return contextExecuteIK(targetPosition, {
       animate,
-      currentPosition: currentEndEffectorPoint,
-      currentOrientation: currentEndEffectorOrientation,
-      targetOrientation: targetOrientationEuler,
-      ikData, // Pass comprehensive IK data to solver
-      jointDistances: calculateJointDistances()
+      targetOrientation
     });
-  };
+  }, [contextExecuteIK, targetPosition, targetOrientation]);
 
-  // Move relative with IK awareness
-  const moveRelative = (axis, amount) => {
+  // Move relative to current position
+  const moveRelative = useCallback((axis, delta) => {
     const newTarget = { ...targetPosition };
-    newTarget[axis] += amount;
+    newTarget[axis] += delta;
     setTargetPosition(newTarget);
-    
-    return moveToTarget(true);
-  };
+  }, [targetPosition, setTargetPosition]);
 
-  // Rotate relative
-  const rotateRelative = (axis, amount) => {
-    const newTargetOrientation = { ...targetOrientation };
-    newTargetOrientation[axis] += amount;
-    setTargetOrientation(newTargetOrientation);
-    
-    return moveToTarget(true, newTargetOrientation);
-  };
+  // Rotate relative (orientation)
+  const rotateRelative = useCallback((axis, delta) => {
+    const newOrientation = { ...targetOrientation };
+    newOrientation[axis] += delta;
+    setTargetOrientation(newOrientation);
+  }, [targetOrientation, setTargetOrientation]);
 
-  // Sync target to current end effector position
-  const syncTargetToCurrent = () => {
+  // Sync target to current end effector
+  const syncTargetToCurrent = useCallback(() => {
     setTargetPosition({
-      x: currentEndEffectorPoint.x,
-      y: currentEndEffectorPoint.y,
-      z: currentEndEffectorPoint.z
+      x: currentEndEffector.position.x,
+      y: currentEndEffector.position.y,
+      z: currentEndEffector.position.z
     });
     
-    // Sync orientation if available
-    if (getEndEffectorEulerAngles) {
-      const currentEuler = getEndEffectorEulerAngles();
-      setTargetOrientation({
-        roll: currentEuler.roll * 180 / Math.PI,
-        pitch: currentEuler.pitch * 180 / Math.PI,
-        yaw: currentEuler.yaw * 180 / Math.PI
-      });
-    }
-  };
-
-  // Sync target to current end effector with offset
-  const syncTargetToCurrentWithOffset = (offset = { x: 0, y: 0, z: 0 }, orientationOffset = { roll: 0, pitch: 0, yaw: 0 }) => {
-    setTargetPosition({
-      x: currentEndEffectorPoint.x + offset.x,
-      y: currentEndEffectorPoint.y + offset.y,
-      z: currentEndEffectorPoint.z + offset.z
+    // Convert quaternion to euler if needed
+    const euler = quaternionToEuler(currentEndEffector.orientation);
+    setTargetOrientation({
+      roll: euler.roll * 180 / Math.PI,
+      pitch: euler.pitch * 180 / Math.PI,
+      yaw: euler.yaw * 180 / Math.PI
     });
-    
-    if (getEndEffectorEulerAngles) {
-      const currentEuler = getEndEffectorEulerAngles();
-      setTargetOrientation({
-        roll: (currentEuler.roll * 180 / Math.PI) + orientationOffset.roll,
-        pitch: (currentEuler.pitch * 180 / Math.PI) + orientationOffset.pitch,
-        yaw: (currentEuler.yaw * 180 / Math.PI) + orientationOffset.yaw
-      });
-    }
-  };
+  }, [currentEndEffector, setTargetPosition, setTargetOrientation]);
 
-  // Calculate reachability (rough estimate)
-  const calculateReachability = (targetPos) => {
-    const ikData = getIKSolverData();
-    if (!ikData) return { reachable: false, confidence: 0 };
-    
-    // Simple reachability check based on joint distances
-    const jointDistances = calculateJointDistances();
-    const totalReach = Object.values(jointDistances)
-      .reduce((sum, dist) => sum + (dist.toNext || 0), 0);
-    
-    const distanceToTarget = Math.sqrt(
-      Math.pow(targetPos.x - currentEndEffectorPoint.x, 2) +
-      Math.pow(targetPos.y - currentEndEffectorPoint.y, 2) +
-      Math.pow(targetPos.z - currentEndEffectorPoint.z, 2)
-    );
-    
-    const reachable = distanceToTarget <= totalReach;
-    const confidence = reachable ? 
-      Math.max(0, 1 - (distanceToTarget / totalReach)) : 
-      0;
-    
-    return {
-      reachable,
-      confidence,
-      distanceToTarget,
-      totalReach,
-      reachRatio: distanceToTarget / totalReach
-    };
-  };
+  // Get solver configuration
+  const getSolverConfig = useCallback(() => {
+    return getSolverSettings(currentSolver);
+  }, [getSolverSettings, currentSolver]);
 
-  // Get joint chain info for IK
-  const getJointChainInfo = () => {
-    const ikData = getIKSolverData();
-    if (!ikData) return null;
-    
-    return {
-      length: ikData.joints.length,
-      types: ikData.joints.map(j => j.type),
-      hasLimits: ikData.joints.filter(j => j.hasLimits).length,
-      totalRange: ikData.joints.reduce((sum, j) => sum + j.range, 0),
-      endEffectorType: ikData.endEffector.type
-    };
-  };
-
-  // Set target orientation
-  const setTargetOrientationValues = useCallback((orientation) => {
-    setTargetOrientation(orientation);
-  }, []);
+  // Update solver configuration
+  const updateSolverConfig = useCallback((config) => {
+    configureSolver(currentSolver, config);
+  }, [configureSolver, currentSolver]);
 
   return {
-    // State - enhanced with TCP data and joint integration
-    currentPosition: currentEndEffectorPoint,
-    currentOrientation: currentEndEffectorOrientation,
-    currentEulerAngles: getEndEffectorEulerAngles(),
+    // Current state
+    currentPosition: currentEndEffector.position,
+    currentOrientation: currentEndEffector.orientation,
+    currentEulerAngles: quaternionToEuler(currentEndEffector.orientation),
+    
+    // Target state
     targetPosition,
     targetOrientation,
-    isAnimating: isAnimating || isJointAnimating, // Combined animation state
-    animationProgress,
+    
+    // Animation state
+    isAnimating,
+    animationProgress: 0, // Could be enhanced later
+    
+    // Solver state
     solverStatus,
     currentSolver,
     availableSolvers,
     
-    // Joint integration
-    robotId,
-    jointInfo,
-    currentJointValues: jointValues,
-    
-    // TCP awareness
-    hasValidEndEffector,
-    isUsingTCP,
-    isUsingRobotEndEffector,
-    
-    // Enhanced methods
-    setTargetPosition,
-    setTargetOrientation: setTargetOrientationValues,
-    setCurrentSolver,
+    // Main methods
+    executeIK,
     moveToTarget,
-    moveRelative,
-    rotateRelative,
-    syncTargetToCurrent,
-    syncTargetToCurrentWithOffset,
     stopAnimation,
-    configureSolver,
-    getSolverSettings,
     
-    // IK analysis methods
-    getIKSolverData,
-    calculateJointDistances,
-    calculateReachability,
-    getJointChainInfo,
+    // Position control
+    setTargetPosition,
+    moveRelative,
     
-    // TCP-specific methods
-    getEndEffectorInfo,
-    getEndEffectorType,
+    // Orientation control
+    setTargetOrientation,
+    rotateRelative,
     
-    // Convenience methods
-    canReach: (targetPos) => calculateReachability(targetPos).reachable,
-    getReachConfidence: (targetPos) => calculateReachability(targetPos).confidence,
+    // Sync methods
+    syncTargetToCurrent,
     
-    // Direct access to executeIK for custom targets with enhanced data
-    executeIK: (target, options = {}) => {
-      const ikData = getIKSolverData();
-      return executeIK(target, {
-        ...options,
-        currentPosition: currentEndEffectorPoint,
-        currentOrientation: currentEndEffectorOrientation,
-        ikData,
-        jointDistances: calculateJointDistances()
-      });
-    }
+    // Solver management
+    setCurrentSolver,
+    configureSolver: updateSolverConfig,
+    getSolverSettings: getSolverConfig,
+    
+    // Status
+    isReady,
+    hasValidEndEffector,
+    canExecute: isReady && hasValidEndEffector && !isAnimating
   };
 };
+
+// Helper function to convert quaternion to euler angles
+function quaternionToEuler(q) {
+  const { x, y, z, w } = q;
+  
+  // Roll (x-axis rotation)
+  const sinr_cosp = 2 * (w * x + y * z);
+  const cosr_cosp = 1 - 2 * (x * x + y * y);
+  const roll = Math.atan2(sinr_cosp, cosr_cosp);
+  
+  // Pitch (y-axis rotation)
+  const sinp = 2 * (w * y - z * x);
+  let pitch;
+  if (Math.abs(sinp) >= 1) {
+    pitch = Math.sign(sinp) * Math.PI / 2;
+  } else {
+    pitch = Math.asin(sinp);
+  }
+  
+  // Yaw (z-axis rotation)
+  const siny_cosp = 2 * (w * z + x * y);
+  const cosy_cosp = 1 - 2 * (y * y + z * z);
+  const yaw = Math.atan2(siny_cosp, cosy_cosp);
+  
+  return { roll, pitch, yaw };
+}
 
 export default useIK;

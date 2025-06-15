@@ -3,9 +3,9 @@ import * as THREE from 'three';
 class HalimIK {
   static metadata = {
     name: "Halim's Gradient Descent IK",
-    description: "Gradient-based IK with orientation support",
+    description: "Gradient-based IK solver using IK-provided end effector",
     author: "Halim",
-    version: "2.0.0"
+    version: "4.0.0"
   };
 
   static defaultConfig = {
@@ -21,30 +21,25 @@ class HalimIK {
   constructor(config = {}) {
     Object.assign(this, HalimIK.defaultConfig, config);
     
-    // Reusable objects to reduce GC
-    this.matrices = {
-      targetMatrix: new THREE.Matrix4(),
-      currentMatrix: new THREE.Matrix4(),
-      tempMatrix: new THREE.Matrix4()
-    };
-    
+    // Reusable objects
     this.vectors = {
       targetPos: new THREE.Vector3(),
       currentPos: new THREE.Vector3(),
-      targetAxis: new THREE.Vector3(),
-      currentAxis: new THREE.Vector3(),
-      gradient: new THREE.Vector3(),
-      tempVec: new THREE.Vector3()
+      virtualPos: new THREE.Vector3(),
+      gradient: new THREE.Vector3()
+    };
+    
+    this.matrices = {
+      targetMatrix: new THREE.Matrix4(),
+      currentMatrix: new THREE.Matrix4()
     };
     
     this.quaternions = {
       targetQuat: new THREE.Quaternion(),
-      currentQuat: new THREE.Quaternion(),
-      tempQuat: new THREE.Quaternion()
+      currentQuat: new THREE.Quaternion()
     };
   }
 
-  // Optional: Method to get current config
   getConfig() {
     return {
       regularizationParameter: this.regularizationParameter,
@@ -57,102 +52,123 @@ class HalimIK {
     };
   }
 
-  // Optional: Method to update config
   configure(config) {
     Object.assign(this, config);
   }
 
   /**
-   * Solve IK using optimization approach similar to scipy.optimize.least_squares
-   * @param {Object} robot - The robot model
-   * @param {THREE.Vector3} targetPos - Target position
-   * @param {Function} findEndEffector - Function to find end effector
-   * @param {Object} currentPos - Current end effector position {x, y, z}
-   * @param {Object} options - Additional options including target orientation
-   * @returns {Object} Joint angles solution or null
+   * Standardized solve interface - uses IK-provided positions
    */
-  async solve(robot, targetPos, findEndEffector, currentPos, options = {}) {
-    if (!robot) return null;
-    
-    const { targetOrientation, currentOrientation } = options;
-    
-    console.log('[HalimIK] Starting optimization-based IK solve');
-    console.log('[HalimIK] Target position:', targetPos);
-    console.log('[HalimIK] Target orientation:', targetOrientation);
-    console.log('[HalimIK] Orientation mode:', this.orientationMode);
-    
-    // Get the actual robot end effector
-    const realEndEffector = robot.userData?.endEffectorLink;
-    if (!realEndEffector) {
-      console.error('[HalimIK] No end effector link found');
+  async solve(params) {
+    const {
+      robot,
+      currentPosition,  // This includes TCP offset!
+      currentOrientation,
+      targetPosition,
+      targetOrientation
+    } = params;
+
+    if (!robot || !robot.joints) {
+      console.error('[HalimIK] Invalid robot model');
       return null;
     }
-    
+
+    console.log('[HalimIK] Starting gradient descent solve');
+    console.log('[HalimIK] IK current position (includes TCP):', currentPosition);
+    console.log('[HalimIK] Target position:', targetPosition);
+    console.log('[HalimIK] Orientation mode:', this.orientationMode);
+
+    // Store IK-provided position for error calculations
+    const ikPosition = {
+      x: currentPosition.x,
+      y: currentPosition.y,
+      z: currentPosition.z
+    };
+
+    // Find end effector link (for joint chain calculation only)
+    const endEffectorLink = this.findEndEffectorLink(robot);
+    if (!endEffectorLink) {
+      console.error('[HalimIK] Could not find end effector link');
+      return null;
+    }
+
+    // Calculate initial offset between IK position and robot end effector
+    endEffectorLink.getWorldPosition(this.vectors.currentPos);
+    const tcpOffset = {
+      x: ikPosition.x - this.vectors.currentPos.x,
+      y: ikPosition.y - this.vectors.currentPos.y,
+      z: ikPosition.z - this.vectors.currentPos.z
+    };
+    console.log('[HalimIK] TCP offset detected:', tcpOffset);
+
     // Get movable joints
     const movableJoints = [];
-    const jointLimits = {};
     const startingAngles = {};
+    const jointLimits = {};
     
-    if (robot.joints) {
-      Object.entries(robot.joints).forEach(([name, joint]) => {
-        if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
-          movableJoints.push({
-            name: name,
-            joint: joint,
-            index: movableJoints.length
-          });
-          
-          // Store joint limits
-          jointLimits[name] = {
-            lower: joint.limit?.lower ?? -Math.PI,
-            upper: joint.limit?.upper ?? Math.PI
-          };
-          
-          // Store starting angles (current position)
-          startingAngles[name] = joint.angle;
-        }
-      });
-    }
-    
+    Object.entries(robot.joints).forEach(([name, joint]) => {
+      if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
+        movableJoints.push({
+          name,
+          joint,
+          index: movableJoints.length
+        });
+        
+        startingAngles[name] = joint.angle;
+        jointLimits[name] = {
+          lower: joint.limit?.lower ?? -Math.PI,
+          upper: joint.limit?.upper ?? Math.PI
+        };
+      }
+    });
+
     if (movableJoints.length === 0) {
       console.warn('[HalimIK] No movable joints found');
       return null;
     }
-    
+
     console.log(`[HalimIK] Found ${movableJoints.length} movable joints`);
-    console.log('[HalimIK] Starting angles:', startingAngles);
-    
-    // Initialize optimization variables
+
+    // Initialize optimization
     const x = movableJoints.map(j => startingAngles[j.name]);
     const xBest = [...x];
     let bestError = Infinity;
     
-    // Set up target matrix for orientation
-    this.matrices.targetMatrix.makeRotationFromEuler(new THREE.Euler(
-      targetOrientation?.roll || 0,
-      targetOrientation?.pitch || 0,
-      targetOrientation?.yaw || 0,
-      'XYZ'
-    ));
+    // Set target position
+    this.vectors.targetPos.set(
+      targetPosition.x,
+      targetPosition.y,
+      targetPosition.z
+    );
     
-    // Optimization loop (gradient descent)
+    // Set target orientation if provided
+    if (targetOrientation && this.orientationMode) {
+      this.matrices.targetMatrix.makeRotationFromEuler(new THREE.Euler(
+        targetOrientation.roll || 0,
+        targetOrientation.pitch || 0,
+        targetOrientation.yaw || 0,
+        'XYZ'
+      ));
+      this.quaternions.targetQuat.setFromRotationMatrix(this.matrices.targetMatrix);
+    }
+
+    // Gradient descent optimization
     for (let iter = 0; iter < this.maxIterations; iter++) {
-      // Apply current joint values
+      // Apply current angles
       movableJoints.forEach((jointData, idx) => {
         robot.setJointValue(jointData.name, x[idx]);
       });
       
-      // Update matrices
+      // Update robot
       robot.updateMatrixWorld(true);
       
-      // Calculate current error
+      // Calculate error using TCP-aware position
       const error = this.calculateError(
-        realEndEffector,
-        targetPos,
-        targetOrientation,
+        endEffectorLink,
         x,
         startingAngles,
-        movableJoints
+        movableJoints,
+        tcpOffset
       );
       
       // Track best solution
@@ -167,18 +183,17 @@ class HalimIK {
         break;
       }
       
-      // Calculate gradient using finite differences
+      // Calculate gradient
       const gradient = this.calculateGradient(
         robot,
-        realEndEffector,
-        targetPos,
-        targetOrientation,
+        endEffectorLink,
         x,
         startingAngles,
-        movableJoints
+        movableJoints,
+        tcpOffset
       );
       
-      // Update joint values using gradient descent with adaptive learning rate
+      // Update with adaptive learning rate
       let stepSize = this.learningRate;
       let improved = false;
       
@@ -189,7 +204,7 @@ class HalimIK {
         movableJoints.forEach((jointData, idx) => {
           xNew[idx] = x[idx] - stepSize * gradient[idx];
           
-          // Apply joint limits
+          // Apply limits
           const limits = jointLimits[jointData.name];
           xNew[idx] = THREE.MathUtils.clamp(xNew[idx], limits.lower, limits.upper);
         });
@@ -201,76 +216,77 @@ class HalimIK {
         robot.updateMatrixWorld(true);
         
         const newError = this.calculateError(
-          realEndEffector,
-          targetPos,
-          targetOrientation,
+          endEffectorLink,
           xNew,
           startingAngles,
-          movableJoints
+          movableJoints,
+          tcpOffset
         );
         
         if (newError < error) {
-          // Accept the step
           x.forEach((val, idx) => x[idx] = xNew[idx]);
           improved = true;
           break;
         } else {
-          // Reduce step size and try again
           stepSize *= 0.5;
         }
       }
       
       if (!improved) {
-        console.log(`[HalimIK] No improvement at iteration ${iter}, stopping`);
+        console.log(`[HalimIK] No improvement at iteration ${iter}`);
         break;
       }
       
       if (iter % 10 === 0) {
-        console.log(`[HalimIK] Iteration ${iter}: error = ${error.toFixed(6)}`);
+        console.log(`[HalimIK] Iteration ${iter}: error = ${error.toFixed(6)} (using TCP-aware position)`);
       }
     }
     
-    // Restore robot to starting position for smooth animation
-    console.log('[HalimIK] Restoring robot to starting position');
-    Object.entries(startingAngles).forEach(([name, angle]) => {
-      if (robot.joints[name]) {
-        robot.setJointValue(name, angle);
-      }
+    // Restore original angles for smooth animation
+    movableJoints.forEach(({ name }) => {
+      robot.setJointValue(name, startingAngles[name]);
     });
     robot.updateMatrixWorld(true);
     
-    // Return best solution found
+    // Return best solution
     const solution = {};
     movableJoints.forEach((jointData, idx) => {
       solution[jointData.name] = xBest[idx];
     });
     
     console.log('[HalimIK] Solution found with error:', bestError);
-    console.log('[HalimIK] Final joint values:', solution);
+    console.log('[HalimIK] Joint values:', solution);
     
     return solution;
   }
 
-  /**
-   * Calculate the error function for optimization
-   */
-  calculateError(endEffector, targetPos, targetOrientation, x, startingAngles, movableJoints) {
+  calculateError(endEffector, x, startingAngles, movableJoints, tcpOffset) {
     let totalError = 0;
     
-    // Position error (if not disabled)
+    // Position error - use TCP-aware position
     if (!this.noPosition) {
+      // Get robot's end effector position
       endEffector.getWorldPosition(this.vectors.currentPos);
-      const posError = this.vectors.currentPos.distanceTo(targetPos);
+      
+      // Apply TCP offset to get virtual position
+      this.vectors.virtualPos.set(
+        this.vectors.currentPos.x + tcpOffset.x,
+        this.vectors.currentPos.y + tcpOffset.y,
+        this.vectors.currentPos.z + tcpOffset.z
+      );
+      
+      const posError = this.vectors.virtualPos.distanceTo(this.vectors.targetPos);
       totalError += posError * posError;
     }
     
-    // Orientation error (if enabled)
-    if (this.orientationMode && targetOrientation) {
-      const orientError = this.calculateOrientationError(endEffector, targetOrientation);
+    // Orientation error
+    if (this.orientationMode && this.quaternions.targetQuat) {
+      endEffector.getWorldQuaternion(this.quaternions.currentQuat);
+      const orientError = this.quaternions.currentQuat.angleTo(this.quaternions.targetQuat);
       totalError += this.orientationCoeff * orientError * orientError;
     }
     
-    // Regularization term (deviation from starting position)
+    // Regularization
     if (this.regularizationParameter > 0) {
       let regularization = 0;
       movableJoints.forEach((jointData, idx) => {
@@ -283,88 +299,19 @@ class HalimIK {
     return Math.sqrt(totalError);
   }
 
-  /**
-   * Calculate orientation error based on mode
-   */
-  calculateOrientationError(endEffector, targetOrientation) {
-    endEffector.getWorldQuaternion(this.quaternions.currentQuat);
-    
-    // Convert current quaternion to matrix
-    this.matrices.currentMatrix.makeRotationFromQuaternion(this.quaternions.currentQuat);
-    
-    // Set up target rotation matrix
-    this.matrices.targetMatrix.makeRotationFromEuler(new THREE.Euler(
-      targetOrientation.roll || 0,
-      targetOrientation.pitch || 0,
-      targetOrientation.yaw || 0,
-      'XYZ'
-    ));
-    
-    let error = 0;
-    
-    switch (this.orientationMode) {
-      case 'X':
-        // Compare X axes
-        this.vectors.targetAxis.set(1, 0, 0).applyMatrix4(this.matrices.targetMatrix);
-        this.vectors.currentAxis.set(1, 0, 0).applyMatrix4(this.matrices.currentMatrix);
-        error = 1 - this.vectors.currentAxis.dot(this.vectors.targetAxis);
-        break;
-        
-      case 'Y':
-        // Compare Y axes
-        this.vectors.targetAxis.set(0, 1, 0).applyMatrix4(this.matrices.targetMatrix);
-        this.vectors.currentAxis.set(0, 1, 0).applyMatrix4(this.matrices.currentMatrix);
-        error = 1 - this.vectors.currentAxis.dot(this.vectors.targetAxis);
-        break;
-        
-      case 'Z':
-        // Compare Z axes
-        this.vectors.targetAxis.set(0, 0, 1).applyMatrix4(this.matrices.targetMatrix);
-        this.vectors.currentAxis.set(0, 0, 1).applyMatrix4(this.matrices.currentMatrix);
-        error = 1 - this.vectors.currentAxis.dot(this.vectors.targetAxis);
-        break;
-        
-      case 'all':
-        // Compare all axes (Frobenius norm of rotation matrix difference)
-        for (let i = 0; i < 3; i++) {
-          for (let j = 0; j < 3; j++) {
-            const diff = this.matrices.currentMatrix.elements[i * 4 + j] - 
-                        this.matrices.targetMatrix.elements[i * 4 + j];
-            error += diff * diff;
-          }
-        }
-        error = Math.sqrt(error);
-        break;
-        
-      default:
-        // Use quaternion angle difference
-        this.quaternions.targetQuat.setFromRotationMatrix(this.matrices.targetMatrix);
-        error = this.quaternions.currentQuat.angleTo(this.quaternions.targetQuat);
-    }
-    
-    return error;
-  }
-
-  /**
-   * Calculate gradient using finite differences
-   */
-  calculateGradient(robot, endEffector, targetPos, targetOrientation, x, startingAngles, movableJoints) {
+  calculateGradient(robot, endEffector, x, startingAngles, movableJoints, tcpOffset) {
     const gradient = new Array(x.length);
-    const h = 0.001; // Small step for finite difference
+    const h = 0.001;
     
-    // Current error
     const currentError = this.calculateError(
       endEffector,
-      targetPos,
-      targetOrientation,
       x,
       startingAngles,
-      movableJoints
+      movableJoints,
+      tcpOffset
     );
     
-    // Calculate partial derivatives
     movableJoints.forEach((jointData, idx) => {
-      // Save current value
       const originalValue = x[idx];
       
       // Forward difference
@@ -374,25 +321,53 @@ class HalimIK {
       
       const errorPlus = this.calculateError(
         endEffector,
-        targetPos,
-        targetOrientation,
         x,
         startingAngles,
-        movableJoints
+        movableJoints,
+        tcpOffset
       );
       
-      // Calculate gradient
       gradient[idx] = (errorPlus - currentError) / h;
       
-      // Restore original value
+      // Restore
       x[idx] = originalValue;
       robot.setJointValue(jointData.name, x[idx]);
     });
     
-    // Update matrices after gradient calculation
     robot.updateMatrixWorld(true);
-    
     return gradient;
+  }
+
+  /**
+   * Find the robot's end effector link (used for joint chain only)
+   */
+  findEndEffectorLink(robot) {
+    // Look for common end effector names
+    const endEffectorNames = [
+      'tool0', 'ee_link', 'end_effector', 'gripper_link',
+      'link_6', 'link_7', 'wrist_3_link', 'tool_link'
+    ];
+    
+    for (const name of endEffectorNames) {
+      if (robot.links && robot.links[name]) {
+        return robot.links[name];
+      }
+    }
+    
+    // Fallback: find deepest link
+    let deepestLink = null;
+    let maxDepth = 0;
+    
+    const findDeepest = (obj, depth = 0) => {
+      if (obj.isURDFLink && depth > maxDepth) {
+        maxDepth = depth;
+        deepestLink = obj;
+      }
+      obj.children?.forEach(child => findDeepest(child, depth + 1));
+    };
+    
+    findDeepest(robot);
+    return deepestLink;
   }
 }
 

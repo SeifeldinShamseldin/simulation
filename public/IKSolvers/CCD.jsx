@@ -1,38 +1,35 @@
 import * as THREE from 'three';
 
 class CCD {
-  // Static metadata for the solver
   static metadata = {
     name: "Cyclic Coordinate Descent",
-    description: "Fast iterative IK solver for chain-based robots",
-    author: "Your Name",
-    version: "1.0.0"
+    description: "Fast iterative IK solver with automatic TCP support",
+    author: "URDF Viewer Team",
+    version: "4.0.0"
   };
 
-  // Static default configuration
   static defaultConfig = {
     maxIterations: 10,
     tolerance: 0.01,
-    dampingFactor: 0.5,
-    angleLimit: 0.2,
+    dampingFactor: 0.7,
+    angleLimit: 0.3,
     orientationWeight: 0.1
   };
 
   constructor(config = {}) {
-    // Merge default config with provided config
     Object.assign(this, CCD.defaultConfig, config);
     
-    // Initialize reusable THREE.js objects to avoid GC pressure
+    // Reusable THREE.js objects to reduce GC pressure
     this.vectors = {
-      // Position vectors
-      worldEndPos: new THREE.Vector3(),
       jointPos: new THREE.Vector3(),
       toEnd: new THREE.Vector3(),
       toTarget: new THREE.Vector3(),
       cross: new THREE.Vector3(),
       axis: new THREE.Vector3(),
-      
-      // Orientation quaternions
+      tempVec: new THREE.Vector3()
+    };
+    
+    this.quaternions = {
       targetQuat: new THREE.Quaternion(),
       currentQuat: new THREE.Quaternion(),
       tempQuat: new THREE.Quaternion()
@@ -56,158 +53,163 @@ class CCD {
   }
 
   /**
-   * Solve IK using CCD algorithm with position and orientation awareness
-   * @param {Object} robot - The robot model
-   * @param {THREE.Vector3} targetPos - Target position
-   * @param {Function} findEndEffector - Function to find end effector
-   * @param {Object} currentPos - Current end effector position {x, y, z}
-   * @param {Object} options - Additional options including target orientation
+   * Solve IK using standardized interface
+   * @param {Object} params - Standardized parameters object
    * @returns {Object} Joint angles solution or null
    */
-  async solve(robot, targetPos, findEndEffector, currentPos, options = {}) {
-    if (!robot) return null;
-    
-    const { targetOrientation, currentOrientation } = options;
-    
-    console.log('[CCD] Starting IK solve with orientation support');
-    console.log('[CCD] Target position:', targetPos);
-    console.log('[CCD] Current end effector position:', currentPos);
-    console.log('[CCD] Target orientation (euler):', targetOrientation);
-    console.log('[CCD] Current orientation (quat):', currentOrientation);
-    
-    // Get the actual robot end effector (not virtual)
-    const realEndEffector = robot.userData?.endEffectorLink;
-    if (!realEndEffector) {
-      console.error('[CCD] No end effector link found in robot.userData');
+  async solve(params) {
+    const {
+      robot,                // Robot model
+      currentPosition,      // Current end effector position (includes TCP!)
+      currentOrientation,   // Current orientation quaternion
+      targetPosition,       // Target position
+      targetOrientation     // Target orientation (euler angles)
+    } = params;
+
+    if (!robot || !robot.joints) {
+      console.error('[CCD] Invalid robot model');
       return null;
     }
-    
-    console.log(`[CCD] Using end effector: ${realEndEffector.name}`);
-    
-    // Store CURRENT joint angles as starting point (IMPORTANT: don't reset!)
-    const startingAngles = {};
-    const movableJoints = [];
-    
-    if (robot.joints) {
-      Object.entries(robot.joints).forEach(([name, joint]) => {
-        if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
-          startingAngles[name] = joint.angle; // Store current position
-          movableJoints.push(name);
-        }
-      });
+
+    console.log('[CCD] Starting solve with standardized interface');
+    console.log('[CCD] Current position (TCP-aware):', currentPosition);
+    console.log('[CCD] Target position:', targetPosition);
+    console.log('[CCD] Target orientation:', targetOrientation);
+
+    // Find the robot's actual end effector link (for joint chain only)
+    const endEffectorLink = this.findEndEffectorLink(robot);
+    if (!endEffectorLink) {
+      console.error('[CCD] Could not find end effector link');
+      return null;
     }
+
+    // Store in userData for reference
+    robot.userData = robot.userData || {};
+    robot.userData.endEffectorLink = endEffectorLink;
+
+    // Get movable joints and store starting angles
+    const movableJoints = [];
+    const startingAngles = {};
     
+    Object.entries(robot.joints).forEach(([name, joint]) => {
+      if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
+        movableJoints.push({ name, joint });
+        startingAngles[name] = joint.angle; // Store current position
+      }
+    });
+
     if (movableJoints.length === 0) {
       console.warn('[CCD] No movable joints found');
       return null;
     }
+
+    console.log(`[CCD] Found ${movableJoints.length} movable joints`);
+    console.log('[CCD] Starting angles:', startingAngles);
+
+    // Working copy of angles (start from current position)
+    const workingAngles = { ...startingAngles };
     
-    // 🚨 CRITICAL: Verify starting angles
-    const { hasNonZeroAngles, hasValidAngles } = this.verifyStartingAngles(robot, startingAngles);
-    
-    if (!hasValidAngles) {
-      console.error('[CCD] Invalid starting angles detected - aborting solve');
-      return null;
-    }
-    
-    if (!hasNonZeroAngles) {
-      console.warn('[CCD] Warning: All starting angles are zero - this may affect IK solution quality');
-    }
-    
-    console.log(`[CCD] Starting from current joint angles:`, startingAngles);
-    console.log(`[CCD] Movable joints: ${movableJoints.join(', ')}`);
-    
-    // Create working copy of joint values for virtual solving
-    const virtualAngles = { ...startingAngles }; // Start from CURRENT position
-    
+    // Convert target position to Vector3
+    const targetVec = new THREE.Vector3(
+      targetPosition.x,
+      targetPosition.y,
+      targetPosition.z
+    );
+
     // Convert target orientation to quaternion if provided
     let targetQuaternion = null;
     if (targetOrientation) {
-      this.vectors.targetQuat.setFromEuler(new THREE.Euler(
+      this.quaternions.targetQuat.setFromEuler(new THREE.Euler(
         targetOrientation.roll || 0,
         targetOrientation.pitch || 0,
         targetOrientation.yaw || 0,
         'XYZ'
       ));
-      targetQuaternion = this.vectors.targetQuat.clone();
-      console.log('[CCD] Target quaternion:', targetQuaternion);
+      targetQuaternion = this.quaternions.targetQuat.clone();
     }
-    
+
     // CCD iterations
     for (let iter = 0; iter < this.maxIterations; iter++) {
-      // Apply virtual angles temporarily for calculations
-      Object.entries(virtualAngles).forEach(([name, angle]) => {
-        if (robot.joints[name]) {
-          robot.setJointValue(name, angle);
-        }
+      // Apply current working angles to robot
+      movableJoints.forEach(({ name }) => {
+        robot.setJointValue(name, workingAngles[name]);
       });
       
-      // Update matrices to ensure correct positions
+      // Update robot matrices
       robot.updateMatrixWorld(true);
       
-      // Get current end effector world position
-      realEndEffector.getWorldPosition(this.vectors.worldEndPos);
+      // Get actual robot end effector position
+      const robotEndPos = new THREE.Vector3();
+      endEffectorLink.getWorldPosition(robotEndPos);
       
-      // Check positional convergence
-      const distanceToTarget = this.vectors.worldEndPos.distanceTo(targetPos);
+      // Calculate offset between IK position (with TCP) and robot position
+      const tcpOffset = new THREE.Vector3(
+        currentPosition.x - robotEndPos.x,
+        currentPosition.y - robotEndPos.y,
+        currentPosition.z - robotEndPos.z
+      );
       
-      // Check orientation convergence if target orientation is provided
+      // Apply TCP offset to get current virtual end effector position
+      const virtualEndPos = robotEndPos.clone().add(tcpOffset);
+      
+      // Check convergence
+      const positionError = virtualEndPos.distanceTo(targetVec);
+      
+      // Check orientation convergence if target orientation provided
       let orientationError = 0;
       if (targetQuaternion) {
-        realEndEffector.getWorldQuaternion(this.vectors.currentQuat);
-        orientationError = this.vectors.currentQuat.angleTo(targetQuaternion);
+        endEffectorLink.getWorldQuaternion(this.quaternions.currentQuat);
+        orientationError = this.quaternions.currentQuat.angleTo(targetQuaternion);
       }
       
-      console.log(`[CCD] Iteration ${iter}: distance = ${distanceToTarget.toFixed(4)}, orientation error = ${orientationError.toFixed(4)}`);
+      console.log(`[CCD] Iteration ${iter}: pos_error = ${positionError.toFixed(4)}, orient_error = ${orientationError.toFixed(4)}`);
       
       // Combined convergence check
-      const positionConverged = distanceToTarget < this.tolerance;
-      const orientationConverged = !targetQuaternion || orientationError < (this.tolerance * 2); // More lenient for orientation
+      const positionConverged = positionError < this.tolerance;
+      const orientationConverged = !targetQuaternion || orientationError < (this.tolerance * 2);
       
       if (positionConverged && orientationConverged) {
-        console.log('[CCD] Converged (position and orientation)!');
+        console.log('[CCD] Converged!');
         break;
       }
       
       // Process joints from end to base (reverse kinematic chain)
-      const jointNames = movableJoints.slice().reverse();
+      const reversedJoints = [...movableJoints].reverse();
       
-      for (const jointName of jointNames) {
-        const joint = robot.joints[jointName];
-        if (!joint || joint.jointType === 'fixed') continue;
-        
+      for (const { name, joint } of reversedJoints) {
         // Get joint world position
         joint.getWorldPosition(this.vectors.jointPos);
         
-        // Get joint axis in world coordinates
-        this.vectors.axis.copy(joint.axis)
-          .applyQuaternion(joint.getWorldQuaternion(this.vectors.tempQuat))
-          .normalize();
+        // Get joint axis in world space
+        this.vectors.axis.copy(joint.axis || new THREE.Vector3(0, 0, 1));
+        const worldQuat = new THREE.Quaternion();
+        joint.getWorldQuaternion(worldQuat);
+        this.vectors.axis.applyQuaternion(worldQuat).normalize();
         
-        // Update end effector position after any joint changes
-        realEndEffector.getWorldPosition(this.vectors.worldEndPos);
+        // Update positions after any joint changes
+        endEffectorLink.getWorldPosition(robotEndPos);
+        virtualEndPos.copy(robotEndPos).add(tcpOffset);
         
-        // Calculate position-based angle
-        this.vectors.toEnd.subVectors(this.vectors.worldEndPos, this.vectors.jointPos);
-        this.vectors.toTarget.subVectors(targetPos, this.vectors.jointPos);
-        
-        const toEndLength = this.vectors.toEnd.length();
-        const toTargetLength = this.vectors.toTarget.length();
+        // Calculate vectors from joint to virtual end effector and target
+        this.vectors.toEnd.subVectors(virtualEndPos, this.vectors.jointPos);
+        this.vectors.toTarget.subVectors(targetVec, this.vectors.jointPos);
         
         // Skip if vectors are too small
-        if (toEndLength < 0.001 || toTargetLength < 0.001) continue;
+        if (this.vectors.toEnd.length() < 0.001 || this.vectors.toTarget.length() < 0.001) {
+          continue;
+        }
         
         // Normalize vectors
         this.vectors.toEnd.normalize();
         this.vectors.toTarget.normalize();
         
         // Calculate angle between vectors
-        const dotProduct = THREE.MathUtils.clamp(
+        const dot = THREE.MathUtils.clamp(
           this.vectors.toEnd.dot(this.vectors.toTarget), 
           -0.999, 
           0.999
         );
-        let positionAngle = Math.acos(dotProduct);
+        let positionAngle = Math.acos(dot);
         
         // Determine rotation direction using cross product
         this.vectors.cross.crossVectors(this.vectors.toEnd, this.vectors.toTarget);
@@ -215,123 +217,102 @@ class CCD {
           positionAngle = -positionAngle;
         }
         
-        // Calculate orientation-based angle contribution (if target orientation provided)
+        // Calculate orientation-based angle contribution if target orientation provided
         let orientationAngle = 0;
         if (targetQuaternion && this.orientationWeight > 0) {
-          realEndEffector.getWorldQuaternion(this.vectors.currentQuat);
-          const orientationError = this.vectors.currentQuat.angleTo(targetQuaternion);
+          endEffectorLink.getWorldQuaternion(this.quaternions.currentQuat);
+          const currentOrientError = this.quaternions.currentQuat.angleTo(targetQuaternion);
           
-          if (orientationError > 0.01) { // ~0.6 degrees threshold
-            // Simple heuristic: distribute orientation error among joints
-            // Joints closer to end effector get more orientation responsibility
-            const jointIndex = movableJoints.indexOf(jointName);
+          if (currentOrientError > 0.01) { // ~0.6 degrees threshold
+            // Distribute orientation error among joints
+            const jointIndex = movableJoints.indexOf({ name, joint });
             const jointCount = movableJoints.length;
-            const endEffectorWeight = (jointCount - jointIndex) / jointCount; // 1.0 for last joint, lower for earlier joints
+            const endEffectorWeight = (jointCount - jointIndex) / jointCount;
             
-            // Calculate orientation contribution
-            const orientationContribution = orientationError * this.orientationWeight * endEffectorWeight;
-            
-            // Determine direction based on quaternion difference
-            const quatDiff = this.vectors.currentQuat.clone().invert().multiply(targetQuaternion);
-            
-            // Project quaternion rotation onto joint axis
-            const rotAxis = new THREE.Vector3(quatDiff.x, quatDiff.y, quatDiff.z).normalize();
-            const axisAlignment = this.vectors.axis.dot(rotAxis);
-            
-            orientationAngle = orientationContribution * axisAlignment;
-            
-            console.log(`[CCD] Joint ${jointName} orientation: error=${(orientationError*180/Math.PI).toFixed(1)}°, weight=${endEffectorWeight.toFixed(2)}, contribution=${(orientationAngle*180/Math.PI).toFixed(2)}°`);
+            orientationAngle = currentOrientError * this.orientationWeight * endEffectorWeight * 0.1;
           }
         }
         
-        // Combine position and orientation angles with simpler logic
-        let totalAngle;
+        // Combine position and orientation angles
+        let totalAngle = positionAngle;
         if (targetQuaternion) {
-          // For orientation tasks, use a balanced approach
-          const posWeight = distanceToTarget > 0.1 ? 0.7 : 0.3; // Focus on position when far, orientation when close
+          const posWeight = positionError > 0.1 ? 0.8 : 0.3;
           const oriWeight = 1.0 - posWeight;
-          
           totalAngle = (positionAngle * posWeight) + (orientationAngle * oriWeight);
-          
-          console.log(`[CCD] ${jointName}: pos=${(positionAngle*180/Math.PI).toFixed(1)}°*${posWeight.toFixed(1)} + ori=${(orientationAngle*180/Math.PI).toFixed(1)}°*${oriWeight.toFixed(1)} = ${(totalAngle*180/Math.PI).toFixed(1)}°`);
-        } else {
-          totalAngle = positionAngle;
         }
         
-        // Apply damping to prevent overshooting
+        // Apply damping
         totalAngle *= this.dampingFactor;
         
-        // Limit maximum angle change per iteration
+        // Apply angle limits
         totalAngle = THREE.MathUtils.clamp(totalAngle, -this.angleLimit, this.angleLimit);
         
-        // Calculate new joint angle
-        let newAngle = virtualAngles[jointName] + totalAngle;
+        // Update angle
+        workingAngles[name] += totalAngle;
         
         // Apply joint limits if they exist
-        if (!joint.ignoreLimits && joint.limit) {
-          newAngle = THREE.MathUtils.clamp(
-            newAngle, 
-            joint.limit.lower, 
-            joint.limit.upper
+        if (joint.limit) {
+          workingAngles[name] = THREE.MathUtils.clamp(
+            workingAngles[name],
+            joint.limit.lower || -Math.PI,
+            joint.limit.upper || Math.PI
           );
         }
-        
-        // Update virtual angle
-        virtualAngles[jointName] = newAngle;
       }
     }
     
-    // CRITICAL FIX: Restore robot to original position
-    // This ensures the robot returns to its starting pose so JointContext can animate properly
-    console.log('[CCD] Restoring robot to starting position for smooth animation');
-    Object.entries(startingAngles).forEach(([name, angle]) => {
-      if (robot.joints[name]) {
-        robot.setJointValue(name, angle);
-      }
+    // Restore original angles for smooth animation
+    console.log('[CCD] Restoring robot to starting position');
+    movableJoints.forEach(({ name }) => {
+      robot.setJointValue(name, startingAngles[name]);
     });
-    
-    // Update matrices to ensure robot is back to starting position
     robot.updateMatrixWorld(true);
     
-    console.log('[CCD] Solution calculated:', virtualAngles);
-    console.log('[CCD] Robot restored to starting position - ready for animation');
+    console.log('[CCD] Solution:', workingAngles);
     
-    return virtualAngles;
+    return workingAngles;
   }
 
-  // Add this helper method in CCDSolver class
-  verifyStartingAngles(robot, startingAngles) {
-    let hasNonZeroAngles = false;
-    let hasValidAngles = true;
+  /**
+   * Find the robot's end effector link
+   */
+  findEndEffectorLink(robot) {
+    // Common end effector names
+    const endEffectorNames = [
+      'tool0', 'ee_link', 'end_effector', 'gripper_link',
+      'link_6', 'link_7', 'wrist_3_link', 'tool_link',
+      'flange', 'tool_flange', 'tcp'
+    ];
     
-    if (robot.joints) {
-      Object.entries(robot.joints).forEach(([name, joint]) => {
-        if (joint && joint.jointType !== 'fixed') {
-          const currentAngle = joint.angle;
-          const storedAngle = startingAngles[name];
-          
-          // Check if angle is defined and not NaN
-          if (typeof currentAngle !== 'number' || isNaN(currentAngle)) {
-            console.warn(`[CCD] Invalid angle for joint ${name}: ${currentAngle}`);
-            hasValidAngles = false;
-            return;
-          }
-          
-          // Check if angle is non-zero
-          if (Math.abs(currentAngle) > 0.001) {
-            hasNonZeroAngles = true;
-          }
-          
-          // Verify stored angle matches current angle
-          if (Math.abs(currentAngle - storedAngle) > 0.001) {
-            console.warn(`[CCD] Angle mismatch for joint ${name}: current=${currentAngle}, stored=${storedAngle}`);
-            hasValidAngles = false;
-          }
+    // Try to find by name
+    if (robot.links) {
+      for (const name of endEffectorNames) {
+        if (robot.links[name]) {
+          console.log(`[CCD] Found end effector link: ${name}`);
+          return robot.links[name];
         }
-      });
+      }
     }
     
-    return { hasNonZeroAngles, hasValidAngles };
+    // Fallback: find deepest link
+    let deepestLink = null;
+    let maxDepth = 0;
+    
+    const findDeepest = (obj, depth = 0) => {
+      if (obj.isURDFLink && depth > maxDepth) {
+        maxDepth = depth;
+        deepestLink = obj;
+      }
+      obj.children?.forEach(child => findDeepest(child, depth + 1));
+    };
+    
+    findDeepest(robot);
+    
+    if (deepestLink) {
+      console.log('[CCD] Using deepest link as end effector');
+    }
+    
+    return deepestLink;
   }
 }
 
