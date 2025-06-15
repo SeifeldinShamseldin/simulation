@@ -19,6 +19,7 @@ export const useTCP = (robotId = null) => {
     getToolInfo,
     getCurrentEndEffectorPoint,
     getCurrentEndEffectorOrientation, // New method from TCPContext
+    getEndEffectorLink: getEndEffectorLinkFromContext,
     recalculateEndEffector,
     getRobotEndEffectorPosition,
     getRobotEndEffectorOrientation, // New method from TCPContext
@@ -285,7 +286,13 @@ export const useTCP = (robotId = null) => {
     
     // Utils
     getToolById: (toolId) => availableTools.find(t => t.id === toolId),
-    isToolAttached: (toolId) => currentTool?.toolId === toolId
+    isToolAttached: (toolId) => currentTool?.toolId === toolId,
+    
+    // New method
+    getEndEffectorLink: useCallback(() => {
+      if (!targetRobotId) return null;
+      return getEndEffectorLinkFromContext(targetRobotId);
+    }, [targetRobotId, getEndEffectorLinkFromContext])
   };
 };
 

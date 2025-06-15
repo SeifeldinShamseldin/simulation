@@ -242,6 +242,28 @@ class OptimizedTCPManager {
   }
 
   /**
+   * Get the robot's end effector link (for kinematic chain)
+   * This is used by IK solvers to traverse the joint chain
+   */
+  getEndEffectorLink(robotId) {
+    const robot = this.findRobot(robotId);
+    if (!robot) return null;
+
+    // Use cached link if available
+    if (robot.userData?.endEffectorLink) {
+      return robot.userData.endEffectorLink;
+    }
+
+    // Find and cache the link
+    const link = this.findEndEffector(robot);
+    if (link && robot.userData) {
+      robot.userData.endEffectorLink = link;
+    }
+
+    return link;
+  }
+
+  /**
    * Initialize manager
    */
   initialize(sceneSetup, robotManager) {
@@ -793,6 +815,10 @@ export const TCPProvider = ({ children }) => {
     return tcpManagerRef.current?.getFinalEndEffectorOrientation(robotId) || { x: 0, y: 0, z: 0, w: 1 };
   }, []);
 
+  const getEndEffectorLink = useCallback((robotId) => {
+    return tcpManagerRef.current?.getEndEffectorLink(robotId) || null;
+  }, []);
+
   const recalculateEndEffector = useCallback((robotId) => {
     return tcpManagerRef.current?.recalculateEndEffector(robotId) || {
       position: { x: 0, y: 0, z: 0 },
@@ -837,6 +863,7 @@ export const TCPProvider = ({ children }) => {
     // End Effector Methods
     getCurrentEndEffectorPoint,
     getCurrentEndEffectorOrientation,
+    getEndEffectorLink,
     recalculateEndEffector,
     getRobotEndEffectorPosition,
     getRobotEndEffectorOrientation,

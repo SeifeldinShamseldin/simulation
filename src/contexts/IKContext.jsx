@@ -13,6 +13,7 @@ export const IKProvider = ({ children }) => {
   const { 
     getCurrentEndEffectorPoint,
     getCurrentEndEffectorOrientation,
+    getEndEffectorLink,
     hasToolAttached,
     recalculateEndEffector
   } = useTCPContext();
@@ -208,9 +209,17 @@ export const IKProvider = ({ children }) => {
     console.log('[IK] Target orientation:', targetOri);
 
     try {
+      // Get end effector link from TCP Context
+      const endEffectorLink = getEndEffectorLink(activeRobotId);
+      if (!endEffectorLink) {
+        console.error('[IK] Could not find end effector link');
+        return null;
+      }
+
       // Call solver with standardized interface
       const result = await solver.solve({
         robot,
+        endEffectorLink,  // Pass it to solver from TCP Context
         currentPosition: currentEndEffector.position,
         currentOrientation: currentEndEffector.orientation,
         targetPosition: targetPos,
@@ -222,7 +231,7 @@ export const IKProvider = ({ children }) => {
       console.error(`[IK] Solver ${currentSolver} failed:`, error);
       return null;
     }
-  }, [currentSolver, currentEndEffector]);
+  }, [currentSolver, currentEndEffector, getEndEffectorLink, activeRobotId]);
 
   // ========== EXECUTE IK ==========
   const executeIK = useCallback(async (target, options = {}) => {

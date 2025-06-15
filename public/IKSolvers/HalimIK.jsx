@@ -62,7 +62,8 @@ class HalimIK {
   async solve(params) {
     const {
       robot,
-      currentPosition,  // This includes TCP offset!
+      endEffectorLink,      // End effector link (provided by IK Context)
+      currentPosition,      // This includes TCP offset!
       currentOrientation,
       targetPosition,
       targetOrientation
@@ -70,6 +71,11 @@ class HalimIK {
 
     if (!robot || !robot.joints) {
       console.error('[HalimIK] Invalid robot model');
+      return null;
+    }
+
+    if (!endEffectorLink) {
+      console.error('[HalimIK] End effector link not provided by IK Context');
       return null;
     }
 
@@ -84,13 +90,6 @@ class HalimIK {
       y: currentPosition.y,
       z: currentPosition.z
     };
-
-    // Find end effector link (for joint chain calculation only)
-    const endEffectorLink = this.findEndEffectorLink(robot);
-    if (!endEffectorLink) {
-      console.error('[HalimIK] Could not find end effector link');
-      return null;
-    }
 
     // Calculate initial offset between IK position and robot end effector
     endEffectorLink.getWorldPosition(this.vectors.currentPos);
@@ -248,126 +247,82 @@ class HalimIK {
     });
     robot.updateMatrixWorld(true);
     
-    // Return best solution
+    // Convert solution to joint angles object
     const solution = {};
     movableJoints.forEach((jointData, idx) => {
       solution[jointData.name] = xBest[idx];
     });
     
-    console.log('[HalimIK] Solution found with error:', bestError);
-    console.log('[HalimIK] Joint values:', solution);
-    
+    console.log('[HalimIK] Solution:', solution);
     return solution;
   }
 
+  /**
+   * Calculate error between current and target positions/orientations
+   */
   calculateError(endEffector, x, startingAngles, movableJoints, tcpOffset) {
-    let totalError = 0;
+    // Get current end effector position
+    endEffector.getWorldPosition(this.vectors.currentPos);
     
-    // Position error - use TCP-aware position
-    if (!this.noPosition) {
-      // Get robot's end effector position
-      endEffector.getWorldPosition(this.vectors.currentPos);
-      
-      // Apply TCP offset to get virtual position
-      this.vectors.virtualPos.set(
-        this.vectors.currentPos.x + tcpOffset.x,
-        this.vectors.currentPos.y + tcpOffset.y,
-        this.vectors.currentPos.z + tcpOffset.z
-      );
-      
-      const posError = this.vectors.virtualPos.distanceTo(this.vectors.targetPos);
-      totalError += posError * posError;
-    }
-    
-    // Orientation error
-    if (this.orientationMode && this.quaternions.targetQuat) {
-      endEffector.getWorldQuaternion(this.quaternions.currentQuat);
-      const orientError = this.quaternions.currentQuat.angleTo(this.quaternions.targetQuat);
-      totalError += this.orientationCoeff * orientError * orientError;
-    }
-    
-    // Regularization
-    if (this.regularizationParameter > 0) {
-      let regularization = 0;
-      movableJoints.forEach((jointData, idx) => {
-        const diff = x[idx] - startingAngles[jointData.name];
-        regularization += diff * diff;
-      });
-      totalError += this.regularizationParameter * regularization;
-    }
-    
-    return Math.sqrt(totalError);
-  }
-
-  calculateGradient(robot, endEffector, x, startingAngles, movableJoints, tcpOffset) {
-    const gradient = new Array(x.length);
-    const h = 0.001;
-    
-    const currentError = this.calculateError(
-      endEffector,
-      x,
-      startingAngles,
-      movableJoints,
-      tcpOffset
+    // Apply TCP offset
+    this.vectors.virtualPos.copy(this.vectors.currentPos).add(
+      new THREE.Vector3(tcpOffset.x, tcpOffset.y, tcpOffset.z)
     );
     
-    movableJoints.forEach((jointData, idx) => {
-      const originalValue = x[idx];
-      
-      // Forward difference
-      x[idx] = originalValue + h;
-      robot.setJointValue(jointData.name, x[idx]);
-      robot.updateMatrixWorld(true);
-      
-      const errorPlus = this.calculateError(
-        endEffector,
-        x,
-        startingAngles,
-        movableJoints,
-        tcpOffset
-      );
-      
-      gradient[idx] = (errorPlus - currentError) / h;
-      
-      // Restore
-      x[idx] = originalValue;
-      robot.setJointValue(jointData.name, x[idx]);
-    });
+    // Position error
+    const positionError = this.vectors.virtualPos.distanceToSquared(this.vectors.targetPos);
     
-    robot.updateMatrixWorld(true);
-    return gradient;
+    // Orientation error if enabled
+    let orientationError = 0;
+    if (this.orientationMode && this.quaternions.targetQuat) {
+      endEffector.getWorldQuaternion(this.quaternions.currentQuat);
+      orientationError = this.quaternions.currentQuat.angleTo(this.quaternions.targetQuat);
+    }
+    
+    // Regularization term to prevent large joint movements
+    const regularization = movableJoints.reduce((sum, jointData, idx) => {
+      const diff = x[idx] - startingAngles[jointData.name];
+      return sum + diff * diff;
+    }, 0) * this.regularizationParameter;
+    
+    // Combine errors
+    return positionError + (orientationError * this.orientationCoeff) + regularization;
   }
 
   /**
-   * Find the robot's end effector link (used for joint chain only)
+   * Calculate gradient of error function
    */
-  findEndEffectorLink(robot) {
-    // Look for common end effector names
-    const endEffectorNames = [
-      'tool0', 'ee_link', 'end_effector', 'gripper_link',
-      'link_6', 'link_7', 'wrist_3_link', 'tool_link'
-    ];
+  calculateGradient(robot, endEffector, x, startingAngles, movableJoints, tcpOffset) {
+    const gradient = new Array(movableJoints.length).fill(0);
+    const delta = 0.0001; // Small angle change for numerical gradient
     
-    for (const name of endEffectorNames) {
-      if (robot.links && robot.links[name]) {
-        return robot.links[name];
-      }
-    }
+    // Calculate gradient for each joint
+    movableJoints.forEach((jointData, idx) => {
+      // Store original angle
+      const originalAngle = x[idx];
+      
+      // Calculate error with positive delta
+      x[idx] = originalAngle + delta;
+      robot.setJointValue(jointData.name, x[idx]);
+      robot.updateMatrixWorld(true);
+      const errorPlus = this.calculateError(endEffector, x, startingAngles, movableJoints, tcpOffset);
+      
+      // Calculate error with negative delta
+      x[idx] = originalAngle - delta;
+      robot.setJointValue(jointData.name, x[idx]);
+      robot.updateMatrixWorld(true);
+      const errorMinus = this.calculateError(endEffector, x, startingAngles, movableJoints, tcpOffset);
+      
+      // Restore original angle
+      x[idx] = originalAngle;
+      robot.setJointValue(jointData.name, x[idx]);
+      robot.updateMatrixWorld(true);
+      
+      // Calculate gradient using central difference
+      gradient[idx] = (errorPlus - errorMinus) / (2 * delta);
+    });
     
-    // Fallback: find deepest link
-    let deepestLink = null;
-    let maxDepth = 0;
-    
-    const findDeepest = (obj, depth = 0) => {
-      if (obj.isURDFLink && depth > maxDepth) {
-        maxDepth = depth;
-        deepestLink = obj;
-      }
-      obj.children?.forEach(child => findDeepest(child, depth + 1));
-    };
-    
-    findDeepest(robot);
-    return deepestLink;
+    return gradient;
   }
 }
 

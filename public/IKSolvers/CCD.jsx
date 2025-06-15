@@ -3,9 +3,9 @@ import * as THREE from 'three';
 class CCD {
   static metadata = {
     name: "Cyclic Coordinate Descent",
-    description: "Fast iterative IK solver with automatic TCP support",
+    description: "Fast iterative IK solver following standardized interface",
     author: "URDF Viewer Team",
-    version: "4.0.0"
+    version: "5.0.0"
   };
 
   static defaultConfig = {
@@ -36,7 +36,7 @@ class CCD {
     };
   }
 
-  // Optional: Method to get current config
+  // Method to get current config
   getConfig() {
     return {
       maxIterations: this.maxIterations,
@@ -47,7 +47,7 @@ class CCD {
     };
   }
 
-  // Optional: Method to update config
+  // Method to update config
   configure(config) {
     Object.assign(this, config);
   }
@@ -60,6 +60,7 @@ class CCD {
   async solve(params) {
     const {
       robot,                // Robot model
+      endEffectorLink,      // End effector link (provided by IK Context)
       currentPosition,      // Current end effector position (includes TCP!)
       currentOrientation,   // Current orientation quaternion
       targetPosition,       // Target position
@@ -71,21 +72,15 @@ class CCD {
       return null;
     }
 
-    console.log('[CCD] Starting solve with standardized interface');
-    console.log('[CCD] Current position (TCP-aware):', currentPosition);
-    console.log('[CCD] Target position:', targetPosition);
-    console.log('[CCD] Target orientation:', targetOrientation);
-
-    // Find the robot's actual end effector link (for joint chain only)
-    const endEffectorLink = this.findEndEffectorLink(robot);
     if (!endEffectorLink) {
-      console.error('[CCD] Could not find end effector link');
+      console.error('[CCD] End effector link not provided by IK Context');
       return null;
     }
 
-    // Store in userData for reference
-    robot.userData = robot.userData || {};
-    robot.userData.endEffectorLink = endEffectorLink;
+    console.log('[CCD] Starting solve with standardized interface');
+    console.log('[CCD] IK-provided current position (TCP-aware):', currentPosition);
+    console.log('[CCD] Target position:', targetPosition);
+    console.log('[CCD] Target orientation:', targetOrientation);
 
     // Get movable joints and store starting angles
     const movableJoints = [];
@@ -138,27 +133,25 @@ class CCD {
       // Update robot matrices
       robot.updateMatrixWorld(true);
       
-      // Get actual robot end effector position
-      const robotEndPos = new THREE.Vector3();
-      endEffectorLink.getWorldPosition(robotEndPos);
-      
-      // Calculate offset between IK position (with TCP) and robot position
-      const tcpOffset = new THREE.Vector3(
-        currentPosition.x - robotEndPos.x,
-        currentPosition.y - robotEndPos.y,
-        currentPosition.z - robotEndPos.z
+      // IMPORTANT: Use IK-provided position, NOT calculated position
+      const virtualEndPos = new THREE.Vector3(
+        currentPosition.x,
+        currentPosition.y,
+        currentPosition.z
       );
-      
-      // Apply TCP offset to get current virtual end effector position
-      const virtualEndPos = robotEndPos.clone().add(tcpOffset);
       
       // Check convergence
       const positionError = virtualEndPos.distanceTo(targetVec);
       
       // Check orientation convergence if target orientation provided
       let orientationError = 0;
-      if (targetQuaternion) {
-        endEffectorLink.getWorldQuaternion(this.quaternions.currentQuat);
+      if (targetQuaternion && currentOrientation) {
+        this.quaternions.currentQuat.set(
+          currentOrientation.x,
+          currentOrientation.y,
+          currentOrientation.z,
+          currentOrientation.w
+        );
         orientationError = this.quaternions.currentQuat.angleTo(targetQuaternion);
       }
       
@@ -186,11 +179,14 @@ class CCD {
         joint.getWorldQuaternion(worldQuat);
         this.vectors.axis.applyQuaternion(worldQuat).normalize();
         
-        // Update positions after any joint changes
-        endEffectorLink.getWorldPosition(robotEndPos);
-        virtualEndPos.copy(robotEndPos).add(tcpOffset);
+        // IMPORTANT: Always use IK-provided position
+        virtualEndPos.set(
+          currentPosition.x,
+          currentPosition.y,
+          currentPosition.z
+        );
         
-        // Calculate vectors from joint to virtual end effector and target
+        // Calculate vectors from joint to end effector and target
         this.vectors.toEnd.subVectors(virtualEndPos, this.vectors.jointPos);
         this.vectors.toTarget.subVectors(targetVec, this.vectors.jointPos);
         
@@ -219,8 +215,13 @@ class CCD {
         
         // Calculate orientation-based angle contribution if target orientation provided
         let orientationAngle = 0;
-        if (targetQuaternion && this.orientationWeight > 0) {
-          endEffectorLink.getWorldQuaternion(this.quaternions.currentQuat);
+        if (targetQuaternion && this.orientationWeight > 0 && currentOrientation) {
+          this.quaternions.currentQuat.set(
+            currentOrientation.x,
+            currentOrientation.y,
+            currentOrientation.z,
+            currentOrientation.w
+          );
           const currentOrientError = this.quaternions.currentQuat.angleTo(targetQuaternion);
           
           if (currentOrientError > 0.01) { // ~0.6 degrees threshold
@@ -271,48 +272,6 @@ class CCD {
     console.log('[CCD] Solution:', workingAngles);
     
     return workingAngles;
-  }
-
-  /**
-   * Find the robot's end effector link
-   */
-  findEndEffectorLink(robot) {
-    // Common end effector names
-    const endEffectorNames = [
-      'tool0', 'ee_link', 'end_effector', 'gripper_link',
-      'link_6', 'link_7', 'wrist_3_link', 'tool_link',
-      'flange', 'tool_flange', 'tcp'
-    ];
-    
-    // Try to find by name
-    if (robot.links) {
-      for (const name of endEffectorNames) {
-        if (robot.links[name]) {
-          console.log(`[CCD] Found end effector link: ${name}`);
-          return robot.links[name];
-        }
-      }
-    }
-    
-    // Fallback: find deepest link
-    let deepestLink = null;
-    let maxDepth = 0;
-    
-    const findDeepest = (obj, depth = 0) => {
-      if (obj.isURDFLink && depth > maxDepth) {
-        maxDepth = depth;
-        deepestLink = obj;
-      }
-      obj.children?.forEach(child => findDeepest(child, depth + 1));
-    };
-    
-    findDeepest(robot);
-    
-    if (deepestLink) {
-      console.log('[CCD] Using deepest link as end effector');
-    }
-    
-    return deepestLink;
   }
 }
 
