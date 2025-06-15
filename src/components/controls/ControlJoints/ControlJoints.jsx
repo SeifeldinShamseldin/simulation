@@ -7,13 +7,12 @@ const ControlJoints = () => {
   const {
     robotId,
     jointInfo,
-    jointValues,
+    getJointValues,
     isAnimating,
     animationProgress,
     setJointValue,
     resetJoints,
     getJointLimits,
-    getJointValue,
     hasJoints,
     hasMovableJoints,
     getMovableJoints
@@ -51,6 +50,7 @@ const ControlJoints = () => {
 
   // Get movable joints for display
   const movableJoints = getMovableJoints();
+  const jointValues = getJointValues();
 
   if (!robotId || !hasJoints) {
     return (
@@ -90,7 +90,7 @@ const ControlJoints = () => {
       
       <div className="joint-controls-container">
         {movableJoints.map((joint) => {
-          const value = getJointValue(joint.name);
+          const value = jointValues[joint.name] || 0;
           const limits = getJointLimits(joint.name);
           const min = limits.lower ?? -Math.PI;
           const max = limits.upper ?? Math.PI;
