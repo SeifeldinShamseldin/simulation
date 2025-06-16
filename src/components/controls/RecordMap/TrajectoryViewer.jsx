@@ -1,7 +1,8 @@
 // src/components/controls/RecordMap/TrajectoryViewer.jsx - UPDATED FOR NEW ARCHITECTURE
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useTrajectory, useTrajectoryRecording, useTrajectoryPlayback, useTrajectoryManagement } from '../../../contexts/hooks/useTrajectory';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
+import { useRobotManager } from '../../../contexts/hooks/useRobotManager';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
 
 /**
@@ -10,6 +11,7 @@ import LiveTrajectoryGraph from './LiveTrajectoryGraph';
  */
 const TrajectoryViewer = ({ viewerRef }) => {
   const { activeRobotId, isReady, hasJoints, hasValidEndEffector, isUsingTCP } = useRobotControl(viewerRef);
+  const { categories, getRobotById } = useRobotManager();
   
   // Use specialized hooks for clean separation
   const {
@@ -17,6 +19,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
     startRecording,
     stopRecording,
     lastRecordedFrame,
+    recordingState,
     canRecord
   } = useTrajectoryRecording(activeRobotId);
   
@@ -32,29 +35,28 @@ const TrajectoryViewer = ({ viewerRef }) => {
   
   const {
     trajectories,
-    getTrajectory,
     deleteTrajectory,
     hasTrajectories,
     count: trajectoryCount,
-    exportTrajectory,
-    importTrajectory,
-    analyzeTrajectory
+    analyzeTrajectory,
+    scanTrajectories,
+    isScanning
   } = useTrajectoryManagement(activeRobotId);
   
-  // Get main hook for error handling
+  // Get main hook for error handling and file system operations
   const {
     error,
     isLoading,
-    clearError
+    clearError,
   } = useTrajectory(activeRobotId);
 
   // ========== UI-ONLY STATE ==========
-  const [selectedTrajectory, setSelectedTrajectory] = useState('');
+  const [selectedTrajectory, setSelectedTrajectory] = useState(null);
   const [newTrajectoryName, setNewTrajectoryName] = useState('');
   const [recordInterval, setRecordInterval] = useState(100);
   const [showLiveGraph, setShowLiveGraph] = useState(false);
   const [playbackOptions, setPlaybackOptions] = useState({
-    speed: 0.5,
+    speed: 1.0,
     loop: false
   });
   const [showAnalysis, setShowAnalysis] = useState(false);
@@ -62,12 +64,28 @@ const TrajectoryViewer = ({ viewerRef }) => {
 
   // ========== UI EFFECTS ==========
   
-  // Auto-select first trajectory
+  // Auto-select first trajectory from available (file-based) trajectories
   useEffect(() => {
     if (trajectories.length > 0 && !selectedTrajectory) {
       setSelectedTrajectory(trajectories[0]);
+    } else if (trajectories.length === 0) {
+      setSelectedTrajectory(null);
     }
   }, [trajectories, selectedTrajectory]);
+
+  // Initial scan of file system trajectories on mount and when robot changes
+  useEffect(() => {
+    if (activeRobotId) {
+      scanTrajectories();
+    }
+  }, [activeRobotId, scanTrajectories]);
+
+  // The robotTrajectories memo is no longer strictly needed here,
+  // as `useTrajectoryManagement`'s `trajectories` already filters by robot.
+  // However, keeping it for clarity if filtering logic ever changes.
+  const robotTrajectories = useMemo(() => {
+    return trajectories;
+  }, [trajectories]);
 
   // ========== UI EVENT HANDLERS ==========
 
@@ -82,35 +100,38 @@ const TrajectoryViewer = ({ viewerRef }) => {
     });
 
     if (success) {
-      setSelectedTrajectory(newTrajectoryName);
       setNewTrajectoryName('');
     } else {
       alert('Failed to start recording. Check console for details.');
     }
   };
 
-  const handleStopRecording = () => {
-    const trajectory = stopRecording();
+  const handleStopRecording = async () => {
+    const trajectory = await stopRecording();
     if (trajectory) {
       console.log(`[TrajectoryViewer] Recording completed: ${trajectory.frameCount} frames`);
+      setSelectedTrajectory(trajectory);
+      setTimeout(() => {
+        scanTrajectories();
+      }, 500);
     }
   };
 
-  const handlePlayTrajectory = (trajectoryName) => {
+  const handlePlayTrajectory = (trajectoryInfo) => {
     if (!canPlay) {
       alert('Robot not ready for playback');
       return;
     }
 
-    const success = playTrajectory(trajectoryName, {
+    const success = playTrajectory(trajectoryInfo, {
       ...playbackOptions,
       onComplete: () => {
-        console.log(`[TrajectoryViewer] Playback of "${trajectoryName}" completed`);
+        console.log(`[TrajectoryViewer] Playback of "${trajectoryInfo.name}" completed`);
       }
     });
 
     if (success) {
-      setSelectedTrajectory(trajectoryName);
+      setSelectedTrajectory(trajectoryInfo);
     } else {
       alert('Failed to start playback. Check console for details.');
     }
@@ -123,64 +144,22 @@ const TrajectoryViewer = ({ viewerRef }) => {
     }
   };
 
-  const handleDeleteTrajectory = (trajectoryName) => {
-    if (!window.confirm(`Delete trajectory "${trajectoryName}"?`)) return;
+  const handleDeleteTrajectory = async (trajectoryInfo) => {
+    if (!window.confirm(`Delete trajectory "${trajectoryInfo.name}"?`)) return;
 
-    const success = deleteTrajectory(trajectoryName);
+    const success = await deleteTrajectory(trajectoryInfo.manufacturer, trajectoryInfo.model, trajectoryInfo.name);
     if (success) {
-      if (selectedTrajectory === trajectoryName) {
-        setSelectedTrajectory('');
+      if (selectedTrajectory?.id === trajectoryInfo.id) {
+        setSelectedTrajectory(null);
       }
-      console.log(`[TrajectoryViewer] Deleted trajectory: ${trajectoryName}`);
+      console.log(`[TrajectoryViewer] Deleted trajectory: ${trajectoryInfo.name}`);
     } else {
       alert('Failed to delete trajectory');
     }
   };
 
-  const handleExportTrajectory = (trajectoryName) => {
-    const jsonData = exportTrajectory(trajectoryName);
-    if (!jsonData) {
-      alert('Failed to export trajectory');
-      return;
-    }
-
-    // Create and download file
-    const blob = new Blob([jsonData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${activeRobotId}_${trajectoryName}_${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImportTrajectory = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const trajectory = importTrajectory(e.target.result);
-        if (trajectory) {
-          setSelectedTrajectory(trajectory.name);
-          console.log(`[TrajectoryViewer] Imported trajectory: ${trajectory.name}`);
-        } else {
-          alert('Failed to import trajectory. Check file format.');
-        }
-      } catch (error) {
-        console.error('Import error:', error);
-        alert('Error importing trajectory: ' + error.message);
-      }
-    };
-    reader.readAsText(file);
-    event.target.value = ''; // Reset input
-  };
-
-  const handleAnalyzeTrajectory = (trajectoryName) => {
-    const analysis = analyzeTrajectory(trajectoryName);
+  const handleAnalyzeTrajectory = async (trajectoryInfo) => {
+    const analysis = await analyzeTrajectory(trajectoryInfo);
     if (analysis) {
       setAnalysisData(analysis);
       setShowAnalysis(true);
@@ -232,11 +211,9 @@ const TrajectoryViewer = ({ viewerRef }) => {
             backgroundColor: '#ff0000',
             animation: 'pulse 1s infinite'
           }}></div>
-          <span>Recording "{selectedTrajectory}"</span>
-          {lastRecordedFrame && (
+          <span>Recording "{recordingState.trajectoryName}"</span>
+          {recordingState.frameCount > 0 && (
             <small className="controls-text-muted">
-              {lastRecordedFrame.frameCount} frames • 
-              {lastRecordedFrame.hasEndEffector ? ' End effector tracked' : ' No end effector'}
             </small>
           )}
         </div>
@@ -248,350 +225,239 @@ const TrajectoryViewer = ({ viewerRef }) => {
     if (!isPlaying) return null;
     return (
       <div className="controls-alert controls-alert-success controls-mb-3">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span>Playing "{selectedTrajectory}"</span>
-          <span>{(playbackProgress * 100).toFixed(1)}%</span>
-        </div>
-        <div className="controls-progress controls-mt-2">
-          <div 
-            className="controls-progress-bar" 
-            style={{ width: `${playbackProgress * 100}%` }}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div className="playback-indicator" style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            backgroundColor: '#28a745',
+            animation: 'pulse 1s infinite'
+          }}></div>
+          <span>Playing "{selectedTrajectory?.name}"</span>
+          <small className="controls-text-muted">
+            {Math.round(playbackProgress * 100)}% complete
+          </small>
         </div>
       </div>
     );
   };
 
-  // ========== MAIN RENDER ==========
+  const renderTrajectoryList = () => (
+    <div className="controls-mb-3">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <h5 className="controls-h6 controls-mb-0">Saved Trajectory Files ({trajectoryCount})</h5>
+        <button
+          className="controls-btn controls-btn-sm controls-btn-outline-secondary"
+          onClick={scanTrajectories}
+          disabled={isScanning || isLoading}
+          title="Refresh"
+        >
+          🔄
+        </button>
+      </div>
+      
+      {isScanning || isLoading ? (
+        <p className="controls-text-muted">Loading trajectories...</p>
+      ) : robotTrajectories.length === 0 ? (
+        <p className="controls-text-muted">No saved trajectories for this robot</p>
+      ) : (
+        <div className="controls-list-group">
+          {robotTrajectories.map((traj) => (
+            <div
+              key={traj.id}
+              className={`controls-list-group-item ${selectedTrajectory?.id === traj.id ? 'active' : ''}`}
+              onClick={() => setSelectedTrajectory(traj)}
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
+              <div>
+                <div>{traj.name}</div>
+                <small className="controls-text-muted">
+                  {traj.frameCount} frames • {(traj.duration / 1000).toFixed(1)}s
+                  {traj.recordedAt && ` • ${new Date(traj.recordedAt).toLocaleDateString()}`}
+                </small>
+              </div>
+              <div className="controls-btn-group">
+                <button
+                  className="controls-btn controls-btn-sm controls-btn-outline-primary"
+                  onClick={(e) => { e.stopPropagation(); handlePlayTrajectory(traj); }}
+                  disabled={isPlaying || isRecording}
+                  title="Play"
+                >
+                  ▶
+                </button>
+                <button
+                  className="controls-btn controls-btn-sm controls-btn-outline-info"
+                  onClick={(e) => { e.stopPropagation(); handleAnalyzeTrajectory(traj); }}
+                  title="Analyze"
+                >
+                  📊
+                </button>
+                <button
+                  className="controls-btn controls-btn-sm controls-btn-outline-danger"
+                  onClick={(e) => { e.stopPropagation(); handleDeleteTrajectory(traj); }}
+                  disabled={isLoading || isPlaying || isRecording}
+                  title="Delete"
+                >
+                  🗑
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
-  if (!isReady || !activeRobotId) {
+  // ========== MAIN RENDER ==========
+  if (!activeRobotId) {
     return (
-      <div className="urdf-controls-section">
-        <h3>Trajectory Recording</h3>
-        <p className="controls-text-muted">No robot selected. Please load a robot first.</p>
+      <div className="controls-p-3">
+        <div className="controls-alert controls-alert-warning">
+          Please select a robot to use trajectory recording
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="urdf-controls-section">
-      <h3>Trajectory Recording - {activeRobotId}</h3>
-
-      {/* Error Display */}
+    <div className="controls-p-3">
       {error && (
         <div className="controls-alert controls-alert-danger controls-mb-3">
           {error}
-          <button 
-            className="controls-btn controls-btn-sm controls-btn-outline-danger controls-mt-2"
+          <button
+            type="button"
+            className="controls-close"
             onClick={clearError}
+            aria-label="Close"
           >
-            Dismiss
+            ×
           </button>
         </div>
       )}
 
-      {/* Robot Status */}
       {renderRobotStatus()}
-
-      {/* Recording Status */}
       {renderRecordingStatus()}
-
-      {/* Playback Status */}
       {renderPlaybackStatus()}
 
       {/* Recording Controls */}
-      <div className="trajectory-recording controls-mb-4">
-        <h4>Record New Trajectory</h4>
-        
-        <div className="controls-form-group">
-          <label className="controls-form-label">Trajectory Name:</label>
-          <input
-            type="text"
-            className="controls-form-control"
-            placeholder="Enter trajectory name"
-            value={newTrajectoryName}
-            onChange={(e) => setNewTrajectoryName(e.target.value)}
-            disabled={isRecording || isPlaying}
-          />
-        </div>
-
-        <div className="controls-form-group">
-          <label className="controls-form-label">
-            Recording Interval (ms):
+      <div className="controls-mb-3">
+        <h5 className="controls-h6 controls-mb-2">Recording</h5>
+        {!isRecording ? (
+          <div className="controls-input-group">
             <input
-              type="number"
+              type="text"
               className="controls-form-control"
-              min="10"
-              max="1000"
-              step="10"
-              value={recordInterval}
-              onChange={(e) => setRecordInterval(parseInt(e.target.value, 10))}
-              disabled={isRecording || isPlaying}
-              style={{ width: '100px', marginLeft: '0.5rem' }}
+              placeholder="Trajectory name"
+              value={newTrajectoryName}
+              onChange={(e) => setNewTrajectoryName(e.target.value)}
+              disabled={!canRecord || isPlaying}
             />
-          </label>
-        </div>
-
-        <div className="controls-btn-group">
-          {!isRecording ? (
-            <button 
-              className="controls-btn controls-btn-success"
+            <button
+              className="controls-btn controls-btn-primary"
               onClick={handleStartRecording}
               disabled={!canRecord || !newTrajectoryName.trim() || isPlaying}
             >
-              🔴 Start Recording
+              Start Recording
             </button>
-          ) : (
-            <button 
-              className="controls-btn controls-btn-danger"
-              onClick={handleStopRecording}
-            >
-              ⏹️ Stop Recording
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Playback Options */}
-      <div className="controls-mb-4">
-        <h4>Playback Options</h4>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
-          <label>
-            Speed:
-            <input
-              type="number"
-              min="0.1"
-              max="5"
-              step="0.1"
-              value={playbackOptions.speed}
-              onChange={(e) => handlePlaybackOptionChange('speed', parseFloat(e.target.value))}
-              disabled={isRecording || isPlaying}
-              style={{ width: '80px', marginLeft: '0.5rem' }}
-            />
-          </label>
-          
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <input
-              type="checkbox"
-              checked={playbackOptions.loop}
-              onChange={(e) => handlePlaybackOptionChange('loop', e.target.checked)}
-              disabled={isRecording || isPlaying}
-            />
-            Loop
-          </label>
-        </div>
-      </div>
-
-      {/* 3D Visualization */}
-      <div className="controls-mb-4">
-        <button 
-          className="controls-btn controls-btn-info controls-btn-block"
-          onClick={() => setShowLiveGraph(true)}
-          style={{ fontSize: '1rem', fontWeight: '500' }}
-        >
-          📊 View 3D Trajectory Graph
-        </button>
-
-        {showLiveGraph && (
-          <LiveTrajectoryGraph 
-            isOpen={showLiveGraph}
-            onClose={() => setShowLiveGraph(false)}
-            activeRobotId={activeRobotId}
-          />
-        )}
-      </div>
-
-      {/* Import/Export */}
-      <div className="controls-mb-4">
-        <h4>Import/Export</h4>
-        <div className="controls-btn-group">
-          <label className="controls-btn controls-btn-secondary" style={{ margin: 0, cursor: 'pointer' }}>
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleImportTrajectory}
-              style={{ display: 'none' }}
-              disabled={isRecording || isPlaying}
-            />
-            📥 Import
-          </label>
-        </div>
-      </div>
-
-      {/* Trajectory List */}
-      <div className="trajectory-list">
-        <h4>Saved Trajectories ({trajectoryCount})</h4>
-        
-        {!hasTrajectories ? (
-          <div className="controls-text-muted controls-text-center controls-p-3">
-            No trajectories recorded for {activeRobotId}
           </div>
         ) : (
-          <div className="controls-list">
-            {trajectories.map(trajectoryName => (
-              <div key={trajectoryName} className="controls-list-item">
-                <div className="controls-list-item-content">
-                  <h6 
-                    className="controls-list-item-title"
-                    style={{ 
-                      cursor: 'pointer',
-                      color: selectedTrajectory === trajectoryName ? '#007bff' : 'inherit'
-                    }}
-                    onClick={() => setSelectedTrajectory(trajectoryName)}
-                  >
-                    {trajectoryName}
-                    {selectedTrajectory === trajectoryName && (
-                      <span className="controls-badge controls-badge-primary controls-ml-2">
-                        Selected
-                      </span>
-                    )}
-                  </h6>
-                  
-                  {(() => {
-                    const trajectory = getTrajectory(trajectoryName);
-                    return trajectory ? (
-                      <div className="controls-text-muted controls-small">
-                        {trajectory.frameCount || 0} frames • {(trajectory.duration / 1000).toFixed(1)}s
-                        {trajectory.endEffectorPath && (
-                          <span> • End effector tracked</span>
-                        )}
-                      </div>
-                    ) : null;
-                  })()}
-                </div>
-                
-                <div className="controls-list-item-actions">
-                  <div className="controls-btn-group controls-btn-group-sm">
-                    <button 
-                      className="controls-btn controls-btn-sm controls-btn-success"
-                      onClick={() => handlePlayTrajectory(trajectoryName)}
-                      disabled={!canPlay || isRecording || isPlaying}
-                      title="Play trajectory"
-                    >
-                      ▶️
-                    </button>
-                    
-                    <button 
-                      className="controls-btn controls-btn-sm controls-btn-info"
-                      onClick={() => handleAnalyzeTrajectory(trajectoryName)}
-                      disabled={isRecording || isPlaying}
-                      title="Analyze trajectory"
-                    >
-                      📊
-                    </button>
-                    
-                    <button 
-                      className="controls-btn controls-btn-sm controls-btn-secondary"
-                      onClick={() => handleExportTrajectory(trajectoryName)}
-                      disabled={isRecording || isPlaying}
-                      title="Export trajectory"
-                    >
-                      📤
-                    </button>
-                    
-                    <button 
-                      className="controls-btn controls-btn-sm controls-btn-danger"
-                      onClick={() => handleDeleteTrajectory(trajectoryName)}
-                      disabled={isRecording || isPlaying}
-                      title="Delete trajectory"
-                    >
-                      🗑️
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div className="controls-alert controls-alert-warning">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Recording in progress...</span>
+              <button
+                className="controls-btn controls-btn-danger"
+                onClick={handleStopRecording}
+              >
+                Stop Recording
+              </button>
+            </div>
           </div>
         )}
       </div>
 
-      {/* Active Playback Controls */}
-      {isPlaying && (
-        <div className="controls-mt-4" style={{
-          padding: '1rem',
-          backgroundColor: '#e8f5e8',
-          borderRadius: '4px',
-          border: '1px solid #28a745'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <strong>Playing:</strong> {selectedTrajectory}
-            </div>
-            <button 
-              className="controls-btn controls-btn-sm controls-btn-warning"
-              onClick={handleStopPlayback}
-            >
-              ⏹️ Stop Playback
-            </button>
+      {renderTrajectoryList()}
+
+      {/* Playback Controls (optional, moved from TrajectoryPanel example) */}
+      {selectedTrajectory && !isRecording && (
+        <div className="controls-mb-3">
+          <h5 className="controls-h6 controls-mb-2">Playback Options</h5>
+          <div className="controls-input-group controls-mb-2">
+            <span className="controls-input-group-text">Speed</span>
+            <input
+              type="number"
+              className="controls-form-control"
+              value={playbackOptions.speed}
+              onChange={(e) => handlePlaybackOptionChange('speed', parseFloat(e.target.value))}
+              step="0.1"
+              min="0.1"
+              max="5.0"
+              disabled={isPlaying}
+            />
           </div>
-          
-          <div className="controls-mt-2">
-            <div><strong>Progress:</strong> {(playbackProgress * 100).toFixed(1)}%</div>
-            
-            {playbackPosition && (
-              <div className="controls-small controls-text-muted">
-                End Effector: ({playbackPosition.x.toFixed(3)}, {playbackPosition.y.toFixed(3)}, {playbackPosition.z.toFixed(3)})
-              </div>
-            )}
+          <div className="controls-form-check">
+            <input
+              type="checkbox"
+              className="controls-form-check-input"
+              id="loopPlayback"
+              checked={playbackOptions.loop}
+              onChange={(e) => handlePlaybackOptionChange('loop', e.target.checked)}
+              disabled={isPlaying}
+            />
+            <label className="controls-form-check-label" htmlFor="loopPlayback">Loop Playback</label>
           </div>
         </div>
       )}
 
       {/* Analysis Modal */}
       {showAnalysis && analysisData && (
-        <div className="controls-modal-overlay">
-          <div className="controls-modal" style={{ maxWidth: '800px' }}>
-            <div className="controls-modal-header">
-              <h3>Trajectory Analysis: {analysisData.name}</h3>
-              <button 
-                className="controls-close"
-                onClick={() => setShowAnalysis(false)}
-              >
-                ×
-              </button>
-            </div>
-            
-            <div className="controls-modal-body">
-              <div className="controls-grid controls-grid-cols-2 controls-gap-4">
-                <div>
-                  <h5>Basic Info</h5>
-                  <p><strong>Frames:</strong> {analysisData.frameCount}</p>
-                  <p><strong>Duration:</strong> {(analysisData.duration / 1000).toFixed(1)}s</p>
-                  <p><strong>Robot:</strong> {analysisData.robotId}</p>
-                </div>
-                
-                <div>
-                  <h5>End Effector</h5>
-                  <p><strong>Distance:</strong> {analysisData.endEffectorStats.totalDistance.toFixed(3)}m</p>
-                  <p><strong>Max Velocity:</strong> {analysisData.endEffectorStats.maxVelocity.toFixed(3)}m/s</p>
-                  <p><strong>Avg Velocity:</strong> {analysisData.endEffectorStats.averageVelocity.toFixed(3)}m/s</p>
-                </div>
+        <div className="controls-modal" style={{ display: 'block' }}>
+          <div className="controls-modal-dialog">
+            <div className="controls-modal-content">
+              <div className="controls-modal-header">
+                <h5 className="controls-modal-title">
+                  Trajectory Analysis: {analysisData.name}
+                </h5>
+                <button
+                  type="button"
+                  className="controls-close"
+                  onClick={() => setShowAnalysis(false)}
+                  aria-label="Close"
+                >
+                  ×
+                </button>
               </div>
-              
-              <div className="controls-mt-4">
-                <h5>Joint Statistics</h5>
-                <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
-                  {Object.entries(analysisData.jointStats).map(([jointName, stats]) => (
-                    <div key={jointName} className="controls-mb-2">
-                      <strong>{jointName}:</strong> 
-                      <span className="controls-ml-2">
-                        Range: {stats.range.toFixed(3)} rad • 
-                        Final: {stats.final.toFixed(3)} rad
-                      </span>
+              <div className="controls-modal-body">
+                <div className="controls-row">
+                  <div className="controls-col-md-4">
+                    <h6>General</h6>
+                    <p>Frames: {analysisData.frameCount}</p>
+                    <p>Duration: {(analysisData.duration / 1000).toFixed(2)}s</p>
+                  </div>
+                  <div className="controls-col-md-4">
+                    <h6>Joint Statistics</h6>
+                    {Object.entries(analysisData.jointStats).map(([joint, stats]) => (
+                      <div key={joint}>
+                        <strong>{joint}:</strong>
+                        <span> Range: {stats.range.toFixed(3)}rad</span>
+                        <span> ({stats.min.toFixed(3)} to {stats.max.toFixed(3)})</span>
+                        {stats.final !== undefined && <span> • Final: {stats.final.toFixed(3)}</span>}
+                      </div>
+                    ))}
+                  </div>
+                  {analysisData.endEffectorStats.totalDistance > 0 && (
+                    <div className="controls-col-md-4">
+                      <h6>End Effector</h6>
+                      <p>Total Distance: {analysisData.endEffectorStats.totalDistance.toFixed(3)}m</p>
+                      <p>Max Velocity: {analysisData.endEffectorStats.maxVelocity.toFixed(3)}m/s</p>
+                      <p>Avg Velocity: {analysisData.endEffectorStats.averageVelocity.toFixed(3)}m/s</p>
+                      <p>Bounds X: [{analysisData.endEffectorStats.bounds.min.x.toFixed(3)}, {analysisData.endEffectorStats.bounds.max.x.toFixed(3)}]</p>
+                      <p>Bounds Y: [{analysisData.endEffectorStats.bounds.min.y.toFixed(3)}, {analysisData.endEffectorStats.bounds.max.y.toFixed(3)}]</p>
+                      <p>Bounds Z: [{analysisData.endEffectorStats.bounds.min.z.toFixed(3)}, {analysisData.endEffectorStats.bounds.max.z.toFixed(3)}]</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Loading Overlay */}
-      {isLoading && (
-        <div className="controls-loading-overlay">
-          <div className="controls-spinner-border" role="status">
-            <span className="controls-sr-only">Processing...</span>
           </div>
         </div>
       )}

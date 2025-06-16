@@ -819,6 +819,348 @@ app.use((err, req, res, next) => {
   });
 });
 
+// ========== TRAJECTORY MANAGEMENT ==========
+
+// Scan trajectory files
+app.get('/api/trajectory/scan', (req, res) => {
+  try {
+    const trajectoryPath = path.join(__dirname, '..', '..', 'public', 'trajectory');
+    
+    // Create trajectory directory if it doesn't exist
+    if (!fs.existsSync(trajectoryPath)) {
+      fs.mkdirSync(trajectoryPath, { recursive: true });
+    }
+    
+    const trajectories = [];
+    const manufacturers = fs.readdirSync(trajectoryPath, { withFileTypes: true })
+      .filter(dirent => dirent.isDirectory())
+      .map(dirent => dirent.name);
+    
+    manufacturers.forEach((manufacturer) => {
+      const manufacturerPath = path.join(trajectoryPath, manufacturer);
+      const models = fs.readdirSync(manufacturerPath, { withFileTypes: true })
+        .filter(dirent => dirent.isDirectory())
+        .map(dirent => dirent.name);
+      
+      models.forEach((model) => {
+        const modelPath = path.join(manufacturerPath, model);
+        const files = fs.readdirSync(modelPath)
+          .filter(file => file.endsWith('.json'));
+        
+        files.forEach((file) => {
+          const filePath = path.join(modelPath, file);
+          try {
+            const data = fs.readFileSync(filePath, 'utf8');
+            const trajectory = JSON.parse(data);
+            
+            trajectories.push({
+              id: `${manufacturer}_${model}_${path.basename(file, '.json')}`,
+              name: trajectory.name || path.basename(file, '.json'),
+              manufacturer: manufacturer,
+              model: model,
+              robotId: trajectory.robotId || `${manufacturer}_${model}`,
+              path: `/trajectory/${manufacturer}/${model}/${file}`,
+              fileName: file,
+              frameCount: trajectory.frameCount || trajectory.frames?.length || 0,
+              duration: trajectory.duration || 0,
+              recordedAt: trajectory.recordedAt || null
+            });
+          } catch (err) {
+            console.error(`Error reading trajectory file ${file}:`, err);
+          }
+        });
+      });
+    });
+    
+    res.json({
+      success: true,
+      trajectories: trajectories
+    });
+  } catch (error) {
+    console.error('Trajectory scan error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// Save trajectory endpoint
+app.post('/api/trajectory/save', express.json({ limit: '10mb' }), (req, res) => {
+  console.log('=== SAVE TRAJECTORY REQUEST ===');
+  
+  try {
+    const { manufacturer, model, name, data } = req.body;
+    
+    console.log('Processing trajectory:', { manufacturer, model, name });
+    
+    if (!manufacturer || !model || !name || !data) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields'
+      });
+    }
+    
+    // Create directory structure
+    const trajectoryDir = path.join(__dirname, '..', '..', 'public', 'trajectory', manufacturer, model);
+    if (!fs.existsSync(trajectoryDir)) {
+      fs.mkdirSync(trajectoryDir, { recursive: true });
+    }
+    
+    // Save trajectory file
+    const fileName = `${name}.json`;
+    const filePath = path.join(trajectoryDir, fileName);
+    
+    // Add metadata
+    const trajectoryData = {
+      ...data,
+      manufacturer,
+      model,
+      savedAt: new Date().toISOString()
+    };
+    
+    fs.writeFileSync(filePath, JSON.stringify(trajectoryData, null, 2));
+    
+    res.json({
+      success: true,
+      message: 'Trajectory saved successfully',
+      path: `/trajectory/${manufacturer}/${model}/${fileName}`
+    });
+    
+  } catch (error) {
+    console.error('Trajectory save error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: error.message
+    });
+  }
+});
+
+// Load trajectory file
+app.get('/api/trajectory/load/:manufacturer/:model/:name', (req, res) => {
+  try {
+    const { manufacturer, model, name } = req.params;
+    const filePath = path.join(__dirname, '..', '..', 'public', 'trajectory', manufacturer, model, `${name}.json`);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Trajectory not found'
+      });
+    }
+    
+    const data = fs.readFileSync(filePath, 'utf8');
+    const trajectory = JSON.parse(data);
+    
+    res.json({
+      success: true,
+      trajectory: trajectory
+    });
+  } catch (error) {
+    console.error('Trajectory load error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// Delete trajectory file
+app.delete('/api/trajectory/delete/:manufacturer/:model/:name', (req, res) => {
+  try {
+    const { manufacturer, model, name } = req.params;
+    const filePath = path.join(__dirname, '..', '..', 'public', 'trajectory', manufacturer, model, `${name}.json`);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Trajectory not found'
+      });
+    }
+    
+    fs.unlinkSync(filePath);
+    
+    res.json({
+      success: true,
+      message: 'Trajectory deleted successfully'
+    });
+  } catch (error) {
+    console.error('Trajectory delete error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
+// Configure multer for trajectory uploads
+const trajectoryStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    // Get manufacturer and model from form data
+    const manufacturer = req.body.manufacturer || 'unknown';
+    const model = req.body.model || 'unknown';
+    
+    // Create safe directory names
+    const safeManufacturer = manufacturer.toLowerCase().replace(/[^a-zA-Z0-9]/g, '');
+    const safeModel = model.toLowerCase().replace(/[^a-zA-Z0-9]/g, '');
+    
+    const uploadPath = path.join(__dirname, '..', '..', 'public', 'trajectory', safeManufacturer, safeModel);
+    
+    console.log('Creating trajectory upload path:', uploadPath);
+    
+    // Create directory if it doesn't exist
+    try {
+      fs.mkdirSync(uploadPath, { recursive: true });
+      cb(null, uploadPath);
+    } catch (error) {
+      console.error('Error creating directory:', error);
+      cb(error);
+    }
+  },
+  filename: function (req, file, cb) {
+    // Create filename based on trajectory name
+    const trajectoryName = req.body.trajectoryName || 'trajectory';
+    const safeName = trajectoryName.toLowerCase().replace(/[^a-zA-Z0-9]/g, '_');
+    const timestamp = Date.now();
+    const filename = `${safeName}_${timestamp}.json`;
+    
+    console.log('Saving trajectory file:', filename);
+    cb(null, filename);
+  }
+});
+
+const trajectoryUpload = multer({
+  storage: trajectoryStorage,
+  fileFilter: function (req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.json') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only JSON files are allowed'), false);
+    }
+  },
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
+  }
+});
+
+// Scan trajectories endpoint
+app.get('/api/trajectory/scan', (req, res) => {
+  try {
+    const trajectoryDir = path.join(__dirname, '..', '..', 'public', 'trajectory');
+    
+    if (!fs.existsSync(trajectoryDir)) {
+      return res.json({ success: true, trajectories: [] });
+    }
+    
+    const trajectories = [];
+    
+    // Scan for manufacturer directories
+    const manufacturerDirs = fs.readdirSync(trajectoryDir, { withFileTypes: true })
+      .filter(dirent => dirent.isDirectory());
+    
+    manufacturerDirs.forEach(manufacturerDir => {
+      const manufacturerPath = path.join(trajectoryDir, manufacturerDir.name);
+      
+      // Scan for model directories
+      const modelDirs = fs.readdirSync(manufacturerPath, { withFileTypes: true })
+        .filter(dirent => dirent.isDirectory());
+      
+      modelDirs.forEach(modelDir => {
+        const modelPath = path.join(manufacturerPath, modelDir.name);
+        
+        // Scan for trajectory files
+        const files = fs.readdirSync(modelPath, { withFileTypes: true })
+          .filter(dirent => dirent.isFile() && path.extname(dirent.name) === '.json');
+        
+        files.forEach(file => {
+          const filePath = path.join(modelPath, file.name);
+          const stats = fs.statSync(filePath);
+          
+          // Parse trajectory data
+          const trajectoryData = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+          
+          trajectories.push({
+            id: `${manufacturerDir.name}_${modelDir.name}_${file.name.replace('.json', '')}`,
+            name: trajectoryData.name || file.name.replace('.json', ''),
+            manufacturer: manufacturerDir.name,
+            model: modelDir.name,
+            filename: file.name,
+            path: `/trajectory/${manufacturerDir.name}/${modelDir.name}/${file.name}`,
+            frameCount: trajectoryData.frameCount || 0,
+            duration: trajectoryData.duration || 0,
+            size: stats.size,
+            recordedAt: trajectoryData.recordedAt || new Date(stats.mtime).toISOString()
+          });
+        });
+      });
+    });
+    
+    res.json({ 
+      success: true, 
+      trajectories 
+    });
+    
+  } catch (error) {
+    console.error('Error scanning trajectories:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: `Error scanning trajectories: ${error.message}` 
+    });
+  }
+});
+
+// Delete trajectory endpoint
+app.delete('/api/trajectory/delete', express.json(), (req, res) => {
+  try {
+    const { path: filePath } = req.body;
+    
+    if (!filePath || !filePath.startsWith('/trajectory/')) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid path' 
+      });
+    }
+    
+    // Construct full path
+    const fullPath = path.join(__dirname, '..', '..', 'public', filePath);
+    
+    // Check if file exists
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'File not found' 
+      });
+    }
+    
+    // Check if it's a file (not directory)
+    const stats = fs.statSync(fullPath);
+    if (!stats.isFile()) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Path is not a file' 
+      });
+    }
+    
+    // Delete the file
+    fs.unlinkSync(fullPath);
+    
+    console.log(`Deleted trajectory file: ${filePath}`);
+    
+    res.json({ 
+      success: true, 
+      message: 'File deleted successfully' 
+    });
+    
+  } catch (error) {
+    console.error('Error deleting trajectory file:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: `Error deleting file: ${error.message}` 
+    });
+  }
+});
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

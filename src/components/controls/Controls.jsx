@@ -4,6 +4,7 @@ import ControlJoints from './ControlJoints/ControlJoints';
 import TCPController from './tcp/TCPController';
 import IKController from './IKController/IKController';
 import TrajectoryViewer from './RecordMap/TrajectoryViewer';
+import Reposition from './Reposition/Reposition';
 import { useRobotSelection } from '../../contexts/hooks/useRobotManager';
 
 const Controls = ({ viewerRef }) => {
@@ -27,6 +28,9 @@ const Controls = ({ viewerRef }) => {
       
       {/* IK Control */}
       <IKController />
+      
+      {/* Reposition Control */}
+      <Reposition viewerRef={viewerRef} />
       
       {/* Trajectory Control */}
       <TrajectoryViewer viewerRef={viewerRef} />

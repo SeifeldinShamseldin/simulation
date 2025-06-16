@@ -1,4 +1,4 @@
-// src/contexts/hooks/useTrajectory.js - EVENT-DRIVEN TRAJECTORY HOOK
+// src/contexts/hooks/useTrajectory.js - Direct File System Hook
 import { useCallback, useState, useEffect } from 'react';
 import { useTrajectoryContext } from '../TrajectoryContext';
 import { useRobotSelection } from './useRobotManager';
@@ -142,10 +142,10 @@ export const useTrajectory = (robotId = null) => {
     return success;
   }, [targetRobotId, context]);
 
-  const stopRecording = useCallback(() => {
+  const stopRecording = useCallback(async () => {
     if (!targetRobotId) return null;
     
-    const trajectory = context.stopRecording(targetRobotId);
+    const trajectory = await context.stopRecording(targetRobotId);
     
     if (trajectory) {
       console.log(`[useTrajectory] Recording completed: ${trajectory.frameCount} frames`);
@@ -159,13 +159,13 @@ export const useTrajectory = (robotId = null) => {
   }, [recordingState.isRecording]);
 
   // ========== PLAYBACK METHODS ==========
-  const playTrajectory = useCallback((trajectoryName, options = {}) => {
+  const playTrajectory = useCallback((trajectoryInfo, options = {}) => {
     if (!targetRobotId) {
       console.warn('[useTrajectory] No robot ID available for playback');
       return false;
     }
 
-    console.log(`[useTrajectory] Playing trajectory "${trajectoryName}" for robot ${targetRobotId}`);
+    console.log(`[useTrajectory] Playing trajectory "${trajectoryInfo.name}" for robot ${targetRobotId}`);
     
     // Enhance options with local callbacks
     const enhancedOptions = {
@@ -186,7 +186,7 @@ export const useTrajectory = (robotId = null) => {
       }
     };
     
-    return context.playTrajectory(trajectoryName, targetRobotId, enhancedOptions);
+    return context.playTrajectory(trajectoryInfo, targetRobotId, enhancedOptions);
   }, [targetRobotId, context]);
 
   const stopPlayback = useCallback(() => {
@@ -208,33 +208,16 @@ export const useTrajectory = (robotId = null) => {
   // ========== TRAJECTORY MANAGEMENT ==========
   const getTrajectories = useCallback(() => {
     if (!targetRobotId) return [];
-    return context.getTrajectoryNames(targetRobotId);
+    return context.getRobotTrajectories(targetRobotId);
   }, [targetRobotId, context]);
 
-  const getTrajectory = useCallback((trajectoryName) => {
-    if (!targetRobotId) return null;
-    return context.getTrajectory(trajectoryName, targetRobotId);
-  }, [targetRobotId, context]);
+  const deleteTrajectory = useCallback((manufacturer, model, name) => {
+    return context.deleteTrajectory(manufacturer, model, name);
+  }, [context]);
 
-  const deleteTrajectory = useCallback((trajectoryName) => {
-    if (!targetRobotId) return false;
-    return context.deleteTrajectory(trajectoryName, targetRobotId);
-  }, [targetRobotId, context]);
-
-  const exportTrajectory = useCallback((trajectoryName) => {
-    if (!targetRobotId) return null;
-    return context.exportTrajectory(trajectoryName, targetRobotId);
-  }, [targetRobotId, context]);
-
-  const importTrajectory = useCallback((jsonData) => {
-    if (!targetRobotId) return null;
-    return context.importTrajectory(jsonData, targetRobotId);
-  }, [targetRobotId, context]);
-
-  const analyzeTrajectory = useCallback((trajectoryName) => {
-    if (!targetRobotId) return null;
-    return context.analyzeTrajectory(trajectoryName, targetRobotId);
-  }, [targetRobotId, context]);
+  const analyzeTrajectory = useCallback((trajectoryInfo) => {
+    return context.analyzeTrajectory(trajectoryInfo);
+  }, [context]);
 
   // ========== RETURN INTERFACE ==========
   return {
@@ -257,17 +240,17 @@ export const useTrajectory = (robotId = null) => {
     
     // Trajectory management
     trajectories: getTrajectories(),
-    getTrajectory,
     deleteTrajectory,
-    hasTrajectories: context.hasTrajectories(targetRobotId),
-    count: context.getTrajectoryCount(targetRobotId),
-    
-    // Import/Export
-    exportTrajectory,
-    importTrajectory,
+    count: getTrajectories().length,
+    hasTrajectories: getTrajectories().length > 0,
     
     // Analysis
     analyzeTrajectory,
+    
+    // File System Operations
+    availableTrajectories: context.availableTrajectories,
+    isScanning: context.isScanning,
+    scanTrajectories: context.scanTrajectories,
     
     // Context state
     isLoading: context.isLoading,
@@ -317,13 +300,12 @@ export const useTrajectoryManagement = (robotId = null) => {
   return {
     robotId: trajectory.robotId,
     trajectories: trajectory.trajectories,
-    getTrajectory: trajectory.getTrajectory,
     deleteTrajectory: trajectory.deleteTrajectory,
-    exportTrajectory: trajectory.exportTrajectory,
-    importTrajectory: trajectory.importTrajectory,
     analyzeTrajectory: trajectory.analyzeTrajectory,
     hasTrajectories: trajectory.hasTrajectories,
-    count: trajectory.count
+    count: trajectory.count,
+    scanTrajectories: trajectory.scanTrajectories,
+    isScanning: trajectory.isScanning
   };
 };
 

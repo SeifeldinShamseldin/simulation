@@ -1,71 +1,185 @@
-// src/contexts/TrajectoryContext.jsx - FIXED PLAYBACK CLOSURE ISSUE
+// src/contexts/TrajectoryContext.jsx - Direct File System Save
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
 import { useJointContext } from './JointContext';
 import EventBus from '../utils/EventBus';
+import { useRobotManager } from './hooks/useRobotManager';
 
 const TrajectoryContext = createContext(null);
 
 export const TrajectoryProvider = ({ children }) => {
   // Only need JointContext for playback
   const { setJointValues, isRobotAnimating } = useJointContext();
+  const { getRobotById, categories } = useRobotManager();
   
   // ========== STATE ==========
-  const [trajectories, setTrajectories] = useState(new Map()); // Map<robotId, Map<trajectoryName, trajectory>>
   const [recordingStates, setRecordingStates] = useState(new Map()); // Map<robotId, recordingState>
   const [playbackStates, setPlaybackStates] = useState(new Map()); // Map<robotId, playbackState>
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   
+  // ========== FILE SYSTEM STATE ==========
+  const [availableTrajectories, setAvailableTrajectories] = useState([]);
+  const [isScanning, setIsScanning] = useState(false);
+
   // ========== REFS ==========
   const recordingDataRef = useRef(new Map()); // Map<robotId, { jointData, tcpData }>
   const playbackStatesRef = useRef(new Map()); // FIX: Add ref for playback states
-  const playbackFramesRef = useRef(new Map());
   const lastFrameTimeRef = useRef(new Map()); // Map<robotId, lastFrameTimestamp>
-  const recordingIntervalsRef = useRef(new Map()); // Map<robotId, intervalId>
 
-  // ========== TRAJECTORY STORAGE ==========
-  const getRobotTrajectories = useCallback((robotId) => {
-    if (!trajectories.has(robotId)) {
-      setTrajectories(prev => new Map(prev).set(robotId, new Map()));
+  // ========== FILE SYSTEM OPERATIONS ==========
+  const scanTrajectories = useCallback(async () => {
+    try {
+      setIsScanning(true);
+      setError(null);
+      
+      const response = await fetch('/api/trajectory/scan');
+      const result = await response.json();
+      
+      if (result.success) {
+        setAvailableTrajectories(result.trajectories || []);
+        console.log(`[TrajectoryContext] Found ${result.trajectories.length} trajectories`);
+      } else {
+        setError(result.message || 'Failed to scan trajectories');
+      }
+    } catch (error) {
+      console.error('[TrajectoryContext] Error scanning trajectories:', error);
+      setError('Failed to scan trajectories');
+    } finally {
+      setIsScanning(false);
     }
-    return trajectories.get(robotId);
-  }, [trajectories]);
-
-  const getTrajectoryNames = useCallback((robotId) => {
-    const robotTrajectories = getRobotTrajectories(robotId);
-    return Array.from(robotTrajectories.keys());
-  }, [getRobotTrajectories]);
-
-  const getTrajectory = useCallback((trajectoryName, robotId) => {
-    const robotTrajectories = getRobotTrajectories(robotId);
-    return robotTrajectories.get(trajectoryName);
-  }, [getRobotTrajectories]);
-
-  const saveTrajectory = useCallback((trajectory, robotId) => {
-    setTrajectories(prev => {
-      const newMap = new Map(prev);
-      if (!newMap.has(robotId)) {
-        newMap.set(robotId, new Map());
-      }
-      newMap.get(robotId).set(trajectory.name, trajectory);
-      return newMap;
-    });
   }, []);
 
-  const deleteTrajectory = useCallback((trajectoryName, robotId) => {
-    setTrajectories(prev => {
-      const newMap = new Map(prev);
-      const robotTrajectories = newMap.get(robotId);
-      if (robotTrajectories) {
-        robotTrajectories.delete(trajectoryName);
-        if (robotTrajectories.size === 0) {
-          newMap.delete(robotId);
-        }
+  // Get robot info for file path
+  const getRobotInfo = useCallback((robotId) => {
+    // Extract the base robot ID (e.g., 'crx10ial' from 'crx10ial_1750085029868')
+    const baseRobotId = robotId.split('_')[0];
+
+    // Find the robot's category to get the manufacturer
+    let manufacturer = 'unknown';
+    let model = baseRobotId.toLowerCase();
+    
+    for (const category of categories) {
+      if (category.robots.some(robot => robot.id === baseRobotId)) {
+        manufacturer = category.id;
+        const fullRobotData = getRobotById(baseRobotId);
+        model = fullRobotData?.name?.toLowerCase() || baseRobotId.toLowerCase();
+        break;
       }
-      return newMap;
-    });
+    }
+
+    return { manufacturer, model };
+  }, [categories, getRobotById]);
+
+  // Save trajectory to file system
+  const saveTrajectoryToFile = useCallback(async (trajectory, robotId) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const { manufacturer, model } = getRobotInfo(robotId);
+      
+      const response = await fetch('/api/trajectory/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          manufacturer,
+          model,
+          name: trajectory.name,
+          data: trajectory
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log(`[TrajectoryContext] Saved trajectory to: ${result.path}`);
+        
+        // Refresh available trajectories
+        await scanTrajectories();
+        
     return true;
+      } else {
+        setError(result.message || 'Failed to save trajectory');
+        return false;
+      }
+    } catch (error) {
+      console.error('[TrajectoryContext] Error saving trajectory:', error);
+      setError('Failed to save trajectory to file');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getRobotInfo, scanTrajectories]);
+
+  // Load trajectory from file system
+  const loadTrajectoryFromFile = useCallback(async (manufacturer, model, name) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await fetch(`/api/trajectory/load/${manufacturer}/${model}/${name}`);
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log(`[TrajectoryContext] Loaded trajectory: ${result.trajectory.name}`);
+        return result.trajectory;
+      } else {
+        setError(result.message || 'Failed to load trajectory');
+        return null;
+      }
+    } catch (error) {
+      console.error('[TrajectoryContext] Error loading trajectory:', error);
+      setError('Failed to load trajectory from file');
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
+
+  // Delete trajectory from file system
+  const deleteTrajectoryFromFile = useCallback(async (manufacturer, model, name) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      const response = await fetch(`/api/trajectory/delete/${manufacturer}/${model}/${name}`, {
+        method: 'DELETE'
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log(`[TrajectoryContext] Deleted trajectory: ${name}`);
+        
+        // Refresh available trajectories
+        await scanTrajectories();
+        
+        return true;
+      } else {
+        setError(result.message || 'Failed to delete trajectory');
+        return false;
+      }
+    } catch (error) {
+      console.error('[TrajectoryContext] Error deleting trajectory:', error);
+      setError('Failed to delete trajectory from file');
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [scanTrajectories]);
+
+  // Get available trajectories for a robot
+  const getRobotTrajectories = useCallback((robotId) => {
+    if (!robotId) return [];
+    
+    const { manufacturer, model } = getRobotInfo(robotId);
+    
+    return availableTrajectories.filter(traj => 
+      traj.manufacturer === manufacturer && traj.model === model
+    );
+  }, [availableTrajectories, getRobotInfo]);
 
   // ========== EVENT-DRIVEN RECORDING ==========
   
@@ -199,9 +313,9 @@ export const TrajectoryProvider = ({ children }) => {
     });
     
     return true;
-  }, [recordingStates]);
+  }, []);
 
-  const stopRecording = useCallback((robotId) => {
+  const stopRecording = useCallback(async (robotId) => {
     const recordingState = recordingStates.get(robotId);
     if (!recordingState) return null;
 
@@ -221,11 +335,6 @@ export const TrajectoryProvider = ({ children }) => {
       frameCount: recordingState.frames.length
     };
 
-    // Save trajectory only if we have frames
-    if (trajectory.frameCount > 0) {
-      saveTrajectory(trajectory, robotId);
-    }
-
     // Clear recording state
     setRecordingStates(prev => {
       const newMap = new Map(prev);
@@ -237,6 +346,14 @@ export const TrajectoryProvider = ({ children }) => {
     recordingDataRef.current.delete(robotId);
     lastFrameTimeRef.current.delete(robotId);
 
+    // Save trajectory to file system if we have frames
+    if (trajectory.frameCount > 0) {
+      const saved = await saveTrajectoryToFile(trajectory, robotId);
+      if (!saved) {
+        console.error('[TrajectoryContext] Failed to save trajectory to file');
+      }
+    }
+
     // Emit recording stopped event
     EventBus.emit('trajectory:recording-stopped', {
       robotId,
@@ -246,11 +363,17 @@ export const TrajectoryProvider = ({ children }) => {
 
     console.log(`[TrajectoryContext] Saved trajectory "${trajectory.name}" with ${trajectory.frameCount} frames`);
     return trajectory;
-  }, [recordingStates, saveTrajectory]);
+  }, [recordingStates, saveTrajectoryToFile]);
 
-  // ========== PLAYBACK VIA EVENTS - FIXED ==========
-  const playTrajectory = useCallback((trajectoryName, robotId, options = {}) => {
-    const trajectory = getTrajectory(trajectoryName, robotId);
+  // ========== PLAYBACK VIA EVENTS ==========
+  const playTrajectory = useCallback(async (trajectoryInfo, robotId, options = {}) => {
+    // Load trajectory from file
+    const trajectory = await loadTrajectoryFromFile(
+      trajectoryInfo.manufacturer,
+      trajectoryInfo.model,
+      trajectoryInfo.name
+    );
+    
     if (!trajectory || !trajectory.frames || trajectory.frames.length === 0) {
       setError('Invalid trajectory or no frames to play');
       return false;
@@ -267,7 +390,7 @@ export const TrajectoryProvider = ({ children }) => {
     // Stop existing playback for this robot
     stopPlayback(robotId);
 
-    console.log(`[TrajectoryContext] Starting playback "${trajectoryName}" for robot ${robotId}`);
+    console.log(`[TrajectoryContext] Starting playback "${trajectory.name}" for robot ${robotId}`);
 
     // Create playback state
     const playbackState = {
@@ -283,21 +406,21 @@ export const TrajectoryProvider = ({ children }) => {
       lastFrameTime: Date.now()
     };
 
-    // FIX: Store in both state and ref
+    // Store in both state and ref
     setPlaybackStates(prev => new Map(prev).set(robotId, playbackState));
     playbackStatesRef.current.set(robotId, playbackState);
     
     // Emit playback started event
     EventBus.emit('trajectory:playback-started', {
       robotId,
-      trajectoryName,
+      trajectoryName: trajectory.name,
       frameCount: trajectory.frameCount
     });
     
-    // FIX: Create playback function with proper closure handling
+    // Create playback function with proper closure handling
     const createPlaybackLoop = (robotIdParam) => {
       const playFrame = () => {
-        // FIX: Get state from ref instead of state variable
+        // Get state from ref instead of state variable
         const state = playbackStatesRef.current.get(robotIdParam);
         if (!state || !state.isPlaying) {
           console.log(`[TrajectoryContext] Playback stopped for ${robotIdParam}`);
@@ -353,7 +476,7 @@ export const TrajectoryProvider = ({ children }) => {
             // Update last frame time
             state.lastFrameTime = currentTime;
             
-            // FIX: Update the ref state
+            // Update the ref state
             playbackStatesRef.current.set(robotIdParam, state);
           } else {
             console.warn(`[TrajectoryContext] Failed to apply joint values for frame ${targetFrameIndex}`);
@@ -398,7 +521,7 @@ export const TrajectoryProvider = ({ children }) => {
     requestAnimationFrame(playbackLoop);
     
     return true;
-  }, [getTrajectory, isRobotAnimating, setJointValues]);
+  }, [loadTrajectoryFromFile, isRobotAnimating, setJointValues]);
 
   const stopPlayback = useCallback((robotId) => {
     const playbackState = playbackStatesRef.current.get(robotId);
@@ -406,7 +529,7 @@ export const TrajectoryProvider = ({ children }) => {
 
     console.log(`[TrajectoryContext] Stopping playback for robot ${robotId}`);
 
-    // FIX: Clear from both state and ref
+    // Clear from both state and ref
     playbackStatesRef.current.delete(robotId);
     setPlaybackStates(prev => {
       const newMap = new Map(prev);
@@ -430,13 +553,11 @@ export const TrajectoryProvider = ({ children }) => {
   }, [recordingStates]);
 
   const isPlaying = useCallback((robotId) => {
-    // FIX: Check ref instead of state
     const playbackState = playbackStatesRef.current.get(robotId);
     return playbackState && playbackState.isPlaying;
   }, []);
 
   const getPlaybackProgress = useCallback((robotId) => {
-    // FIX: Use ref instead of state
     const playbackState = playbackStatesRef.current.get(robotId);
     if (!playbackState || !playbackState.trajectory) return 0;
     
@@ -444,128 +565,105 @@ export const TrajectoryProvider = ({ children }) => {
     return Math.min(elapsed / playbackState.trajectory.duration, 1);
   }, []);
 
-  // ========== IMPORT/EXPORT ==========
-  const exportTrajectory = useCallback((trajectoryName, robotId) => {
-    const trajectory = getTrajectory(trajectoryName, robotId);
-    if (!trajectory) return null;
-    return JSON.stringify(trajectory, null, 2);
-  }, [getTrajectory]);
-
-  const importTrajectory = useCallback((jsonData, robotId) => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      
-      const trajectory = JSON.parse(jsonData);
-      
-      if (!trajectory.name || !trajectory.frames) {
-        throw new Error('Invalid trajectory format');
-      }
-
-      trajectory.robotId = robotId;
-      trajectory.importedAt = new Date().toISOString();
-      
-      saveTrajectory(trajectory, robotId);
-      return trajectory;
-    } catch (error) {
-      setError(`Import failed: ${error.message}`);
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [saveTrajectory]);
-
   // ========== ANALYSIS ==========
-  const analyzeTrajectory = useCallback((trajectoryName, robotId) => {
-    const trajectory = getTrajectory(trajectoryName, robotId);
-    if (!trajectory) return null;
-
-    const analysis = {
-      name: trajectory.name,
-      robotId: trajectory.robotId,
-      frameCount: trajectory.frames.length,
-      duration: trajectory.duration,
-      jointStats: {},
-      endEffectorStats: {
-        totalDistance: 0,
-        maxVelocity: 0,
-        averageVelocity: 0,
-        bounds: {
-          min: { x: Infinity, y: Infinity, z: Infinity },
-          max: { x: -Infinity, y: -Infinity, z: -Infinity }
-        }
-      }
-    };
-
-    // Joint analysis
-    if (trajectory.frames.length > 0) {
-      const jointNames = Object.keys(trajectory.frames[0].jointValues || {});
+  const analyzeTrajectory = useCallback(async (trajectoryInfo) => {
+    try {
+      const trajectory = await loadTrajectoryFromFile(
+        trajectoryInfo.manufacturer,
+        trajectoryInfo.model,
+        trajectoryInfo.name
+      );
       
-      jointNames.forEach(jointName => {
-        const values = trajectory.frames.map(frame => frame.jointValues[jointName] || 0);
-        analysis.jointStats[jointName] = {
-          min: Math.min(...values),
-          max: Math.max(...values),
-          range: Math.max(...values) - Math.min(...values),
-          final: values[values.length - 1]
-        };
-      });
-    }
+      if (!trajectory) return null;
 
-    // End effector analysis
-    if (trajectory.endEffectorPath && trajectory.endEffectorPath.length > 1) {
-      let totalDistance = 0;
-      const velocities = [];
-      
-      for (let i = 0; i < trajectory.endEffectorPath.length; i++) {
-        const pos = trajectory.endEffectorPath[i].position;
-        
-        // Update bounds
-        analysis.endEffectorStats.bounds.min.x = Math.min(analysis.endEffectorStats.bounds.min.x, pos.x);
-        analysis.endEffectorStats.bounds.min.y = Math.min(analysis.endEffectorStats.bounds.min.y, pos.y);
-        analysis.endEffectorStats.bounds.min.z = Math.min(analysis.endEffectorStats.bounds.min.z, pos.z);
-        analysis.endEffectorStats.bounds.max.x = Math.max(analysis.endEffectorStats.bounds.max.x, pos.x);
-        analysis.endEffectorStats.bounds.max.y = Math.max(analysis.endEffectorStats.bounds.max.y, pos.y);
-        analysis.endEffectorStats.bounds.max.z = Math.max(analysis.endEffectorStats.bounds.max.z, pos.z);
-        
-        // Calculate distance and velocity
-        if (i > 0) {
-          const prevPos = trajectory.endEffectorPath[i - 1].position;
-          const distance = Math.sqrt(
-            Math.pow(pos.x - prevPos.x, 2) +
-            Math.pow(pos.y - prevPos.y, 2) +
-            Math.pow(pos.z - prevPos.z, 2)
-          );
-          totalDistance += distance;
-          
-          const timeDelta = trajectory.endEffectorPath[i].timestamp - trajectory.endEffectorPath[i - 1].timestamp;
-          if (timeDelta > 0) {
-            const velocity = distance / (timeDelta / 1000);
-            velocities.push(velocity);
+      const analysis = {
+        name: trajectory.name,
+        robotId: trajectory.robotId,
+        frameCount: trajectory.frameCount,
+        duration: trajectory.duration,
+        jointStats: {},
+        endEffectorStats: {
+          totalDistance: 0,
+          maxVelocity: 0,
+          averageVelocity: 0,
+          bounds: {
+            min: { x: Infinity, y: Infinity, z: Infinity },
+            max: { x: -Infinity, y: -Infinity, z: -Infinity }
           }
         }
-      }
-      
-      analysis.endEffectorStats.totalDistance = totalDistance;
-      analysis.endEffectorStats.maxVelocity = velocities.length > 0 ? Math.max(...velocities) : 0;
-      analysis.endEffectorStats.averageVelocity = velocities.length > 0 ? 
-        velocities.reduce((sum, v) => sum + v, 0) / velocities.length : 0;
-    }
+      };
 
-    return analysis;
-  }, [getTrajectory]);
+      // Joint analysis
+      if (trajectory.frames.length > 0) {
+        const jointNames = Object.keys(trajectory.frames[0].jointValues || {});
+        
+        jointNames.forEach(jointName => {
+          const values = trajectory.frames.map(frame => frame.jointValues[jointName] || 0);
+          analysis.jointStats[jointName] = {
+            min: Math.min(...values),
+            max: Math.max(...values),
+            range: Math.max(...values) - Math.min(...values),
+            final: values[values.length - 1]
+          };
+        });
+      }
+
+      // End effector analysis
+      if (trajectory.endEffectorPath && trajectory.endEffectorPath.length > 1) {
+        let totalDistance = 0;
+        const velocities = [];
+
+        for (let i = 0; i < trajectory.endEffectorPath.length; i++) {
+          const pos = trajectory.endEffectorPath[i].position;
+          
+          // Update bounds
+          analysis.endEffectorStats.bounds.min.x = Math.min(analysis.endEffectorStats.bounds.min.x, pos.x);
+          analysis.endEffectorStats.bounds.min.y = Math.min(analysis.endEffectorStats.bounds.min.y, pos.y);
+          analysis.endEffectorStats.bounds.min.z = Math.min(analysis.endEffectorStats.bounds.min.z, pos.z);
+          analysis.endEffectorStats.bounds.max.x = Math.max(analysis.endEffectorStats.bounds.max.x, pos.x);
+          analysis.endEffectorStats.bounds.max.y = Math.max(analysis.endEffectorStats.bounds.max.y, pos.y);
+          analysis.endEffectorStats.bounds.max.z = Math.max(analysis.endEffectorStats.bounds.max.z, pos.z);
+          
+          // Calculate distance and velocity
+          if (i > 0) {
+            const prevPos = trajectory.endEffectorPath[i - 1].position;
+            const distance = Math.sqrt(
+              Math.pow(pos.x - prevPos.x, 2) +
+              Math.pow(pos.y - prevPos.y, 2) +
+              Math.pow(pos.z - prevPos.z, 2)
+            );
+          totalDistance += distance;
+
+            const timeDelta = trajectory.endEffectorPath[i].timestamp - trajectory.endEffectorPath[i - 1].timestamp;
+            if (timeDelta > 0) {
+              const velocity = distance / (timeDelta / 1000);
+              velocities.push(velocity);
+          }
+          }
+        }
+        
+        analysis.endEffectorStats.totalDistance = totalDistance;
+        analysis.endEffectorStats.maxVelocity = velocities.length > 0 ? Math.max(...velocities) : 0;
+        analysis.endEffectorStats.averageVelocity = velocities.length > 0 ? 
+          velocities.reduce((sum, v) => sum + v, 0) / velocities.length : 0;
+      }
+
+      return analysis;
+    } catch (error) {
+      console.error('[TrajectoryContext] Error analyzing trajectory:', error);
+      setError('Failed to analyze trajectory');
+      return null;
+    }
+  }, [loadTrajectoryFromFile]);
+
+  // Initialize by scanning trajectories
+  useEffect(() => {
+    scanTrajectories();
+  }, [scanTrajectories]);
 
   // ========== CLEANUP ==========
   useEffect(() => {
     return () => {
-      // Clear all recording intervals
-      if (recordingIntervalsRef.current) {
-        recordingIntervalsRef.current.forEach((intervalId) => {
-          clearInterval(intervalId);
-        });
-        recordingIntervalsRef.current.clear();
-      }
-      
       // Clear all playback animation frames
       playbackStatesRef.current.forEach((state) => {
         if (state.animationFrame) {
@@ -578,40 +676,29 @@ export const TrajectoryProvider = ({ children }) => {
 
   // ========== CONTEXT VALUE ==========
   const value = {
-    // Core Storage
-    getTrajectoryNames,
-    getTrajectory,
-    saveTrajectory,
-    deleteTrajectory,
-    
-    // Recording (event-driven)
+    // Recording
     startRecording,
     stopRecording,
     isRecording,
     
-    // Playback (event-driven)
+    // Playback
     playTrajectory,
     stopPlayback,
     isPlaying,
     getPlaybackProgress,
     
-    // Import/Export
-    exportTrajectory,
-    importTrajectory,
+    // File System Operations
+    availableTrajectories,
+    isScanning,
+    scanTrajectories,
+    deleteTrajectory: deleteTrajectoryFromFile,
+    getRobotTrajectories,
     
     // Analysis
     analyzeTrajectory,
     
     // Utils
     clearError: () => setError(null),
-    hasTrajectories: (robotId) => {
-      const robotTrajectories = trajectories.get(robotId);
-      return robotTrajectories && robotTrajectories.size > 0;
-    },
-    getTrajectoryCount: (robotId) => {
-      const robotTrajectories = trajectories.get(robotId);
-      return robotTrajectories ? robotTrajectories.size : 0;
-    },
     
     // State
     isLoading,
