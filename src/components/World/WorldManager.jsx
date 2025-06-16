@@ -1,258 +1,307 @@
+// src/components/World/WorldManager.jsx - FIXED VERSION
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useWorld } from '../../contexts/WorldContext';
-import EventBus from '../../utils/EventBus';
-import * as THREE from 'three';
+import { useWorld, useWorldSave, useWorldLoad, useWorldImportExport } from '../../contexts/hooks/useWorld';
 
-const WorldManager = ({ viewerRef, isOpen, onClose }) => {
-  const { 
-    worlds, 
-    currentWorldId, 
-    isLoading, 
-    error,
-    saveWorld,
-    loadWorld,
-    deleteWorld,
-    exportWorld,
-    importWorld
-  } = useWorld();
+const WorldManager = ({ isOpen, onClose, viewerRef }) => {
+  const world = useWorld();
+  const { save, saveAs, quickSave, isDirty, setAutoSave } = useWorldSave();
+  const { load, worlds } = useWorldLoad(); // worlds is already an array, not a function
+  const { export: exportWorld, import: importWorld } = useWorldImportExport();
   
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [worldName, setWorldName] = useState('');
-  const [saveError, setSaveError] = useState(null);
+  // ========== UI STATE ==========
+  const [activeTab, setActiveTab] = useState('current');
+  const [newWorldName, setNewWorldName] = useState('');
+  const [showSaveAsDialog, setShowSaveAsDialog] = useState(false);
+  const [selectedWorld, setSelectedWorld] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // ========== EVENT HANDLERS ==========
   
-  const handleSaveWorld = async () => {
-    if (!worldName.trim()) {
-      setSaveError('Please enter a world name');
+  const handleSaveAs = () => {
+    if (!newWorldName.trim()) {
+      alert('Please enter a world name');
       return;
     }
     
-    try {
-      // Gather current scene data
-      const sceneData = await gatherSceneData();
-      await saveWorld(worldName, sceneData);
-      
-      setShowSaveModal(false);
-      setWorldName('');
-      setSaveError(null);
-    } catch (error) {
-      setSaveError(error.message);
+    if (world.exists(newWorldName)) {
+      if (!window.confirm(`World "${newWorldName}" already exists. Overwrite?`)) {
+        return;
+      }
+    }
+    
+    saveAs(newWorldName);
+    setShowSaveAsDialog(false);
+    setNewWorldName('');
+  };
+
+  const handleLoadWorld = (worldName) => {
+    if (isDirty && !window.confirm('You have unsaved changes. Load anyway?')) {
+      return;
+    }
+    
+    load(worldName);
+    setActiveTab('current');
+  };
+
+  const handleDeleteWorld = (worldName) => {
+    if (!window.confirm(`Delete world "${worldName}"? This cannot be undone.`)) {
+      return;
+    }
+    
+    world.delete(worldName);
+    if (selectedWorld === worldName) {
+      setSelectedWorld(null);
     }
   };
-  
-  const gatherSceneData = async () => {
-    if (!viewerRef?.current) {
-      throw new Error('Viewer not initialized');
-    }
+
+  const handleExport = (worldName = null) => {
+    exportWorld(worldName);
+  };
+
+  const handleImport = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
     
-    const viewer = viewerRef.current;
-    const sceneSetup = viewer.getSceneSetup?.() || viewer.sceneRef?.current;
-    const robotManager = viewer.robotManagerRef?.current;
-    
-    if (!sceneSetup) {
-      throw new Error('Scene not properly initialized');
-    }
-    
-    // Get camera data
-    const camera = sceneSetup.camera ? {
-      position: sceneSetup.camera.position.toArray(),
-      rotation: sceneSetup.camera.rotation.toArray(),
-      fov: sceneSetup.camera.fov || 60
-    } : null;
-    
-    // Get robots data
-    const robots = [];
-    if (robotManager) {
-      const allRobots = robotManager.getAllRobots();
-      allRobots.forEach((robotData, robotId) => {
-        if (robotData.model) {
-          robots.push({
-            id: robotId,
-            name: robotData.name,
-            urdfPath: robotData.urdfPath,
-            position: robotData.container ? 
-              robotData.container.position.toArray() : 
-              [0, 0, 0],
-            rotation: robotData.container ?
-              robotData.container.rotation.toArray() :
-              [0, 0, 0],
-            jointValues: robotManager.getJointValues(robotId),
-            isActive: robotData.isActive
-          });
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const success = await importWorld(e.target.result);
+        if (success) {
+          setActiveTab('saved');
         }
-      });
-    }
-    
-    // Get environment objects
-    const environment = [];
-    if (sceneSetup.environmentObjects) {
-      sceneSetup.environmentObjects.forEach((obj, id) => {
-        environment.push({
-          id: id,
-          path: obj.userData?.path || '',
-          category: obj.userData?.category || 'uncategorized',
-          position: obj.position.toArray(),
-          rotation: obj.rotation.toArray(),
-          scale: obj.scale.toArray(),
-          material: obj.userData?.material || {},
-          visible: obj.visible
-        });
-      });
-    }
-    
-    return {
-      camera,
-      scene: {
-        camera,
-        lighting: {
-          ambientIntensity: 0.5,
-          directionalIntensity: 0.8
-        },
-        background: sceneSetup.backgroundColor || '#f5f5f5',
-        upAxis: '+Z'
-      },
-      robots,
-      environment,
-      humans: []
+      } catch (error) {
+        console.error('Import error:', error);
+      }
     };
+    reader.readAsText(file);
+    event.target.value = '';
   };
-  
-  const handleLoadWorld = async (worldId) => {
-    if (!viewerRef?.current) return;
-    
-    const viewer = viewerRef.current;
-    const sceneSetup = viewer.getSceneSetup?.() || viewer.sceneRef?.current;
-    const robotManager = viewer.robotManagerRef?.current;
-    
-    if (!sceneSetup || !robotManager) {
-      console.error('Scene or robot manager not initialized');
+
+  const handleNewWorld = () => {
+    if (isDirty && !window.confirm('You have unsaved changes. Create new world anyway?')) {
       return;
     }
     
-    const callbacks = {
-      clearScene: async () => {
-        console.log('Clearing scene...');
-        // Clear robots
-        robotManager.clearAllRobots();
+    world.clear();
+    setActiveTab('current');
+  };
+
+  // ========== FILTERED WORLDS - FIXED ==========
+  const filteredWorlds = worlds.filter(w => 
+    w.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  // ========== RENDER HELPERS ==========
+  
+  const renderCurrentWorld = () => (
+    <div className="controls-p-4">
+      <div className="controls-mb-4">
+        <h4 className="controls-h4 controls-mb-3">
+          Current World: {world.currentWorld || 'Untitled'}
+          {isDirty && <span className="controls-badge controls-badge-warning controls-ml-2">Unsaved</span>}
+        </h4>
         
-        // Clear environment
-        sceneSetup.clearEnvironment();
-        
-        // Clear trajectories
-        EventBus.emit('world:clearing');
-      },
-      
-      loadRobot: async (robotId, urdfPath, options) => {
-        console.log('Loading robot:', robotId, urdfPath, options);
-        try {
-          const robot = await robotManager.loadRobot(robotId, urdfPath, options);
+        <div className="controls-btn-group controls-mb-3">
+          <button 
+            className="controls-btn controls-btn-primary"
+            onClick={quickSave}
+            disabled={world.isLoading}
+          >
+            {isDirty ? '💾 Save' : '✓ Saved'}
+          </button>
           
-          // Apply position after loading
-          if (robot && options.position) {
-            const container = robotManager.robots.get(robotId)?.container;
-            if (container) {
-              container.position.set(
-                options.position[0],
-                options.position[1],
-                options.position[2]
+          <button 
+            className="controls-btn controls-btn-secondary"
+            onClick={() => setShowSaveAsDialog(true)}
+          >
+            💾 Save As...
+          </button>
+          
+          <button 
+            className="controls-btn controls-btn-info"
+            onClick={() => handleExport()}
+          >
+            📤 Export
+          </button>
+        </div>
+        
+        <div className="controls-form-group">
+          <label className="controls-form-check">
+            <input
+              type="checkbox"
+              className="controls-form-check-input"
+              checked={world.autoSaveEnabled}
+              onChange={(e) => setAutoSave(e.target.checked)}
+            />
+            <span className="controls-form-check-label">Enable Auto-Save</span>
+          </label>
+        </div>
+      </div>
+      
+      {/* World Statistics */}
+      <div className="controls-card">
+        <div className="controls-card-body">
+          <h5 className="controls-h5 controls-mb-3">World Contents</h5>
+          
+          {(() => {
+            try {
+              const state = world.capture();
+              return (
+                <div className="controls-grid controls-grid-cols-2 controls-gap-3">
+                  <div>
+                    <strong>Robots:</strong>
+                    <div className="controls-text-muted">{state.robots?.length || 0}</div>
+                  </div>
+                  <div>
+                    <strong>Objects:</strong>
+                    <div className="controls-text-muted">{state.environment?.length || 0}</div>
+                  </div>
+                  <div>
+                    <strong>Humans:</strong>
+                    <div className="controls-text-muted">{state.humans?.length || 0}</div>
+                  </div>
+                  <div>
+                    <strong>TCP Tools:</strong>
+                    <div className="controls-text-muted">{state.tcpTools?.length || 0}</div>
+                  </div>
+                  <div>
+                    <strong>Trajectories:</strong>
+                    <div className="controls-text-muted">
+                      {Object.values(state.trajectories || {}).reduce((sum, robotTrajs) => 
+                        sum + Object.keys(robotTrajs).length, 0
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <strong>Last Save:</strong>
+                    <div className="controls-text-muted">
+                      {state.timestamp ? new Date(state.timestamp).toLocaleTimeString() : 'Never'}
+                    </div>
+                  </div>
+                </div>
+              );
+            } catch (error) {
+              console.error('[WorldManager] Error capturing state:', error);
+              return (
+                <div className="controls-text-muted">
+                  Error loading world statistics
+                </div>
               );
             }
-          }
+          })()}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderSavedWorlds = () => (
+    <div className="controls-p-4">
+      <div className="controls-mb-4">
+        <div className="controls-d-flex controls-justify-content-between controls-align-items-center controls-mb-3">
+          <h4 className="controls-h4 controls-mb-0">Saved Worlds ({filteredWorlds.length})</h4>
           
-          return robot;
-        } catch (error) {
-          console.error('Error loading robot:', error);
-          return null;
-        }
-      },
-      
-      loadEnvironmentObject: async (config) => {
-        console.log('Loading environment object:', config);
-        // Skip objects without valid paths
-        if (!config.path || config.path.trim() === '') {
-          console.warn('Skipping object without path');
-          return null;
-        }
+          <div className="controls-btn-group">
+            <button 
+              className="controls-btn controls-btn-success controls-btn-sm"
+              onClick={handleNewWorld}
+            >
+              + New World
+            </button>
+            
+            <label className="controls-btn controls-btn-info controls-btn-sm controls-mb-0">
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImport}
+                style={{ display: 'none' }}
+              />
+              📥 Import
+            </label>
+          </div>
+        </div>
         
-        try {
-          // Convert array positions back to objects
-          const loadConfig = {
-            ...config,
-            position: {
-              x: config.position[0],
-              y: config.position[1],
-              z: config.position[2]
-            },
-            rotation: {
-              x: config.rotation[0],
-              y: config.rotation[1],
-              z: config.rotation[2]
-            },
-            scale: {
-              x: config.scale[0],
-              y: config.scale[1],
-              z: config.scale[2]
-            }
-          };
-          
-          return await sceneSetup.loadEnvironmentObject(loadConfig);
-        } catch (error) {
-          console.error('Error loading environment object:', error);
-          return null;
-        }
-      },
+        {/* Search */}
+        <div className="controls-form-group">
+          <input
+            type="text"
+            className="controls-form-control"
+            placeholder="Search worlds..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+      </div>
       
-      loadHuman: async (humanData) => {
-        console.log('Loading human:', humanData);
-        // TODO: Implement human loading
-      },
-      
-      setCamera: (cameraData) => {
-        console.log('Setting camera:', cameraData);
-        if (cameraData && cameraData.position && sceneSetup.camera) {
-          sceneSetup.camera.position.fromArray(cameraData.position);
-          if (cameraData.rotation) {
-            sceneSetup.camera.rotation.fromArray(cameraData.rotation);
-          }
-          if (cameraData.fov) {
-            sceneSetup.camera.fov = cameraData.fov;
-            sceneSetup.camera.updateProjectionMatrix();
-          }
-          sceneSetup.controls.update();
-        }
-      },
-      
-      setSceneSettings: (settings) => {
-        console.log('Setting scene settings:', settings);
-        if (settings.background && sceneSetup.scene) {
-          sceneSetup.scene.background = new THREE.Color(settings.background);
-        }
-        if (settings.upAxis && sceneSetup.setUpAxis) {
-          sceneSetup.setUpAxis(settings.upAxis);
-        }
-      }
-    };
-    
-    try {
-      await loadWorld(worldId, callbacks);
-      
-      // Force a re-render of the scene
-      if (sceneSetup.renderer && sceneSetup.scene && sceneSetup.camera) {
-        sceneSetup.renderer.render(sceneSetup.scene, sceneSetup.camera);
-      }
-      
-    } catch (error) {
-      console.error('Error in handleLoadWorld:', error);
-    }
-  };
-  
-  const handleImportFile = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      importWorld(file);
-      e.target.value = '';
-    }
-  };
+      {/* World List */}
+      <div className="controls-list" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+        {filteredWorlds.length === 0 ? (
+          <div className="controls-text-center controls-text-muted controls-p-4">
+            {searchTerm ? 'No worlds found' : 'No saved worlds'}
+          </div>
+        ) : (
+          filteredWorlds.map(worldInfo => (
+            <div 
+              key={worldInfo.name}
+              className={`controls-list-item ${selectedWorld === worldInfo.name ? 'controls-active' : ''}`}
+              onClick={() => setSelectedWorld(worldInfo.name)}
+            >
+              <div className="controls-list-item-content">
+                <h6 className="controls-list-item-title">
+                  {worldInfo.name}
+                  {world.currentWorld === worldInfo.name && (
+                    <span className="controls-badge controls-badge-primary controls-ml-2">Current</span>
+                  )}
+                </h6>
+                <div className="controls-text-muted controls-small">
+                  {new Date(worldInfo.timestamp).toLocaleString()}
+                </div>
+              </div>
+              
+              <div className="controls-list-item-actions">
+                <div className="controls-btn-group controls-btn-group-sm">
+                  <button 
+                    className="controls-btn controls-btn-sm controls-btn-success"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleLoadWorld(worldInfo.name);
+                    }}
+                    title="Load world"
+                  >
+                    📂
+                  </button>
+                  
+                  <button 
+                    className="controls-btn controls-btn-sm controls-btn-info"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleExport(worldInfo.name);
+                    }}
+                    title="Export world"
+                  >
+                    📤
+                  </button>
+                  
+                  <button 
+                    className="controls-btn controls-btn-sm controls-btn-danger"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteWorld(worldInfo.name);
+                    }}
+                    title="Delete world"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  // ========== MAIN RENDER ==========
   
   if (!isOpen) return null;
   
@@ -260,7 +309,9 @@ const WorldManager = ({ viewerRef, isOpen, onClose }) => {
     <div className="controls-modal-overlay">
       <div className="controls-modal" style={{ maxWidth: '800px', width: '90%' }}>
         <div className="controls-modal-header">
-          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>World Manager</h2>
+          <h2 style={{ margin: 0, fontSize: '1.5rem' }}>
+            World Manager
+          </h2>
           <button 
             className="controls-close"
             onClick={onClose}
@@ -269,149 +320,128 @@ const WorldManager = ({ viewerRef, isOpen, onClose }) => {
               border: 'none',
               fontSize: '2rem',
               cursor: 'pointer',
-              color: '#999',
-              padding: '0',
-              width: '40px',
-              height: '40px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '4px',
-              transition: 'all 0.2s'
+              color: '#999'
             }}
           >
             ×
           </button>
         </div>
         
-        <div className="controls-modal-body" style={{ padding: '2rem' }}>
-          {error && (
-            <div className="controls-alert controls-alert-danger controls-mb-3">
-              {error}
-            </div>
-          )}
-          
-          {/* Actions */}
-          <div className="controls-d-flex controls-justify-content-between controls-align-items-center controls-mb-4">
-            <div className="controls-btn-group">
-              <button 
-                className="controls-btn controls-btn-success"
-                onClick={() => setShowSaveModal(true)}
-                disabled={isLoading}
-              >
-                + Save Current World
-              </button>
-              <label className="controls-btn controls-btn-primary" style={{ marginBottom: 0 }}>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleImportFile}
-                  style={{ display: 'none' }}
-                  disabled={isLoading}
-                />
-                Import World
-              </label>
-            </div>
+        {/* Tabs */}
+        <div className="controls-tabs">
+          <div className="controls-tab-list" style={{
+            display: 'flex',
+            borderBottom: '1px solid #dee2e6',
+            background: '#f8f9fa'
+          }}>
+            <button
+              className={`controls-tab ${activeTab === 'current' ? 'controls-active' : ''}`}
+              onClick={() => setActiveTab('current')}
+              style={{
+                padding: '0.75rem 1.5rem',
+                background: activeTab === 'current' ? '#fff' : 'transparent',
+                border: 'none',
+                borderBottom: activeTab === 'current' ? '2px solid #007bff' : 'none',
+                cursor: 'pointer'
+              }}
+            >
+              Current World
+            </button>
             
-            <div className="controls-text-muted">
-              {worlds.length} world{worlds.length !== 1 ? 's' : ''} saved
-            </div>
+            <button
+              className={`controls-tab ${activeTab === 'saved' ? 'controls-active' : ''}`}
+              onClick={() => setActiveTab('saved')}
+              style={{
+                padding: '0.75rem 1.5rem',
+                background: activeTab === 'saved' ? '#fff' : 'transparent',
+                border: 'none',
+                borderBottom: activeTab === 'saved' ? '2px solid #007bff' : 'none',
+                cursor: 'pointer'
+              }}
+            >
+              Saved Worlds
+            </button>
           </div>
           
-          {/* Worlds List */}
-          <div className="controls-list">
-            {worlds.length === 0 ? (
-              <div className="controls-text-center controls-p-5 controls-text-muted">
-                No saved worlds yet. Save your current setup to get started!
-              </div>
-            ) : (
-              worlds.map(world => (
-                <div 
-                  key={world.id}
-                  className={`controls-list-item ${world.id === currentWorldId ? 'controls-active' : ''}`}
-                >
-                  <div className="controls-list-item-content">
-                    <h5 className="controls-list-item-title">
-                      {world.name}
-                      {world.id === currentWorldId && (
-                        <span className="controls-badge controls-badge-primary controls-ml-2">Current</span>
-                      )}
-                    </h5>
-                    <div className="controls-text-muted">
-                      Created: {new Date(world.createdAt).toLocaleDateString()}
-                    </div>
-                    <div className="controls-d-flex controls-gap-3 controls-mt-2">
-                      <span className="controls-badge controls-badge-secondary">
-                        {world.robotCount} Robot{world.robotCount !== 1 ? 's' : ''}
-                      </span>
-                      <span className="controls-badge controls-badge-secondary">
-                        {world.objectCount} Object{world.objectCount !== 1 ? 's' : ''}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <div className="controls-list-item-actions">
-                    <button 
-                      className="controls-btn controls-btn-primary controls-btn-sm"
-                      onClick={() => handleLoadWorld(world.id)}
-                      disabled={isLoading}
-                    >
-                      Load
-                    </button>
-                    <button 
-                      className="controls-btn controls-btn-info controls-btn-sm"
-                      onClick={() => exportWorld(world.id)}
-                    >
-                      Export
-                    </button>
-                    <button 
-                      className="controls-btn controls-btn-danger controls-btn-sm"
-                      onClick={() => deleteWorld(world.id)}
-                      disabled={isLoading}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
+          <div className="controls-tab-content">
+            {activeTab === 'current' ? renderCurrentWorld() : renderSavedWorlds()}
           </div>
         </div>
+        
+        {/* Messages */}
+        {world.error && (
+          <div className="controls-alert controls-alert-danger controls-m-3">
+            {world.error}
+            <button 
+              className="controls-close"
+              onClick={world.clearError}
+            >
+              ×
+            </button>
+          </div>
+        )}
+        
+        {world.successMessage && (
+          <div className="controls-alert controls-alert-success controls-m-3">
+            {world.successMessage}
+            <button 
+              className="controls-close"
+              onClick={world.clearSuccess}
+            >
+              ×
+            </button>
+          </div>
+        )}
+        
+        {/* Loading overlay */}
+        {world.isLoading && (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(255, 255, 255, 0.9)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div className="controls-text-center">
+              <div className="controls-spinner-border controls-mb-3" role="status">
+                <span className="controls-sr-only">Loading...</span>
+              </div>
+              <div>Loading world...</div>
+            </div>
+          </div>
+        )}
       </div>
       
-      {/* Save World Modal */}
-      {showSaveModal && (
-        <div className="controls-modal-overlay">
-          <div className="controls-modal" style={{ maxWidth: '500px' }}>
+      {/* Save As Dialog */}
+      {showSaveAsDialog && (
+        <div className="controls-modal-overlay" style={{ zIndex: 1001 }}>
+          <div className="controls-modal" style={{ maxWidth: '400px' }}>
             <div className="controls-modal-header">
-              <h3 style={{ margin: 0 }}>Save World</h3>
+              <h3>Save World As</h3>
               <button 
                 className="controls-close"
-                onClick={() => {
-                  setShowSaveModal(false);
-                  setWorldName('');
-                  setSaveError(null);
-                }}
+                onClick={() => setShowSaveAsDialog(false)}
               >
                 ×
               </button>
             </div>
             
-            <div className="controls-modal-body" style={{ padding: '2rem' }}>
-              {saveError && (
-                <div className="controls-alert controls-alert-danger controls-mb-3">
-                  {saveError}
-                </div>
-              )}
-              
+            <div className="controls-modal-body">
               <div className="controls-form-group">
-                <label className="controls-form-label">World Name:</label>
+                <label>World Name:</label>
                 <input
                   type="text"
                   className="controls-form-control"
-                  value={worldName}
-                  onChange={(e) => setWorldName(e.target.value)}
-                  placeholder="Enter a name for this world"
+                  value={newWorldName}
+                  onChange={(e) => setNewWorldName(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') handleSaveAs();
+                  }}
                   autoFocus
                 />
               </div>
@@ -420,20 +450,15 @@ const WorldManager = ({ viewerRef, isOpen, onClose }) => {
             <div className="controls-modal-footer">
               <button 
                 className="controls-btn controls-btn-secondary"
-                onClick={() => {
-                  setShowSaveModal(false);
-                  setWorldName('');
-                  setSaveError(null);
-                }}
+                onClick={() => setShowSaveAsDialog(false)}
               >
                 Cancel
               </button>
               <button 
                 className="controls-btn controls-btn-primary"
-                onClick={handleSaveWorld}
-                disabled={isLoading || !worldName.trim()}
+                onClick={handleSaveAs}
               >
-                {isLoading ? 'Saving...' : 'Save World'}
+                Save
               </button>
             </div>
           </div>
@@ -444,4 +469,4 @@ const WorldManager = ({ viewerRef, isOpen, onClose }) => {
   );
 };
 
-export default WorldManager; 
+export default WorldManager;
