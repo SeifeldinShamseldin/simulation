@@ -9,8 +9,10 @@ export const usePlaybackTrajectoryLine = () => {
   const { loadTrajectoryFromFile, createTrajectoryVisualization } = useTrajectoryContext();
   const lineRef = useRef(null);
   const waypointsRef = useRef([]);
+  const orientationFramesRef = useRef([]); // NEW: Store orientation frames
   const currentMarkerRef = useRef(null);
   const activePlaybackRef = useRef(null);
+  const storedTrajectoryRef = useRef(null); // Store the full trajectory data
 
   useEffect(() => {
     if (!isViewerReady) return;
@@ -23,11 +25,11 @@ export const usePlaybackTrajectoryLine = () => {
       const { robotId, trajectoryName } = data;
       console.log('[usePlaybackTrajectoryLine] Playback started:', trajectoryName);
       
+      // Clean up any existing visualization first
+      cleanup();
+      
       // Store active playback info
       activePlaybackRef.current = { robotId, trajectoryName };
-      
-      // Clean up existing visualization
-      cleanup();
     };
 
     // Listen for the trajectory data when it's loaded for playback
@@ -39,6 +41,17 @@ export const usePlaybackTrajectoryLine = () => {
         return;
       }
 
+      // Store trajectory for later use
+      storedTrajectoryRef.current = trajectory;
+
+      // Debug log trajectory structure
+      console.log('[usePlaybackTrajectoryLine] Trajectory structure:', {
+        hasEndEffectorPath: !!trajectory.endEffectorPath,
+        pathLength: trajectory.endEffectorPath?.length,
+        firstPoint: trajectory.endEffectorPath?.[0],
+        hasOrientation: trajectory.endEffectorPath?.[0]?.orientation
+      });
+
       console.log('[usePlaybackTrajectoryLine] Creating full trajectory visualization');
 
       // Use the trajectory context's visualization method
@@ -49,6 +62,12 @@ export const usePlaybackTrajectoryLine = () => {
         return;
       }
 
+      // Create all visualization elements synchronously
+      createFullVisualization(trajectory, visualization, scene);
+    };
+    
+    // Separate function to create all visualization elements
+    const createFullVisualization = (trajectory, visualization, scene) => {
       // Create the full trajectory line with gradient colors
       const points = visualization.smoothPoints.map(p => new THREE.Vector3(p.x, p.y, p.z));
       
@@ -90,6 +109,9 @@ export const usePlaybackTrajectoryLine = () => {
         });
       }
 
+      // Create orientation frames immediately
+      createOrientationFrames(trajectory, scene);
+
       // Create current position marker
       const markerGeometry = new THREE.SphereGeometry(0.025, 16, 16);
       const markerMaterial = new THREE.MeshPhongMaterial({ 
@@ -105,7 +127,169 @@ export const usePlaybackTrajectoryLine = () => {
       scene.add(marker);
       currentMarkerRef.current = marker;
 
-      console.log('[usePlaybackTrajectoryLine] Trajectory visualization created with', points.length, 'points');
+      console.log('[usePlaybackTrajectoryLine] Full visualization created');
+    };
+
+    // NEW: Function to create orientation frames
+    const createOrientationFrames = (trajectory, scene) => {
+      if (!scene) {
+        console.error('[usePlaybackTrajectoryLine] No scene provided for orientation frames');
+        return;
+      }
+      
+      const endEffectorPath = trajectory.endEffectorPath;
+      
+      // Enhanced validation
+      if (!endEffectorPath || !Array.isArray(endEffectorPath) || endEffectorPath.length < 2) {
+        console.warn('[usePlaybackTrajectoryLine] No valid endEffectorPath for orientation frames');
+        return;
+      }
+
+      // Check if we have orientation data
+      const hasOrientationData = endEffectorPath.some(point => 
+        point && point.orientation && 
+        typeof point.orientation.x === 'number' &&
+        typeof point.orientation.y === 'number' &&
+        typeof point.orientation.z === 'number' &&
+        typeof point.orientation.w === 'number'
+      );
+
+      console.log('[usePlaybackTrajectoryLine] Orientation data available:', hasOrientationData);
+
+      // Calculate frame interval (show frames every N points)
+      const totalPoints = endEffectorPath.length;
+      const desiredFrameCount = 20; // Adjust this for more/fewer frames
+      const frameInterval = Math.max(1, Math.floor(totalPoints / desiredFrameCount));
+
+      // Clear existing frames
+      orientationFramesRef.current.forEach(frameGroup => {
+        scene.remove(frameGroup);
+        frameGroup.traverse((child) => {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) child.material.dispose();
+        });
+      });
+      orientationFramesRef.current = [];
+
+      let framesCreated = 0;
+
+      // Helper function to calculate orientation from trajectory direction
+      const calculateOrientationFromPath = (index) => {
+        if (index >= totalPoints - 1) {
+          // Use previous direction for last point
+          return calculateOrientationFromPath(index - 1);
+        }
+        
+        const current = endEffectorPath[index].position;
+        const next = endEffectorPath[index + 1].position;
+        
+        // Calculate direction vector
+        const direction = new THREE.Vector3(
+          next.x - current.x,
+          next.y - current.y,
+          next.z - current.z
+        );
+        direction.normalize();
+        
+        // Create rotation matrix to align Z-axis with direction
+        const up = new THREE.Vector3(0, 1, 0);
+        if (Math.abs(direction.y) > 0.999) {
+          // If direction is nearly vertical, use X as up
+          up.set(1, 0, 0);
+        }
+        
+        const matrix = new THREE.Matrix4();
+        matrix.lookAt(
+          new THREE.Vector3(0, 0, 0),
+          direction,
+          up
+        );
+        
+        const quaternion = new THREE.Quaternion();
+        quaternion.setFromRotationMatrix(matrix);
+        
+        return quaternion;
+      };
+
+      // Create frames at intervals
+      for (let i = 0; i < totalPoints; i += frameInterval) {
+        const pathPoint = endEffectorPath[i];
+        
+        // Validate position data
+        if (!pathPoint || !pathPoint.position ||
+            typeof pathPoint.position.x !== 'number' ||
+            typeof pathPoint.position.y !== 'number' ||
+            typeof pathPoint.position.z !== 'number') {
+          console.warn(`[usePlaybackTrajectoryLine] Invalid position data at index ${i}`);
+          continue;
+        }
+
+        // Create a group for this frame
+        const frameGroup = new THREE.Group();
+        frameGroup.name = `orientation_frame_${i}`;
+        frameGroup.position.set(
+          pathPoint.position.x,
+          pathPoint.position.y,
+          pathPoint.position.z
+        );
+
+        // Get or calculate orientation
+        let quaternion;
+        if (hasOrientationData && pathPoint.orientation &&
+            typeof pathPoint.orientation.x === 'number' &&
+            typeof pathPoint.orientation.y === 'number' &&
+            typeof pathPoint.orientation.z === 'number' &&
+            typeof pathPoint.orientation.w === 'number') {
+          // Use provided orientation
+          quaternion = new THREE.Quaternion(
+            pathPoint.orientation.x,
+            pathPoint.orientation.y,
+            pathPoint.orientation.z,
+            pathPoint.orientation.w
+          );
+          quaternion.normalize();
+        } else {
+          // Calculate orientation from path direction
+          quaternion = calculateOrientationFromPath(i);
+        }
+        
+        frameGroup.quaternion.copy(quaternion);
+
+        // Create coordinate axes
+        const axisLength = 0.05; // Adjust size as needed
+        const axisThickness = 1.5; // Line thickness
+
+        // X-axis (Red)
+        const xDir = new THREE.Vector3(1, 0, 0);
+        const xOrigin = new THREE.Vector3(0, 0, 0);
+        const xArrow = new THREE.ArrowHelper(xDir, xOrigin, axisLength, 0xff0000, axisLength * 0.3, axisLength * 0.2);
+        xArrow.line.material.linewidth = axisThickness;
+        frameGroup.add(xArrow);
+
+        // Y-axis (Green)
+        const yDir = new THREE.Vector3(0, 1, 0);
+        const yArrow = new THREE.ArrowHelper(yDir, xOrigin, axisLength, 0x00ff00, axisLength * 0.3, axisLength * 0.2);
+        yArrow.line.material.linewidth = axisThickness;
+        frameGroup.add(yArrow);
+
+        // Z-axis (Blue)
+        const zDir = new THREE.Vector3(0, 0, 1);
+        const zArrow = new THREE.ArrowHelper(zDir, xOrigin, axisLength, 0x0000ff, axisLength * 0.3, axisLength * 0.2);
+        zArrow.line.material.linewidth = axisThickness;
+        frameGroup.add(zArrow);
+
+        // Add frame to scene
+        scene.add(frameGroup);
+        orientationFramesRef.current.push(frameGroup);
+        framesCreated++;
+      }
+
+      console.log(`[usePlaybackTrajectoryLine] Created ${framesCreated} orientation frames`);
+      
+      // Force a render update
+      if (scene.parent && scene.parent.type === 'Scene') {
+        scene.updateMatrixWorld(true);
+      }
     };
 
     // Alternative: Listen for available trajectories and load when playback starts
@@ -148,6 +332,12 @@ export const usePlaybackTrajectoryLine = () => {
       
       const { x, y, z } = data.endEffectorPoint;
       currentMarkerRef.current.position.set(x, y, z);
+
+      // NEW: Optionally update current frame orientation
+      if (data.endEffectorOrientation && orientationFramesRef.current.length > 0) {
+        // You could add a special "current" orientation frame that follows the marker
+        // This is optional - remove if you only want static frames
+      }
     };
 
     // Clean up function
@@ -165,6 +355,16 @@ export const usePlaybackTrajectoryLine = () => {
         waypoint.material.dispose();
       });
       waypointsRef.current = [];
+
+      // NEW: Clean up orientation frames
+      orientationFramesRef.current.forEach(frameGroup => {
+        scene.remove(frameGroup);
+        frameGroup.traverse((child) => {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) child.material.dispose();
+        });
+      });
+      orientationFramesRef.current = [];
       
       if (currentMarkerRef.current && scene) {
         scene.remove(currentMarkerRef.current);
@@ -172,17 +372,16 @@ export const usePlaybackTrajectoryLine = () => {
         currentMarkerRef.current.material.dispose();
         currentMarkerRef.current = null;
       }
+      
+      // Clear references
+      activePlaybackRef.current = null;
+      storedTrajectoryRef.current = null;
     };
 
     // Handle playback stop
     const handlePlaybackStopped = () => {
-      console.log('[usePlaybackTrajectoryLine] Playback stopped');
-      
-      // Keep visible for 2 seconds then remove
-      setTimeout(() => {
-        cleanup();
-        activePlaybackRef.current = null;
-      }, 2000);
+      console.log('[usePlaybackTrajectoryLine] Playback stopped - cleaning up immediately');
+      cleanup();
     };
 
     // Subscribe to events
@@ -202,4 +401,4 @@ export const usePlaybackTrajectoryLine = () => {
   }, [isViewerReady, getScene, loadTrajectoryFromFile, createTrajectoryVisualization]);
 
   return null;
-}; 
+};
