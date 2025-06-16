@@ -270,6 +270,45 @@ app.get('/api/ik-solvers', (req, res) => {
   }
 });
 
+// GET trajectory analysis data
+app.get('/api/trajectory/analyze/:manufacturer/:model/:name', async (req, res) => {
+  try {
+    const { manufacturer, model, name } = req.params;
+    const trajectoryFileName = `${name}.json`;
+    const trajectoryPath = path.join(__dirname, '..', '..', 'public', 'trajectory', manufacturer, model, trajectoryFileName);
+
+    if (!fs.existsSync(trajectoryPath)) {
+      console.warn(`Trajectory file not found: ${trajectoryPath}`);
+      return res.status(404).json({ success: false, message: 'Trajectory not found' });
+    }
+
+    // Read trajectory data
+    const trajectoryData = JSON.parse(fs.readFileSync(trajectoryPath, 'utf8'));
+
+    // For now, we'll return a simplified analysis based on the trajectory data itself.
+    // In a real scenario, you would perform actual analysis here (e.g., calculate path length,
+    // identify key points, analyze joint movements, etc.).
+    const analysisResult = {
+      frameCount: trajectoryData.endEffectorPath ? trajectoryData.endEffectorPath.length : 0,
+      duration: trajectoryData.duration || 0,
+      endEffectorStats: {
+        totalDistance: 0, // Placeholder, actual calculation would be here
+        bounds: {        // Placeholder, actual calculation would be here
+          min: { x: -0.5, y: -0.5, z: 0 },
+          max: { x: 0.5, y: 0.5, z: 1.5 }
+        }
+      },
+      // You can add more detailed analysis results here
+    };
+
+    res.json({ success: true, analysis: analysisResult });
+
+  } catch (error) {
+    console.error('Error analyzing trajectory:', error);
+    res.status(500).json({ success: false, message: `Error analyzing trajectory: ${error.message}` });
+  }
+});
+
 // Function to regenerate robot index after changes
 function generateRobotIndex() {
   try {

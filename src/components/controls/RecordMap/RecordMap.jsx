@@ -1,22 +1,56 @@
-// src/components/controls/RecordMap/RecordMap.jsx - SIMPLE INFO DISPLAY ONLY
-import React from 'react';
-import { useTrajectoryManagement } from '../../../contexts/hooks/useTrajectory';
+// src/components/controls/RecordMap/RecordMap.jsx - UPDATED FOR FILE SYSTEM ARCHITECTURE
+import React, { useState, useEffect } from 'react';
+import { useTrajectory, useTrajectoryManagement } from '../../../contexts/hooks/useTrajectory';
 
 /**
  * Simple component showing trajectory status and basic info
- * PURE UI - no business logic
+ * Now handles trajectory objects from file system
  */
-const RecordMap = ({ trajectoryName, robotId }) => {
-  const {
-    trajectories,
-    getTrajectory,
-    analyzeTrajectory,
-    count: trajectoryCount
-  } = useTrajectoryManagement(robotId);
+const RecordMap = ({ trajectoryInfo, robotId }) => {
+  const { trajectories, analyzeTrajectory, count: trajectoryCount } = useTrajectoryManagement(robotId);
+  const { loadTrajectory } = useTrajectory(robotId);
+  
+  const [trajectory, setTrajectory] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Get trajectory info if name is provided
-  const trajectory = trajectoryName ? getTrajectory(trajectoryName) : null;
-  const analysis = trajectoryName ? analyzeTrajectory(trajectoryName) : null;
+  // Load trajectory data when trajectoryInfo changes
+  useEffect(() => {
+    const loadData = async () => {
+      if (!trajectoryInfo || !robotId) {
+        setTrajectory(null);
+        setAnalysis(null);
+        return;
+      }
+
+      setIsLoading(true);
+      
+      try {
+        // Load full trajectory data from file system
+        const trajectoryData = await loadTrajectory(
+          trajectoryInfo.manufacturer,
+          trajectoryInfo.model,
+          trajectoryInfo.name
+        );
+        
+        if (trajectoryData) {
+          setTrajectory(trajectoryData);
+          
+          // Get analysis
+          const analysisData = await analyzeTrajectory(trajectoryInfo);
+          if (analysisData) {
+            setAnalysis(analysisData);
+          }
+        }
+      } catch (error) {
+        console.error('[RecordMap] Error loading trajectory:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, [trajectoryInfo, robotId, loadTrajectory, analyzeTrajectory]);
 
   return (
     <div className="urdf-controls-section">
@@ -27,7 +61,7 @@ const RecordMap = ({ trajectoryName, robotId }) => {
           <div className="record-map-empty controls-text-muted">
             No robot selected
           </div>
-        ) : !trajectoryName ? (
+        ) : !trajectoryInfo ? (
           <div className="record-map-empty">
             <div className="controls-text-center controls-p-3">
               <div style={{ fontSize: '2rem', marginBottom: '1rem', color: '#6c757d' }}>📊</div>
@@ -43,16 +77,25 @@ const RecordMap = ({ trajectoryName, robotId }) => {
               </p>
             </div>
           </div>
+        ) : isLoading ? (
+          <div className="record-map-empty">
+            <div className="controls-text-center controls-p-3">
+              <div className="controls-spinner-border" role="status">
+                <span className="controls-sr-only">Loading...</span>
+              </div>
+              <p className="controls-text-muted controls-mt-2">Loading trajectory data...</p>
+            </div>
+          </div>
         ) : !trajectory ? (
           <div className="record-map-empty controls-text-warning">
-            Trajectory "{trajectoryName}" not found
+            Failed to load trajectory "{trajectoryInfo.name}"
           </div>
         ) : (
           <div className="trajectory-info">
             <div className="controls-card">
               <div className="controls-card-body">
                 <h5 className="controls-h5 controls-mb-3">
-                  📊 {trajectoryName}
+                  📊 {trajectoryInfo.name}
                 </h5>
                 
                 {/* Basic Trajectory Information */}
@@ -74,6 +117,14 @@ const RecordMap = ({ trajectoryName, robotId }) => {
                     <div className="controls-text-muted">
                       {trajectory.recordedAt ? new Date(trajectory.recordedAt).toLocaleDateString() : 'Unknown'}
                     </div>
+                  </div>
+                </div>
+
+                {/* File System Info */}
+                <div className="controls-mb-3">
+                  <strong>File Location:</strong>
+                  <div className="controls-text-muted controls-small">
+                    /trajectory/{trajectoryInfo.manufacturer}/{trajectoryInfo.model}/{trajectoryInfo.name}.json
                   </div>
                 </div>
 
@@ -145,11 +196,14 @@ const RecordMap = ({ trajectoryName, robotId }) => {
                       Joints Recorded
                     </span>
                   )}
-                  {analysis && analysis.endEffectorStats.totalDistance > 0 && (
+                  {analysis && analysis.endEffectorStats?.totalDistance > 0 && (
                     <span className="controls-badge controls-badge-secondary controls-small">
                       {analysis.endEffectorStats.totalDistance.toFixed(2)}m Total
                     </span>
                   )}
+                  <span className="controls-badge controls-badge-primary controls-small">
+                    File System
+                  </span>
                 </div>
               </div>
             </div>

@@ -1,14 +1,29 @@
-// src/components/controls/RecordMap/LiveTrajectoryGraph.jsx - CLEAN 3D VISUALIZATION
+// src/components/controls/RecordMap/LiveTrajectoryGraph.jsx - PURE UI COMPONENT
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { useTrajectoryManagement } from '../../../contexts/hooks/useTrajectory';
+import { useTrajectoryVisualization } from '../../../contexts/hooks/useTrajectory';
 import { useTCP } from '../../../contexts/hooks/useTCP';
 
 const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
-  // Use clean hooks for data
-  const { trajectories, getTrajectory, analyzeTrajectory } = useTrajectoryManagement(activeRobotId);
+  // Use hooks for data
+  const {
+    trajectories,
+    visualizationData,
+    smoothPoints,
+    pathColors,
+    startPoint,
+    endPoint,
+    waypoints,
+    stats,
+    isLoading,
+    hasVisualizationData,
+    loadVisualization,
+    clearVisualization,
+    getCameraConfig
+  } = useTrajectoryVisualization(activeRobotId);
+  
   const { currentEndEffectorPoint, hasValidEndEffector, isUsingTCP } = useTCP(activeRobotId);
 
   // 3D Scene refs
@@ -18,20 +33,15 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
   const cameraRef = useRef(null);
   const controlsRef = useRef(null);
   const pathLineRef = useRef(null);
+  const markersRef = useRef([]);
   const currentMarkerRef = useRef(null);
+  const animationFrameRef = useRef(null);
   
   // UI State only
-  const [step, setStep] = useState(1); // 1: Select, 2: Display
-  const [selectedTrajectory, setSelectedTrajectory] = useState('');
-  const [trajectoryData, setTrajectoryData] = useState(null);
+  const [step, setStep] = useState(1);
+  const [selectedTrajectory, setSelectedTrajectory] = useState(null);
   const [isLive, setIsLive] = useState(false);
   const [currentPosition, setCurrentPosition] = useState({ x: 0, y: 0, z: 0 });
-  const [statistics, setStatistics] = useState({
-    points: 0,
-    length: 0,
-    duration: 0,
-    bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } }
-  });
 
   // ========== UI EFFECTS ==========
   
@@ -44,18 +54,38 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
 
   // Initialize 3D scene when displaying
   useEffect(() => {
-    if (step === 2 && containerRef.current) {
+    if (step === 2 && containerRef.current && !sceneRef.current) {
       initScene();
-      return () => cleanupScene();
     }
+    return () => {
+      if (step !== 2) {
+        cleanupScene();
+      }
+    };
   }, [step]);
 
-  // Load trajectory data when selected
+  // Load visualization data when trajectory selected
   useEffect(() => {
     if (step === 2 && selectedTrajectory && !isLive) {
-      loadTrajectoryData(selectedTrajectory);
+      // Add a check to prevent re-loading if the same trajectory is already loaded
+      const isAlreadyLoaded = visualizationData &&
+                             visualizationData.trajectoryData &&
+                             visualizationData.trajectoryData.name === selectedTrajectory.name &&
+                             visualizationData.trajectoryData.manufacturer === selectedTrajectory.manufacturer &&
+                             visualizationData.trajectoryData.model === selectedTrajectory.model;
+
+      if (!isAlreadyLoaded) {
+        loadVisualization(selectedTrajectory);
+      }
     }
-  }, [step, selectedTrajectory, isLive]);
+  }, [step, selectedTrajectory, isLive, loadVisualization, visualizationData]);
+
+  // Update visualization when data changes
+  useEffect(() => {
+    if (sceneRef.current && hasVisualizationData && !isLive) {
+      updateVisualization();
+    }
+  }, [visualizationData, hasVisualizationData, isLive]);
 
   // Update live position
   useEffect(() => {
@@ -65,7 +95,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     }
   }, [isLive, hasValidEndEffector, currentEndEffectorPoint]);
 
-  // ========== 3D SCENE MANAGEMENT ==========
+  // ========== 3D SCENE FUNCTIONS (Pure Rendering) ==========
   
   const initScene = () => {
     if (!containerRef.current) return;
@@ -105,8 +135,6 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     const dirLight = new THREE.DirectionalLight(0xffffff, 0.5);
     dirLight.position.set(5, 10, 5);
     dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
     scene.add(dirLight);
 
     // Grid and axes
@@ -124,13 +152,13 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
       emissiveIntensity: 0.3
     });
     const currentMarker = new THREE.Mesh(currentGeometry, currentMaterial);
-    currentMarker.position.copy(currentEndEffectorPoint);
+    currentMarker.position.set(0, 0, 0);
     scene.add(currentMarker);
     currentMarkerRef.current = currentMarker;
 
     // Animation loop
     const animate = () => {
-      requestAnimationFrame(animate);
+      animationFrameRef.current = requestAnimationFrame(animate);
       if (controls) controls.update();
       if (renderer && scene && camera) {
         renderer.render(scene, camera);
@@ -150,110 +178,99 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     return () => window.removeEventListener('resize', handleResize);
   };
 
-  const loadTrajectoryData = (trajectoryName) => {
-    if (!activeRobotId) return;
-    
-    const trajectory = getTrajectory(trajectoryName);
-    if (!trajectory) {
-      console.warn(`[LiveTrajectoryGraph] Trajectory "${trajectoryName}" not found`);
-      return;
-    }
+  const updateVisualization = () => {
+    if (!sceneRef.current || !smoothPoints || smoothPoints.length < 2) return;
 
-    const pathData = trajectory.endEffectorPath || [];
-    setTrajectoryData(trajectory);
+    // Clear old visualization
+    clearOldVisualization();
 
-    // Calculate statistics
-    const analysis = analyzeTrajectory(trajectoryName);
-    if (analysis) {
-      setStatistics({
-        points: analysis.frameCount,
-        length: analysis.endEffectorStats.totalDistance,
-        duration: analysis.duration / 1000,
-        bounds: analysis.endEffectorStats.bounds
-      });
-    }
+    // Create line geometry from smooth points
+    const points = smoothPoints.map(p => new THREE.Vector3(p.x, p.y, p.z));
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
 
-    if (pathData.length > 0) {
-      drawTrajectoryPath(pathData);
-      if (analysis && analysis.endEffectorStats.bounds) {
-        focusOnTrajectory(analysis.endEffectorStats.bounds);
-      }
-    }
-  };
-
-  const drawTrajectoryPath = (pathData) => {
-    if (!sceneRef.current || pathData.length < 2) return;
-
-    // Remove old path
-    if (pathLineRef.current) {
-      sceneRef.current.remove(pathLineRef.current);
-      if (pathLineRef.current.geometry) pathLineRef.current.geometry.dispose();
-      if (pathLineRef.current.material) pathLineRef.current.material.dispose();
-    }
-
-    // Create path points
-    const points = pathData.map(p => new THREE.Vector3(p.position.x, p.position.y, p.position.z));
-
-    // Create smooth curve
-    const curve = new THREE.CatmullRomCurve3(points);
-    const pathPoints = curve.getPoints(points.length * 5);
-
-    // Create line geometry
-    const geometry = new THREE.BufferGeometry().setFromPoints(pathPoints);
-
-    // Create gradient colors
+    // Apply colors
     const colors = [];
-    for (let i = 0; i < pathPoints.length; i++) {
-      const t = i / (pathPoints.length - 1);
-      colors.push(1 - t, t, 0.3); // Red to green gradient
-    }
+    pathColors.forEach(color => {
+      colors.push(color.r, color.g, color.b);
+    });
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-    // Create line material
+    // Create line
     const material = new THREE.LineBasicMaterial({
       vertexColors: true,
       linewidth: 3
     });
-
     const line = new THREE.Line(geometry, material);
     sceneRef.current.add(line);
     pathLineRef.current = line;
 
-    // Add start marker (green)
-    const startGeometry = new THREE.SphereGeometry(0.025, 16, 16);
-    const startMaterial = new THREE.MeshPhongMaterial({ 
-      color: 0x00ff00,
-      emissive: 0x004400,
-      emissiveIntensity: 0.2
-    });
-    const startMarker = new THREE.Mesh(startGeometry, startMaterial);
-    startMarker.position.copy(points[0]);
-    sceneRef.current.add(startMarker);
-
-    // Add end marker (red)
-    const endGeometry = new THREE.SphereGeometry(0.025, 16, 16);
-    const endMaterial = new THREE.MeshPhongMaterial({ 
-      color: 0xff0000,
-      emissive: 0x440000,
-      emissiveIntensity: 0.2
-    });
-    const endMarker = new THREE.Mesh(endGeometry, endMaterial);
-    endMarker.position.copy(points[points.length - 1]);
-    sceneRef.current.add(endMarker);
-
-    // Add waypoints
-    const waypointInterval = Math.max(1, Math.floor(points.length / 10));
-    for (let i = waypointInterval; i < points.length - 1; i += waypointInterval) {
-      const waypointGeometry = new THREE.SphereGeometry(0.015, 12, 12);
-      const waypointMaterial = new THREE.MeshPhongMaterial({ 
-        color: 0x0088ff,
-        transparent: true,
-        opacity: 0.7
-      });
-      const waypoint = new THREE.Mesh(waypointGeometry, waypointMaterial);
-      waypoint.position.copy(points[i]);
-      sceneRef.current.add(waypoint);
+    // Add markers
+    if (startPoint) {
+      const startMarker = createMarker(startPoint, 0x00ff00, 0.025);
+      sceneRef.current.add(startMarker);
+      markersRef.current.push(startMarker);
     }
+
+    if (endPoint) {
+      const endMarker = createMarker(endPoint, 0xff0000, 0.025);
+      sceneRef.current.add(endMarker);
+      markersRef.current.push(endMarker);
+    }
+
+    waypoints.forEach(waypoint => {
+      const marker = createMarker(waypoint.position, 0x0088ff, 0.015, 0.7);
+      sceneRef.current.add(marker);
+      markersRef.current.push(marker);
+    });
+
+    // Update camera position
+    const cameraConfig = getCameraConfig();
+    if (cameraRef.current && controlsRef.current && cameraConfig) {
+      cameraRef.current.position.set(
+        cameraConfig.position.x,
+        cameraConfig.position.y,
+        cameraConfig.position.z
+      );
+      controlsRef.current.target.set(
+        cameraConfig.target.x,
+        cameraConfig.target.y,
+        cameraConfig.target.z
+      );
+      controlsRef.current.update();
+    }
+  };
+
+  const createMarker = (position, color, size, opacity = 1) => {
+    const geometry = new THREE.SphereGeometry(size, 16, 16);
+    const material = new THREE.MeshPhongMaterial({ 
+      color: color,
+      emissive: color,
+      emissiveIntensity: 0.2,
+      transparent: opacity < 1,
+      opacity: opacity
+    });
+    const marker = new THREE.Mesh(geometry, material);
+    marker.position.set(position.x, position.y, position.z);
+    marker.userData.isTrajectoryMarker = true;
+    return marker;
+  };
+
+  const clearOldVisualization = () => {
+    // Remove line
+    if (pathLineRef.current) {
+      sceneRef.current.remove(pathLineRef.current);
+      if (pathLineRef.current.geometry) pathLineRef.current.geometry.dispose();
+      if (pathLineRef.current.material) pathLineRef.current.material.dispose();
+      pathLineRef.current = null;
+    }
+
+    // Remove markers
+    markersRef.current.forEach(marker => {
+      sceneRef.current.remove(marker);
+      if (marker.geometry) marker.geometry.dispose();
+      if (marker.material) marker.material.dispose();
+    });
+    markersRef.current = [];
   };
 
   const updateCurrentMarker = (position) => {
@@ -262,33 +279,13 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     }
   };
 
-  const focusOnTrajectory = (bounds) => {
-    if (!cameraRef.current || !controlsRef.current) return;
-
-    const center = new THREE.Vector3(
-      (bounds.min.x + bounds.max.x) / 2,
-      (bounds.min.y + bounds.max.y) / 2,
-      (bounds.min.z + bounds.max.z) / 2
-    );
-
-    const size = Math.max(
-      bounds.max.x - bounds.min.x,
-      bounds.max.y - bounds.min.y,
-      bounds.max.z - bounds.min.z
-    );
-
-    const distance = Math.max(size * 2, 1);
-    cameraRef.current.position.set(
-      center.x + distance,
-      center.y + distance,
-      center.z + distance
-    );
-
-    controlsRef.current.target.copy(center);
-    controlsRef.current.update();
-  };
-
   const cleanupScene = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+
+    clearOldVisualization();
+
     if (rendererRef.current && containerRef.current) {
       if (rendererRef.current.domElement && containerRef.current.contains(rendererRef.current.domElement)) {
         containerRef.current.removeChild(rendererRef.current.domElement);
@@ -304,7 +301,6 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
 
     sceneRef.current = null;
     cameraRef.current = null;
-    pathLineRef.current = null;
     currentMarkerRef.current = null;
   };
 
@@ -318,18 +314,18 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
 
   const handleBack = () => {
     setStep(1);
-    cleanupScene();
+    clearVisualization();
   };
 
   const exportData = () => {
-    if (!trajectoryData) return;
+    if (!visualizationData) return;
 
     const exportData = {
-      name: selectedTrajectory,
+      name: selectedTrajectory.name,
       robotId: activeRobotId,
-      path: trajectoryData.endEffectorPath,
-      statistics: statistics,
-      analysis: analyzeTrajectory(selectedTrajectory),
+      path: visualizationData.trajectoryData.endEffectorPath,
+      statistics: stats,
+      analysis: visualizationData.analysis,
       timestamp: new Date().toISOString()
     };
 
@@ -337,7 +333,7 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `trajectory_${selectedTrajectory}_${activeRobotId}_${Date.now()}.json`;
+    a.download = `trajectory_${selectedTrajectory.name}_${activeRobotId}_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -354,21 +350,6 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
           <button 
             className="controls-close"
             onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              fontSize: '2rem',
-              cursor: 'pointer',
-              color: '#999',
-              padding: '0',
-              width: '40px',
-              height: '40px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '4px',
-              transition: 'all 0.2s'
-            }}
           >
             ×
           </button>
@@ -461,29 +442,29 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
                 <div style={{ marginLeft: '2rem', marginBottom: '1rem' }}>
                   <label className="controls-form-label">Select Trajectory:</label>
                   <select
-                    value={selectedTrajectory}
-                    onChange={(e) => setSelectedTrajectory(e.target.value)}
+                    value={selectedTrajectory?.id || ''}
+                    onChange={(e) => {
+                      const selected = trajectories.find(t => t.id === e.target.value);
+                      setSelectedTrajectory(selected);
+                    }}
                     className="controls-form-select"
                     style={{ width: '100%', maxWidth: '400px' }}
                   >
                     {trajectories.length === 0 ? (
                       <option value="">No trajectories available</option>
                     ) : (
-                      trajectories.map(name => (
-                        <option key={name} value={name}>{name}</option>
+                      trajectories.map(traj => (
+                        <option key={traj.id} value={traj.id}>{traj.name}</option>
                       ))
                     )}
                   </select>
                   
-                  {selectedTrajectory && (() => {
-                    const trajectory = getTrajectory(selectedTrajectory);
-                    return trajectory ? (
-                      <div className="controls-mt-2 controls-text-muted controls-small">
-                        {trajectory.frameCount} frames • {(trajectory.duration / 1000).toFixed(1)}s
-                        {trajectory.endEffectorPath && ` • ${trajectory.endEffectorPath.length} path points`}
-                      </div>
-                    ) : null;
-                  })()}
+                  {selectedTrajectory && (
+                    <div className="controls-mt-2 controls-text-muted controls-small">
+                      {selectedTrajectory.frameCount} frames • {(selectedTrajectory.duration / 1000).toFixed(1)}s
+                      {selectedTrajectory.recordedAt && ` • ${new Date(selectedTrajectory.recordedAt).toLocaleDateString()}`}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -520,15 +501,14 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                 <h3 style={{ margin: 0 }}>
-                  {isLive ? 'Live End Effector Tracking' : `Trajectory: ${selectedTrajectory}`}
+                  {isLive ? 'Live End Effector Tracking' : `Trajectory: ${selectedTrajectory?.name}`}
                 </h3>
                 
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {!isLive && (
+                  {!isLive && visualizationData && (
                     <button 
                       onClick={exportData} 
                       className="controls-btn controls-btn-secondary controls-btn-sm"
-                      disabled={!trajectoryData}
                     >
                       📤 Export Data
                     </button>
@@ -536,8 +516,24 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
                 </div>
               </div>
 
+              {/* Loading indicator */}
+              {isLoading && (
+                <div style={{
+                  padding: '1rem',
+                  background: '#e3f2fd',
+                  borderRadius: '4px',
+                  marginBottom: '1rem',
+                  textAlign: 'center'
+                }}>
+                  <div className="controls-spinner-border controls-spinner-border-sm" role="status">
+                    <span className="controls-sr-only">Loading...</span>
+                  </div>
+                  <span className="controls-ml-2">Loading trajectory data...</span>
+                </div>
+              )}
+
               {/* Status Information */}
-              {!isLive && trajectoryData && (
+              {!isLive && !isLoading && stats && (
                 <div style={{
                   padding: '1rem',
                   background: '#f8f9fa',
@@ -547,10 +543,11 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
                   gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
                   gap: '1rem'
                 }}>
-                  <div><strong>Points:</strong> {statistics.points}</div>
-                  <div><strong>Length:</strong> {statistics.length.toFixed(3)}m</div>
-                  <div><strong>Duration:</strong> {statistics.duration.toFixed(1)}s</div>
+                  <div><strong>Points:</strong> {stats.frameCount}</div>
+                  <div><strong>Length:</strong> {stats.totalDistance.toFixed(3)}m</div>
+                  <div><strong>Duration:</strong> {stats.duration.toFixed(1)}s</div>
                   <div><strong>Robot:</strong> {activeRobotId}</div>
+                  <div><strong>Path Points:</strong> {stats.pathPoints}</div>
                 </div>
               )}
 
@@ -608,10 +605,26 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
                     <div>Initializing 3D visualization...</div>
                   </div>
                 )}
+                
+                {!isLive && stats?.pathPoints === 0 && !isLoading && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '10px',
+                    left: '10px',
+                    background: 'rgba(255, 255, 255, 0.9)',
+                    padding: '0.5rem',
+                    borderRadius: '4px',
+                    border: '1px solid #ffc107',
+                    color: '#856404',
+                    fontSize: '0.875rem'
+                  }}>
+                    ⚠️ No end effector path data available for this trajectory
+                  </div>
+                )}
               </div>
 
               {/* Trajectory Bounds */}
-              {!isLive && statistics.bounds && (
+              {!isLive && visualizationData?.visualization?.bounds && !isLoading && (
                 <div style={{
                   padding: '0.75rem',
                   background: '#f8f9fa',
@@ -620,9 +633,9 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
                   color: '#666'
                 }}>
                   <strong>Workspace Bounds:</strong><br />
-                  X: [{statistics.bounds.min.x.toFixed(3)}, {statistics.bounds.max.x.toFixed(3)}] • 
-                  Y: [{statistics.bounds.min.y.toFixed(3)}, {statistics.bounds.max.y.toFixed(3)}] • 
-                  Z: [{statistics.bounds.min.z.toFixed(3)}, {statistics.bounds.max.z.toFixed(3)}]
+                  X: [{visualizationData.visualization.bounds.min.x.toFixed(3)}, {visualizationData.visualization.bounds.max.x.toFixed(3)}] • 
+                  Y: [{visualizationData.visualization.bounds.min.y.toFixed(3)}, {visualizationData.visualization.bounds.max.y.toFixed(3)}] • 
+                  Z: [{visualizationData.visualization.bounds.min.z.toFixed(3)}, {visualizationData.visualization.bounds.max.z.toFixed(3)}]
                 </div>
               )}
             </div>

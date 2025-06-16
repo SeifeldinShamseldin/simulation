@@ -428,6 +428,176 @@ export const useTrajectory = (robotId = null) => {
     }
   }, [scanTrajectories]);
   
+  // Add analyzeTrajectory function
+  const analyzeTrajectory = useCallback(async (trajectoryInfo) => {
+    if (!trajectoryInfo) return null;
+    
+    try {
+      const response = await fetch(`/api/trajectory/analyze/${trajectoryInfo.manufacturer}/${trajectoryInfo.model}/${trajectoryInfo.name}`);
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log(`[useTrajectory] Analyzed trajectory: ${trajectoryInfo.name}`);
+        return result.analysis;
+      } else {
+        console.warn(`[useTrajectory] Analysis failed for trajectory: ${trajectoryInfo.name}`);
+        return null;
+      }
+    } catch (error) {
+      console.error('[useTrajectory] Error analyzing trajectory:', error);
+      return null;
+    }
+  }, []);
+  
+  // ========== VISUALIZATION METHODS ==========
+  
+  const createTrajectoryVisualization = useCallback((pathData) => {
+    if (!pathData || !Array.isArray(pathData)) {
+      return null;
+    }
+
+    const points = pathData.map(p => p.position);
+    const colors = [];
+    
+    // Create gradient colors
+    for (let i = 0; i < points.length; i++) {
+      const t = i / (points.length - 1);
+      colors.push({
+        r: 1 - t,
+        g: t,
+        b: 0.3
+      });
+    }
+
+    // Create waypoints
+    const waypointInterval = Math.max(1, Math.floor(points.length / 10));
+    const waypoints = [];
+    for (let i = waypointInterval; i < points.length - 1; i += waypointInterval) {
+      waypoints.push({
+        position: points[i],
+        index: i
+      });
+    }
+
+    return {
+      smoothPoints: points,
+      colors,
+      waypoints,
+      startPoint: points[0],
+      endPoint: points[points.length - 1],
+      bounds: calculateBounds(points)
+    };
+  }, []);
+
+  const calculateBounds = useCallback((points) => {
+    if (!points || points.length === 0) {
+      return {
+        min: { x: 0, y: 0, z: 0 },
+        max: { x: 0, y: 0, z: 0 }
+      };
+    }
+
+    const bounds = points.reduce((acc, point) => {
+      return {
+        min: {
+          x: Math.min(acc.min.x, point.x),
+          y: Math.min(acc.min.y, point.y),
+          z: Math.min(acc.min.z, point.z)
+        },
+        max: {
+          x: Math.max(acc.max.x, point.x),
+          y: Math.max(acc.max.y, point.y),
+          z: Math.max(acc.max.z, point.z)
+        }
+      };
+    }, {
+      min: { x: Infinity, y: Infinity, z: Infinity },
+      max: { x: -Infinity, y: -Infinity, z: -Infinity }
+    });
+
+    return bounds;
+  }, []);
+
+  const calculateCameraPosition = useCallback((bounds) => {
+    if (!bounds) {
+      return {
+        position: { x: 2, y: 2, z: 2 },
+        target: { x: 0, y: 0, z: 0 }
+      };
+    }
+
+    const center = {
+      x: (bounds.min.x + bounds.max.x) / 2,
+      y: (bounds.min.y + bounds.max.y) / 2,
+      z: (bounds.min.z + bounds.max.z) / 2
+    };
+
+    const size = Math.max(
+      bounds.max.x - bounds.min.x,
+      bounds.max.y - bounds.min.y,
+      bounds.max.z - bounds.min.z
+    );
+
+    // Ensure minimum distance even for small trajectories
+    const distance = Math.max(size * 2.5, 1);
+    
+    return {
+      position: {
+        x: center.x + distance * 0.7,
+        y: center.y + distance * 0.7,
+        z: center.z + distance * 0.7
+      },
+      target: center
+    };
+  }, []);
+
+  const getTrajectoryVisualization = useCallback(async (trajectoryInfo) => {
+    if (!trajectoryInfo || !robotId) {
+      return null;
+    }
+
+    try {
+      // Load trajectory data
+      const trajectory = await loadTrajectory(
+        trajectoryInfo.manufacturer,
+        trajectoryInfo.model,
+        trajectoryInfo.name
+      );
+      
+      if (!trajectory) {
+        console.warn(`[getTrajectoryVisualization] Failed to load trajectory "${trajectoryInfo.name}"`);
+        return null;
+      }
+
+      const pathData = trajectory.endEffectorPath || [];
+      
+      // Get analysis
+      const analysis = await analyzeTrajectory(trajectoryInfo);
+      
+      // Create visualization data
+      const visualization = createTrajectoryVisualization(pathData);
+      
+      if (!visualization) {
+        return null;
+      }
+
+      return {
+        trajectoryData: trajectory,
+        analysis,
+        visualization,
+        stats: {
+          frameCount: analysis?.frameCount || 0,
+          totalDistance: analysis?.endEffectorStats?.totalDistance || 0,
+          duration: analysis?.duration / 1000 || 0,
+          pathPoints: pathData.length
+        }
+      };
+    } catch (error) {
+      console.error('[getTrajectoryVisualization] Error:', error);
+      return null;
+    }
+  }, [robotId, loadTrajectory, analyzeTrajectory, createTrajectoryVisualization]);
+  
   // Initialize by scanning trajectories
   useEffect(() => {
     scanTrajectories();
@@ -474,6 +644,13 @@ export const useTrajectory = (robotId = null) => {
     // File system methods
     scanTrajectories,
     deleteTrajectory,
+    loadTrajectory,
+    analyzeTrajectory,
+    
+    // Visualization methods
+    createTrajectoryVisualization,
+    calculateCameraPosition,
+    getTrajectoryVisualization,
     
     // Info
     canRecord: !!robotId && !isPlaying,
@@ -530,7 +707,108 @@ export const useTrajectoryManagement = (robotId = null) => {
     scanTrajectories: trajectory.scanTrajectories,
     hasTrajectories: trajectory.hasTrajectories,
     count: trajectory.count,
-    isScanning: trajectory.isScanning
+    isScanning: trajectory.isScanning,
+    
+    // Add these missing methods that are needed
+    loadTrajectory: trajectory.loadTrajectory,
+    analyzeTrajectory: trajectory.analyzeTrajectory,
+    
+    // You might also want to add for completeness
+    error: trajectory.error,
+    clearError: trajectory.clearError
+  };
+};
+
+export const useTrajectoryVisualization = (robotId = null) => {
+  const trajectory = useTrajectory(robotId);
+  const [visualizationData, setVisualizationData] = useState(null);
+  const [isLoadingVis, setIsLoadingVis] = useState(false);
+  const [visError, setVisError] = useState(null);
+  
+  // Load and prepare visualization data
+  const loadVisualization = useCallback(async (trajectoryInfo) => {
+    if (!trajectoryInfo || !robotId) {
+      setVisualizationData(null);
+      return null;
+    }
+    
+    setIsLoadingVis(true);
+    setVisError(null);
+    
+    try {
+      // Use the context method to get visualization data
+      const visData = await trajectory.getTrajectoryVisualization(trajectoryInfo);
+      
+      if (visData) {
+        setVisualizationData(visData);
+        console.log('[useTrajectoryVisualization] Loaded visualization with', 
+          visData.visualization?.smoothPoints?.length || 0, 'smooth points');
+      } else {
+        setVisError('Failed to create visualization data');
+      }
+      
+      return visData;
+    } catch (error) {
+      console.error('[useTrajectoryVisualization] Error:', error);
+      setVisError(error.message);
+      return null;
+    } finally {
+      setIsLoadingVis(false);
+    }
+  }, [robotId, trajectory]);
+  
+  // Clear visualization data
+  const clearVisualization = useCallback(() => {
+    setVisualizationData(null);
+    setVisError(null);
+  }, []);
+  
+  // Get camera configuration for current visualization
+  const getCameraConfig = useCallback(() => {
+    if (!visualizationData?.visualization?.bounds) {
+      return {
+        position: { x: 2, y: 2, z: 2 },
+        target: { x: 0, y: 0, z: 0 }
+      };
+    }
+    
+    return trajectory.calculateCameraPosition(visualizationData.visualization.bounds);
+  }, [visualizationData, trajectory]);
+  
+  return {
+    // State
+    visualizationData,
+    isLoading: isLoadingVis,
+    error: visError,
+    
+    // Visualization data accessors
+    trajectoryPath: visualizationData?.visualization || null,
+    smoothPoints: visualizationData?.visualization?.smoothPoints || [],
+    pathColors: visualizationData?.visualization?.colors || [],
+    startPoint: visualizationData?.visualization?.startPoint || null,
+    endPoint: visualizationData?.visualization?.endPoint || null,
+    waypoints: visualizationData?.visualization?.waypoints || [],
+    bounds: visualizationData?.visualization?.bounds || null,
+    
+    // Statistics
+    stats: visualizationData?.stats || {
+      frameCount: 0,
+      duration: 0,
+      pathPoints: 0,
+      totalDistance: 0
+    },
+    
+    // Methods
+    loadVisualization,
+    clearVisualization,
+    getCameraConfig,
+    
+    // Has valid visualization data
+    hasVisualizationData: !!(visualizationData?.visualization?.smoothPoints?.length > 0),
+    
+    // Access to base trajectory methods
+    trajectories: trajectory.trajectories,
+    scanTrajectories: trajectory.scanTrajectories
   };
 };
 

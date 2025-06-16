@@ -656,6 +656,194 @@ export const TrajectoryProvider = ({ children }) => {
     }
   }, [loadTrajectoryFromFile]);
 
+  // ========== 3D VISUALIZATION METHODS ==========
+
+  // Create trajectory path visualization data
+  const createTrajectoryVisualization = useCallback((trajectoryData) => {
+    if (!trajectoryData || !trajectoryData.endEffectorPath || trajectoryData.endEffectorPath.length < 2) {
+      console.warn('[TrajectoryContext] Cannot create visualization: insufficient path data');
+      return null;
+    }
+
+    const pathData = trajectoryData.endEffectorPath;
+    const points = pathData.map(p => ({
+      x: p.position.x,
+      y: p.position.y,
+      z: p.position.z
+    }));
+
+    // Calculate smooth curve points using Catmull-Rom spline
+    const curvePoints = [];
+    const numSegments = 5; // Points per segment
+    
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = points[Math.max(0, i - 1)];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = points[Math.min(points.length - 1, i + 2)];
+      
+      for (let t = 0; t < 1; t += 1 / numSegments) {
+        const point = catmullRomPoint(p0, p1, p2, p3, t);
+        curvePoints.push(point);
+      }
+    }
+    
+    // Add the last point
+    curvePoints.push(points[points.length - 1]);
+
+    // Create gradient colors (red to green)
+    const colors = curvePoints.map((_, index) => {
+      const t = index / (curvePoints.length - 1);
+      return {
+        r: 1 - t,
+        g: t,
+        b: 0.3
+      };
+    });
+
+    // Create waypoints (every 10% of the path)
+    const waypoints = [];
+    const waypointInterval = Math.max(1, Math.floor(points.length / 10));
+    for (let i = waypointInterval; i < points.length - 1; i += waypointInterval) {
+      waypoints.push({
+        position: points[i],
+        index: i
+      });
+    }
+
+    return {
+      originalPoints: points,
+      smoothPoints: curvePoints,
+      colors: colors,
+      startPoint: points[0],
+      endPoint: points[points.length - 1],
+      waypoints: waypoints,
+      bounds: calculateBounds(points),
+      totalLength: calculatePathLength(points)
+    };
+  }, []);
+
+  // Helper: Catmull-Rom spline interpolation
+  const catmullRomPoint = (p0, p1, p2, p3, t) => {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    
+    const v0 = (p2.x - p0.x) * 0.5;
+    const v1 = (p3.x - p1.x) * 0.5;
+    const x = p1.x + v0 * t + (3 * (p2.x - p1.x) - 2 * v0 - v1) * t2 + (2 * (p1.x - p2.x) + v0 + v1) * t3;
+    
+    const v0y = (p2.y - p0.y) * 0.5;
+    const v1y = (p3.y - p1.y) * 0.5;
+    const y = p1.y + v0y * t + (3 * (p2.y - p1.y) - 2 * v0y - v1y) * t2 + (2 * (p1.y - p2.y) + v0y + v1y) * t3;
+    
+    const v0z = (p2.z - p0.z) * 0.5;
+    const v1z = (p3.z - p1.z) * 0.5;
+    const z = p1.z + v0z * t + (3 * (p2.z - p1.z) - 2 * v0z - v1z) * t2 + (2 * (p1.z - p2.z) + v0z + v1z) * t3;
+    
+    return { x, y, z };
+  };
+
+  // Helper: Calculate bounds of points
+  const calculateBounds = (points) => {
+    const bounds = {
+      min: { x: Infinity, y: Infinity, z: Infinity },
+      max: { x: -Infinity, y: -Infinity, z: -Infinity }
+    };
+    
+    points.forEach(p => {
+      bounds.min.x = Math.min(bounds.min.x, p.x);
+      bounds.min.y = Math.min(bounds.min.y, p.y);
+      bounds.min.z = Math.min(bounds.min.z, p.z);
+      bounds.max.x = Math.max(bounds.max.x, p.x);
+      bounds.max.y = Math.max(bounds.max.y, p.y);
+      bounds.max.z = Math.max(bounds.max.z, p.z);
+    });
+    
+    return bounds;
+  };
+
+  // Helper: Calculate total path length
+  const calculatePathLength = (points) => {
+    let length = 0;
+    for (let i = 1; i < points.length; i++) {
+      const dx = points[i].x - points[i - 1].x;
+      const dy = points[i].y - points[i - 1].y;
+      const dz = points[i].z - points[i - 1].z;
+      length += Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+    return length;
+  };
+
+  // Calculate camera position for trajectory
+  const calculateCameraPosition = useCallback((bounds) => {
+    if (!bounds) return null;
+    
+    const center = {
+      x: (bounds.min.x + bounds.max.x) / 2,
+      y: (bounds.min.y + bounds.max.y) / 2,
+      z: (bounds.min.z + bounds.max.z) / 2
+    };
+    
+    const size = Math.max(
+      bounds.max.x - bounds.min.x,
+      bounds.max.y - bounds.min.y,
+      bounds.max.z - bounds.min.z
+    );
+    
+    // Ensure minimum distance for small trajectories
+    const distance = Math.max(size * 2.5, 1);
+    
+    return {
+      position: {
+        x: center.x + distance * 0.7,
+        y: center.y + distance * 0.7,
+        z: center.z + distance * 0.7
+      },
+      target: center
+    };
+  }, []);
+
+  // Get visualization data for a trajectory
+  const getTrajectoryVisualization = useCallback(async (trajectoryInfo) => {
+    try {
+      // Load trajectory from file
+      const trajectory = await loadTrajectoryFromFile(
+        trajectoryInfo.manufacturer,
+        trajectoryInfo.model,
+        trajectoryInfo.name
+      );
+      
+      if (!trajectory) {
+        console.error('[TrajectoryContext] Failed to load trajectory for visualization');
+        return null;
+      }
+      
+      // Create visualization data
+      const visualization = createTrajectoryVisualization(trajectory);
+      
+      // Get analysis for additional stats
+      const analysis = await analyzeTrajectory(trajectoryInfo);
+      
+      return {
+        trajectoryData: trajectory,
+        visualization: visualization,
+        analysis: analysis,
+        stats: {
+          frameCount: trajectory.frameCount || 0,
+          duration: trajectory.duration / 1000,
+          pathPoints: trajectory.endEffectorPath?.length || 0,
+          totalDistance: analysis?.endEffectorStats?.totalDistance || 0,
+          bounds: analysis?.endEffectorStats?.bounds || visualization?.bounds
+        }
+      };
+    } catch (error) {
+      console.error('[TrajectoryContext] Error creating visualization:', error);
+      return null;
+    }
+  }, [loadTrajectoryFromFile, createTrajectoryVisualization, analyzeTrajectory]);
+
+  // ========== END OF VISUALIZATION METHODS ==========
+
   // Initialize by scanning trajectories
   useEffect(() => {
     scanTrajectories();
@@ -696,6 +884,11 @@ export const TrajectoryProvider = ({ children }) => {
     
     // Analysis
     analyzeTrajectory,
+    
+    // Visualization methods
+    createTrajectoryVisualization,
+    calculateCameraPosition,
+    getTrajectoryVisualization,
     
     // Utils
     clearError: () => setError(null),
