@@ -18,8 +18,8 @@ const TrajectoryViewer = ({ viewerRef }) => {
     isRecording,
     startRecording,
     stopRecording,
-    lastRecordedFrame,
-    recordingState,
+    recordingName,
+    frameCount,
     canRecord
   } = useTrajectoryRecording(activeRobotId);
   
@@ -211,9 +211,10 @@ const TrajectoryViewer = ({ viewerRef }) => {
             backgroundColor: '#ff0000',
             animation: 'pulse 1s infinite'
           }}></div>
-          <span>Recording "{recordingState.trajectoryName}"</span>
-          {recordingState.frameCount > 0 && (
+          <span>Recording "{recordingName}"</span>
+          {frameCount > 0 && (
             <small className="controls-text-muted">
+              {frameCount} frames
             </small>
           )}
         </div>
