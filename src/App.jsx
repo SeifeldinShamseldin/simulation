@@ -6,6 +6,7 @@ import Robot from './components/robot/Robot';
 import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import ResizablePanel from './components/common/ResizablePanel';
+import TrajectoryLineVisualizer from './components/controls/recordmap/TrajectoryLineVisualizer';
 import { RobotProvider } from './contexts/RobotContext'; // Unified context
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
@@ -186,6 +187,7 @@ const AppContent = () => {
             backgroundColor="#e6f2ff"
             enableShadows={true}
           />
+          <TrajectoryLineVisualizer />
         </div>
 
         {/* World Panel - Overlay */}

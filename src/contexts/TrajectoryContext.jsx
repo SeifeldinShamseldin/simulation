@@ -37,6 +37,10 @@ export const TrajectoryProvider = ({ children }) => {
       
       if (result.success) {
         setAvailableTrajectories(result.trajectories || []);
+        // Emit available trajectories event
+        EventBus.emit('trajectory:available-trajectories', {
+          trajectories: result.trajectories || []
+        });
         console.log(`[TrajectoryContext] Found ${result.trajectories.length} trajectories`);
       } else {
         setError(result.message || 'Failed to scan trajectories');
@@ -373,6 +377,12 @@ export const TrajectoryProvider = ({ children }) => {
       trajectoryInfo.model,
       trajectoryInfo.name
     );
+    
+    // Emit the full trajectory data for visualization
+    EventBus.emit('trajectory:loaded-for-playback', {
+      trajectory,
+      robotId
+    });
     
     if (!trajectory || !trajectory.frames || trajectory.frames.length === 0) {
       setError('Invalid trajectory or no frames to play');
@@ -881,6 +891,7 @@ export const TrajectoryProvider = ({ children }) => {
     scanTrajectories,
     deleteTrajectory: deleteTrajectoryFromFile,
     getRobotTrajectories,
+    loadTrajectoryFromFile,
     
     // Analysis
     analyzeTrajectory,
