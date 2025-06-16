@@ -1,17 +1,13 @@
-// src/contexts/TrajectoryContext.jsx - REWRITTEN FOR NEW ARCHITECTURE
+// src/contexts/TrajectoryContext.jsx - EVENT-DRIVEN RECORDING & PLAYBACK
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
-import { useRobotContext } from './RobotContext';
 import { useJointContext } from './JointContext';
-import { useTCPContext } from './TCPContext';
 import EventBus from '../utils/EventBus';
 
 const TrajectoryContext = createContext(null);
 
 export const TrajectoryProvider = ({ children }) => {
-  // Get access to joints and TCP systems
-  const { activeRobotId } = useRobotContext();
-  const { getJointValues, setJointValues, isRobotAnimating } = useJointContext();
-  const { getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation, recalculateEndEffector } = useTCPContext();
+  // Only need JointContext for playback
+  const { setJointValues, isRobotAnimating } = useJointContext();
   
   // ========== STATE ==========
   const [trajectories, setTrajectories] = useState(new Map()); // Map<robotId, Map<trajectoryName, trajectory>>
@@ -21,8 +17,10 @@ export const TrajectoryProvider = ({ children }) => {
   const [error, setError] = useState(null);
   
   // ========== REFS ==========
-  const recordingIntervalsRef = useRef(new Map());
+  const recordingDataRef = useRef(new Map()); // Map<robotId, { jointData, tcpData }>
   const playbackFramesRef = useRef(new Map());
+  const lastFrameTimeRef = useRef(new Map()); // Map<robotId, lastFrameTimestamp>
+  const recordingIntervalsRef = useRef(new Map()); // Map<robotId, intervalId>
 
   // ========== TRAJECTORY STORAGE ==========
   const getRobotTrajectories = useCallback((robotId) => {
@@ -68,31 +66,99 @@ export const TrajectoryProvider = ({ children }) => {
     return true;
   }, []);
 
-  // ========== RECORDING: Direct data capture from hooks ==========
-  const captureFrameData = useCallback((robotId) => {
-    // Get joint values directly from JointContext
-    const jointValues = getJointValues(robotId);
-    
-    // Get end effector data directly from TCPContext
-    const endEffectorPosition = getCurrentEndEffectorPoint(robotId);
-    const endEffectorOrientation = getCurrentEndEffectorOrientation(robotId);
-    
-    // Validate we have data
-    const hasValidJoints = jointValues && Object.keys(jointValues).length > 0;
-    const hasValidEndEffector = endEffectorPosition && 
-      (endEffectorPosition.x !== 0 || endEffectorPosition.y !== 0 || endEffectorPosition.z !== 0);
-    
-    if (!hasValidJoints) {
-      console.warn(`[TrajectoryContext] No joint data for robot ${robotId}`);
-      return null;
-    }
-    
-    return {
-      jointValues,
-      endEffectorPosition: hasValidEndEffector ? endEffectorPosition : null,
-      endEffectorOrientation: hasValidEndEffector ? endEffectorOrientation : null
+  // ========== EVENT-DRIVEN RECORDING ==========
+  
+  // Listen for joint and TCP updates
+  useEffect(() => {
+    // Handler for joint changes
+    const handleJointChange = (data) => {
+      const { robotId, jointName, value, allValues } = data;
+      
+      // Check if we're recording this robot
+      const recordingState = recordingStates.get(robotId);
+      if (!recordingState || !recordingState.isRecording) return;
+      
+      console.log(`[TrajectoryContext] Joint update for ${robotId}:`, { jointName, value, allValues });
+      
+      // Update current joint data for this robot
+      if (!recordingDataRef.current.has(robotId)) {
+        recordingDataRef.current.set(robotId, { jointData: {}, tcpData: null });
+      }
+      
+      const robotData = recordingDataRef.current.get(robotId);
+      
+      // Update with all joint values if provided, otherwise update single joint
+      if (allValues) {
+        robotData.jointData = { ...allValues };
+      } else {
+        robotData.jointData[jointName] = value;
+      }
+      
+      // Check if we should record this frame (avoid duplicates)
+      const currentTime = Date.now() - recordingState.startTime;
+      const lastFrameTime = lastFrameTimeRef.current.get(robotId) || 0;
+      
+      // Only record if enough time has passed (minimum 16ms = ~60fps)
+      if (currentTime - lastFrameTime >= 16) {
+        // Store frame
+        recordingState.frames.push({
+          timestamp: currentTime,
+          jointValues: { ...robotData.jointData }
+        });
+        
+        // Store end effector frame if available
+        if (robotData.tcpData && robotData.tcpData.position) {
+          recordingState.endEffectorPath.push({
+            timestamp: currentTime,
+            position: { ...robotData.tcpData.position },
+            orientation: { ...robotData.tcpData.orientation }
+          });
+        }
+        
+        recordingState.frameCount = recordingState.frames.length;
+        lastFrameTimeRef.current.set(robotId, currentTime);
+        
+        // Emit frame recorded event
+        EventBus.emit('trajectory:frame-recorded', {
+          robotId,
+          trajectoryName: recordingState.trajectoryName,
+          frameCount: recordingState.frameCount,
+          hasEndEffector: !!robotData.tcpData
+        });
+      }
     };
-  }, [getJointValues, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation]);
+    
+    // Handler for TCP updates
+    const handleTCPUpdate = (data) => {
+      const { robotId, endEffectorPoint, endEffectorOrientation } = data;
+      
+      // Check if we're recording this robot
+      const recordingState = recordingStates.get(robotId);
+      if (!recordingState || !recordingState.isRecording) return;
+      
+      console.log(`[TrajectoryContext] TCP update for ${robotId}:`, { endEffectorPoint, endEffectorOrientation });
+      
+      // Update current TCP data for this robot
+      if (!recordingDataRef.current.has(robotId)) {
+        recordingDataRef.current.set(robotId, { jointData: {}, tcpData: null });
+      }
+      
+      const robotData = recordingDataRef.current.get(robotId);
+      robotData.tcpData = {
+        position: endEffectorPoint,
+        orientation: endEffectorOrientation || { x: 0, y: 0, z: 0, w: 1 }
+      };
+    };
+    
+    // Subscribe to events
+    const unsubscribes = [
+      EventBus.on('robot:joint-changed', handleJointChange),
+      EventBus.on('robot:joints-changed', handleJointChange),
+      EventBus.on('tcp:endeffector-updated', handleTCPUpdate)
+    ];
+    
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [recordingStates]);
 
   const startRecording = useCallback((trajectoryName, robotId, options = {}) => {
     if (!robotId || !trajectoryName) {
@@ -100,12 +166,14 @@ export const TrajectoryProvider = ({ children }) => {
       return false;
     }
 
-    const interval = options.interval || 100;
-
     // Stop existing recording for this robot
     stopRecording(robotId);
 
     console.log(`[TrajectoryContext] Starting recording "${trajectoryName}" for robot ${robotId}`);
+
+    // Initialize recording data storage
+    recordingDataRef.current.set(robotId, { jointData: {}, tcpData: null });
+    lastFrameTimeRef.current.set(robotId, 0);
 
     // Create recording state
     const recordingState = {
@@ -114,53 +182,15 @@ export const TrajectoryProvider = ({ children }) => {
       startTime: Date.now(),
       frames: [],
       endEffectorPath: [],
-      isRecording: true
+      isRecording: true,
+      frameCount: 0
     };
 
     setRecordingStates(prev => new Map(prev).set(robotId, recordingState));
 
-    // Set up recording interval
-    const intervalId = setInterval(() => {
-      const state = recordingStates.get(robotId);
-      if (!state || !state.isRecording) {
-        clearInterval(intervalId);
-        recordingIntervalsRef.current.delete(robotId);
-        return;
-      }
+    // Request initial state
+    EventBus.emit('trajectory:request-state', { robotId });
 
-      const currentTime = Date.now() - state.startTime;
-      
-      // Capture data directly from hooks
-      const frameData = captureFrameData(robotId);
-      
-      if (frameData && frameData.jointValues) {
-        // Store joint frame
-        state.frames.push({
-          timestamp: currentTime,
-          jointValues: frameData.jointValues
-        });
-        
-        // Store end effector frame if available
-        if (frameData.endEffectorPosition) {
-          state.endEffectorPath.push({
-            timestamp: currentTime,
-            position: frameData.endEffectorPosition,
-            orientation: frameData.endEffectorOrientation || { x: 0, y: 0, z: 0, w: 1 }
-          });
-        }
-        
-        // Emit recording update event
-        EventBus.emit('trajectory:frame-recorded', {
-          robotId,
-          trajectoryName,
-          frameCount: state.frames.length,
-          hasEndEffector: !!frameData.endEffectorPosition
-        });
-      }
-    }, interval);
-
-    recordingIntervalsRef.current.set(robotId, intervalId);
-    
     // Emit recording started event
     EventBus.emit('trajectory:recording-started', {
       robotId,
@@ -168,7 +198,7 @@ export const TrajectoryProvider = ({ children }) => {
     });
     
     return true;
-  }, [captureFrameData, recordingStates]);
+  }, [recordingStates]);
 
   const stopRecording = useCallback((robotId) => {
     const recordingState = recordingStates.get(robotId);
@@ -176,12 +206,8 @@ export const TrajectoryProvider = ({ children }) => {
 
     console.log(`[TrajectoryContext] Stopping recording for robot ${robotId}`);
 
-    // Clear interval
-    const intervalId = recordingIntervalsRef.current.get(robotId);
-    if (intervalId) {
-      clearInterval(intervalId);
-      recordingIntervalsRef.current.delete(robotId);
-    }
+    // Mark as not recording first
+    recordingState.isRecording = false;
 
     // Create trajectory
     const trajectory = {
@@ -194,8 +220,10 @@ export const TrajectoryProvider = ({ children }) => {
       frameCount: recordingState.frames.length
     };
 
-    // Save trajectory
-    saveTrajectory(trajectory, robotId);
+    // Save trajectory only if we have frames
+    if (trajectory.frameCount > 0) {
+      saveTrajectory(trajectory, robotId);
+    }
 
     // Clear recording state
     setRecordingStates(prev => {
@@ -203,6 +231,10 @@ export const TrajectoryProvider = ({ children }) => {
       newMap.delete(robotId);
       return newMap;
     });
+    
+    // Clear recording data
+    recordingDataRef.current.delete(robotId);
+    lastFrameTimeRef.current.delete(robotId);
 
     // Emit recording stopped event
     EventBus.emit('trajectory:recording-stopped', {
@@ -215,23 +247,7 @@ export const TrajectoryProvider = ({ children }) => {
     return trajectory;
   }, [recordingStates, saveTrajectory]);
 
-  // ========== PLAYBACK: Direct control via hooks ==========
-  const applyFrameData = useCallback((robotId, frame) => {
-    if (!frame || !frame.jointValues) return false;
-    
-    // Apply joint values directly through JointContext
-    const success = setJointValues(robotId, frame.jointValues);
-    
-    if (success) {
-      // Force TCP recalculation after joint update
-      setTimeout(() => {
-        recalculateEndEffector(robotId);
-      }, 10);
-    }
-    
-    return success;
-  }, [setJointValues, recalculateEndEffector]);
-
+  // ========== PLAYBACK VIA EVENTS ==========
   const playTrajectory = useCallback((trajectoryName, robotId, options = {}) => {
     const trajectory = getTrajectory(trajectoryName, robotId);
     if (!trajectory || !trajectory.frames || trajectory.frames.length === 0) {
@@ -262,7 +278,8 @@ export const TrajectoryProvider = ({ children }) => {
       onComplete,
       onFrame,
       isPlaying: true,
-      currentFrameIndex: 0
+      currentFrameIndex: 0,
+      lastFrameTime: Date.now()
     };
 
     setPlaybackStates(prev => new Map(prev).set(robotId, playbackState));
@@ -282,7 +299,8 @@ export const TrajectoryProvider = ({ children }) => {
         return;
       }
 
-      const elapsed = (Date.now() - state.startTime) * state.speed;
+      const currentTime = Date.now();
+      const elapsed = (currentTime - state.startTime) * state.speed;
       const totalDuration = state.trajectory.duration;
       const progress = Math.min(elapsed / totalDuration, 1);
 
@@ -296,15 +314,23 @@ export const TrajectoryProvider = ({ children }) => {
         }
       }
 
-      // Apply frame if we have one
-      if (targetFrameIndex < state.trajectory.frames.length) {
+      // Apply frame if we have one and enough time has passed
+      if (targetFrameIndex < state.trajectory.frames.length && 
+          currentTime - state.lastFrameTime >= 16) { // ~60fps
         const frame = state.trajectory.frames[targetFrameIndex];
         const endEffectorFrame = state.trajectory.endEffectorPath?.[targetFrameIndex];
         
-        // Apply joint values through hooks
-        const applied = applyFrameData(robotId, frame);
+        // Apply joint values through JointContext
+        const applied = setJointValues(robotId, frame.jointValues);
         
         if (applied) {
+          // Force TCP recalculation by emitting joint change event
+          EventBus.emit('robot:joints-changed', {
+            robotId,
+            robotName: robotId,
+            values: frame.jointValues
+          });
+          
           // Call frame callback
           state.onFrame(frame, endEffectorFrame, progress);
           
@@ -316,6 +342,9 @@ export const TrajectoryProvider = ({ children }) => {
             progress,
             hasEndEffector: !!endEffectorFrame
           });
+
+          // Update last frame time
+          state.lastFrameTime = currentTime;
         }
       }
 
@@ -325,6 +354,7 @@ export const TrajectoryProvider = ({ children }) => {
           // Reset for loop
           state.startTime = Date.now();
           state.currentFrameIndex = 0;
+          state.lastFrameTime = Date.now();
           console.log(`[TrajectoryContext] Looping playback for ${robotId}`);
         } else {
           // End playback
@@ -350,7 +380,7 @@ export const TrajectoryProvider = ({ children }) => {
     // Start playback
     requestAnimationFrame(playFrame);
     return true;
-  }, [getTrajectory, isRobotAnimating, playbackStates, applyFrameData]);
+  }, [getTrajectory, isRobotAnimating, playbackStates, setJointValues]);
 
   const stopPlayback = useCallback((robotId) => {
     const playbackState = playbackStates.get(robotId);
@@ -507,11 +537,22 @@ export const TrajectoryProvider = ({ children }) => {
   // ========== CLEANUP ==========
   useEffect(() => {
     return () => {
-      // Clear all intervals
-      recordingIntervalsRef.current.forEach(clearInterval);
-      recordingIntervalsRef.current.clear();
+      // Clear all recording intervals
+      if (recordingIntervalsRef.current) {
+        recordingIntervalsRef.current.forEach((intervalId) => {
+          clearInterval(intervalId);
+        });
+        recordingIntervalsRef.current.clear();
+      }
+      
+      // Clear all playback animation frames
+      playbackStates.forEach((state) => {
+        if (state.animationFrame) {
+          cancelAnimationFrame(state.animationFrame);
+        }
+      });
     };
-  }, []);
+  }, [playbackStates]);
 
   // ========== CONTEXT VALUE ==========
   const value = {
@@ -521,12 +562,12 @@ export const TrajectoryProvider = ({ children }) => {
     saveTrajectory,
     deleteTrajectory,
     
-    // Recording (now uses hooks directly)
+    // Recording (event-driven)
     startRecording,
     stopRecording,
     isRecording,
     
-    // Playback (now uses hooks directly)
+    // Playback (event-driven)
     playTrajectory,
     stopPlayback,
     isPlaying,

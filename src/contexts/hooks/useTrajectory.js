@@ -1,4 +1,4 @@
-// src/contexts/hooks/useTrajectory.js - SIMPLIFIED FOR NEW ARCHITECTURE
+// src/contexts/hooks/useTrajectory.js - EVENT-DRIVEN TRAJECTORY HOOK
 import { useCallback, useState, useEffect } from 'react';
 import { useTrajectoryContext } from '../TrajectoryContext';
 import { useRobotSelection } from './useRobotManager';
@@ -18,6 +18,12 @@ export const useTrajectory = (robotId = null) => {
     progress: 0,
     currentPosition: null 
   });
+  const [recordingState, setRecordingState] = useState({
+    isRecording: false,
+    trajectoryName: null,
+    frameCount: 0,
+    startTime: null
+  });
 
   // ========== EVENT LISTENERS FOR UI UPDATES ==========
   useEffect(() => {
@@ -31,6 +37,37 @@ export const useTrajectory = (robotId = null) => {
           frameCount: data.frameCount,
           hasEndEffector: data.hasEndEffector
         });
+        
+        // Update recording state
+        setRecordingState(prev => ({
+          ...prev,
+          frameCount: data.frameCount
+        }));
+      }
+    };
+
+    // Listen for recording state changes
+    const handleRecordingStarted = (data) => {
+      if (data.robotId === targetRobotId) {
+        setRecordingState({
+          isRecording: true,
+          trajectoryName: data.trajectoryName,
+          frameCount: 0,
+          startTime: Date.now()
+        });
+        setLastRecordedFrame(null);
+      }
+    };
+
+    const handleRecordingStopped = (data) => {
+      if (data.robotId === targetRobotId) {
+        setRecordingState({
+          isRecording: false,
+          trajectoryName: null,
+          frameCount: data.frameCount,
+          startTime: null
+        });
+        setLastRecordedFrame(null);
       }
     };
 
@@ -66,12 +103,12 @@ export const useTrajectory = (robotId = null) => {
 
     const unsubscribes = [
       EventBus.on('trajectory:frame-recorded', handleFrameRecorded),
+      EventBus.on('trajectory:recording-started', handleRecordingStarted),
+      EventBus.on('trajectory:recording-stopped', handleRecordingStopped),
       EventBus.on('trajectory:frame-played', handleFramePlayed),
       EventBus.on('trajectory:playback-started', handlePlaybackStarted),
       EventBus.on('trajectory:playback-stopped', handlePlaybackStopped),
-      EventBus.on('trajectory:playback-completed', handlePlaybackStopped),
-      EventBus.on('trajectory:recording-started', () => setLastRecordedFrame(null)),
-      EventBus.on('trajectory:recording-stopped', () => setLastRecordedFrame(null))
+      EventBus.on('trajectory:playback-completed', handlePlaybackStopped)
     ];
 
     return () => unsubscribes.forEach(unsub => unsub());
@@ -86,19 +123,40 @@ export const useTrajectory = (robotId = null) => {
 
     console.log(`[useTrajectory] Starting recording "${trajectoryName}" for robot ${targetRobotId}`);
     
-    return context.startRecording(trajectoryName, targetRobotId, options);
+    // Request initial state before starting recording
+    EventBus.emit('trajectory:request-state', { robotId: targetRobotId });
+    
+    // Start recording with context
+    const success = context.startRecording(trajectoryName, targetRobotId, options);
+    
+    if (success) {
+      // Update local state
+      setRecordingState({
+        isRecording: true,
+        trajectoryName,
+        frameCount: 0,
+        startTime: Date.now()
+      });
+    }
+    
+    return success;
   }, [targetRobotId, context]);
 
   const stopRecording = useCallback(() => {
     if (!targetRobotId) return null;
     
-    return context.stopRecording(targetRobotId);
+    const trajectory = context.stopRecording(targetRobotId);
+    
+    if (trajectory) {
+      console.log(`[useTrajectory] Recording completed: ${trajectory.frameCount} frames`);
+    }
+    
+    return trajectory;
   }, [targetRobotId, context]);
 
   const isRecording = useCallback(() => {
-    if (!targetRobotId) return false;
-    return context.isRecording(targetRobotId);
-  }, [targetRobotId, context]);
+    return recordingState.isRecording;
+  }, [recordingState.isRecording]);
 
   // ========== PLAYBACK METHODS ==========
   const playTrajectory = useCallback((trajectoryName, options = {}) => {
@@ -188,6 +246,7 @@ export const useTrajectory = (robotId = null) => {
     startRecording,
     stopRecording,
     lastRecordedFrame,
+    recordingState,
     
     // Playback
     isPlaying: isPlaying(),
@@ -222,7 +281,7 @@ export const useTrajectory = (robotId = null) => {
   };
 };
 
-// ========== SPECIALIZED HOOKS (simplified) ==========
+// ========== SPECIALIZED HOOKS ==========
 
 export const useTrajectoryRecording = (robotId = null) => {
   const trajectory = useTrajectory(robotId);
@@ -233,9 +292,8 @@ export const useTrajectoryRecording = (robotId = null) => {
     startRecording: trajectory.startRecording,
     stopRecording: trajectory.stopRecording,
     lastRecordedFrame: trajectory.lastRecordedFrame,
-    canRecord: trajectory.canRecord,
-    // Simplified - no need for current state since TrajectoryContext handles it
-    currentState: null
+    recordingState: trajectory.recordingState,
+    canRecord: trajectory.canRecord
   };
 };
 
@@ -249,7 +307,6 @@ export const useTrajectoryPlayback = (robotId = null) => {
     playTrajectory: trajectory.playTrajectory,
     stopPlayback: trajectory.stopPlayback,
     progress: trajectory.progress,
-    currentPosition: trajectory.playbackStatus.currentPosition,
     canPlay: trajectory.canPlay
   };
 };
@@ -262,11 +319,11 @@ export const useTrajectoryManagement = (robotId = null) => {
     trajectories: trajectory.trajectories,
     getTrajectory: trajectory.getTrajectory,
     deleteTrajectory: trajectory.deleteTrajectory,
-    hasTrajectories: trajectory.hasTrajectories,
-    count: trajectory.count,
     exportTrajectory: trajectory.exportTrajectory,
     importTrajectory: trajectory.importTrajectory,
-    analyzeTrajectory: trajectory.analyzeTrajectory
+    analyzeTrajectory: trajectory.analyzeTrajectory,
+    hasTrajectories: trajectory.hasTrajectories,
+    count: trajectory.count
   };
 };
 

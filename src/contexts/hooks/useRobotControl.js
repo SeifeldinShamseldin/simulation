@@ -399,6 +399,33 @@ export const useRobotControl = () => {
     return null;
   }, [getRobotFromContext, robotManager, activeRobotId]);
 
+  // ========== TRAJECTORY STATE REQUEST HANDLER ==========
+  useEffect(() => {
+    if (!activeRobotId || !isReady) return;
+
+    const handleStateRequest = (data) => {
+      if (data.robotId !== activeRobotId) return;
+
+      console.log(`[useRobotControl] State requested for ${activeRobotId}`);
+
+      // Emit current joint values
+      const jointValues = getJointValues();
+      if (Object.keys(jointValues).length > 0) {
+        EventBus.emit('robot:joints-changed', {
+          robotId: activeRobotId,
+          robotName: activeRobotId,
+          values: jointValues
+        });
+      }
+
+      // Force TCP recalculation and emit
+      EventBus.emit('tcp:force-recalculate', { robotId: activeRobotId });
+    };
+
+    const unsubscribe = EventBus.on('trajectory:request-state', handleStateRequest);
+    return () => unsubscribe();
+  }, [activeRobotId, isReady, getJointValues]);
+
   return {
     // Robot state
     activeRobotId,
