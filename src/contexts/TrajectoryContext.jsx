@@ -1,4 +1,4 @@
-// src/contexts/TrajectoryContext.jsx - EVENT-DRIVEN RECORDING & PLAYBACK
+// src/contexts/TrajectoryContext.jsx - FIXED PLAYBACK CLOSURE ISSUE
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
 import { useJointContext } from './JointContext';
 import EventBus from '../utils/EventBus';
@@ -18,6 +18,7 @@ export const TrajectoryProvider = ({ children }) => {
   
   // ========== REFS ==========
   const recordingDataRef = useRef(new Map()); // Map<robotId, { jointData, tcpData }>
+  const playbackStatesRef = useRef(new Map()); // FIX: Add ref for playback states
   const playbackFramesRef = useRef(new Map());
   const lastFrameTimeRef = useRef(new Map()); // Map<robotId, lastFrameTimestamp>
   const recordingIntervalsRef = useRef(new Map()); // Map<robotId, intervalId>
@@ -247,7 +248,7 @@ export const TrajectoryProvider = ({ children }) => {
     return trajectory;
   }, [recordingStates, saveTrajectory]);
 
-  // ========== PLAYBACK VIA EVENTS ==========
+  // ========== PLAYBACK VIA EVENTS - FIXED ==========
   const playTrajectory = useCallback((trajectoryName, robotId, options = {}) => {
     const trajectory = getTrajectory(trajectoryName, robotId);
     if (!trajectory || !trajectory.frames || trajectory.frames.length === 0) {
@@ -282,7 +283,9 @@ export const TrajectoryProvider = ({ children }) => {
       lastFrameTime: Date.now()
     };
 
+    // FIX: Store in both state and ref
     setPlaybackStates(prev => new Map(prev).set(robotId, playbackState));
+    playbackStatesRef.current.set(robotId, playbackState);
     
     // Emit playback started event
     EventBus.emit('trajectory:playback-started', {
@@ -291,104 +294,120 @@ export const TrajectoryProvider = ({ children }) => {
       frameCount: trajectory.frameCount
     });
     
-    // Playback loop
-    const playFrame = () => {
-      const state = playbackStates.get(robotId);
-      if (!state || !state.isPlaying) {
-        console.log(`[TrajectoryContext] Playback stopped for ${robotId}`);
-        return;
-      }
-
-      const currentTime = Date.now();
-      const elapsed = (currentTime - state.startTime) * state.speed;
-      const totalDuration = state.trajectory.duration;
-      const progress = Math.min(elapsed / totalDuration, 1);
-
-      // Find current frame based on timestamp
-      let targetFrameIndex = 0;
-      for (let i = 0; i < state.trajectory.frames.length; i++) {
-        if (state.trajectory.frames[i].timestamp <= elapsed) {
-          targetFrameIndex = i;
-        } else {
-          break;
-        }
-      }
-
-      // Apply frame if we have one and enough time has passed
-      if (targetFrameIndex < state.trajectory.frames.length && 
-          currentTime - state.lastFrameTime >= 16) { // ~60fps
-        const frame = state.trajectory.frames[targetFrameIndex];
-        const endEffectorFrame = state.trajectory.endEffectorPath?.[targetFrameIndex];
-        
-        // Apply joint values through JointContext
-        const applied = setJointValues(robotId, frame.jointValues);
-        
-        if (applied) {
-          // Force TCP recalculation by emitting joint change event
-          EventBus.emit('robot:joints-changed', {
-            robotId,
-            robotName: robotId,
-            values: frame.jointValues
-          });
-          
-          // Call frame callback
-          state.onFrame(frame, endEffectorFrame, progress);
-          
-          // Emit frame played event
-          EventBus.emit('trajectory:frame-played', {
-            robotId,
-            trajectoryName: state.trajectory.name,
-            frameIndex: targetFrameIndex,
-            progress,
-            hasEndEffector: !!endEffectorFrame
-          });
-
-          // Update last frame time
-          state.lastFrameTime = currentTime;
-        }
-      }
-
-      // Check if finished
-      if (progress >= 1) {
-        if (state.loop) {
-          // Reset for loop
-          state.startTime = Date.now();
-          state.currentFrameIndex = 0;
-          state.lastFrameTime = Date.now();
-          console.log(`[TrajectoryContext] Looping playback for ${robotId}`);
-        } else {
-          // End playback
-          console.log(`[TrajectoryContext] Playback completed for ${robotId}`);
-          const onComplete = state.onComplete;
-          stopPlayback(robotId);
-          onComplete();
-          
-          // Emit playback completed event
-          EventBus.emit('trajectory:playback-completed', {
-            robotId,
-            trajectoryName: state.trajectory.name
-          });
-          
+    // FIX: Create playback function with proper closure handling
+    const createPlaybackLoop = (robotIdParam) => {
+      const playFrame = () => {
+        // FIX: Get state from ref instead of state variable
+        const state = playbackStatesRef.current.get(robotIdParam);
+        if (!state || !state.isPlaying) {
+          console.log(`[TrajectoryContext] Playback stopped for ${robotIdParam}`);
           return;
         }
-      }
 
-      // Schedule next frame
-      requestAnimationFrame(playFrame);
+        const currentTime = Date.now();
+        const elapsed = (currentTime - state.startTime) * state.speed;
+        const totalDuration = state.trajectory.duration;
+        const progress = Math.min(elapsed / totalDuration, 1);
+
+        // Find current frame based on timestamp
+        let targetFrameIndex = 0;
+        for (let i = 0; i < state.trajectory.frames.length; i++) {
+          if (state.trajectory.frames[i].timestamp <= elapsed) {
+            targetFrameIndex = i;
+          } else {
+            break;
+          }
+        }
+
+        // Apply frame if we have one and enough time has passed
+        if (targetFrameIndex < state.trajectory.frames.length && 
+            currentTime - state.lastFrameTime >= 16) { // ~60fps
+          const frame = state.trajectory.frames[targetFrameIndex];
+          const endEffectorFrame = state.trajectory.endEffectorPath?.[targetFrameIndex];
+          
+          console.log(`[TrajectoryContext] Applying frame ${targetFrameIndex} at progress ${progress.toFixed(2)}`);
+          
+          // Apply joint values through JointContext
+          const applied = setJointValues(robotIdParam, frame.jointValues);
+          
+          if (applied) {
+            // Force TCP recalculation by emitting joint change event
+            EventBus.emit('robot:joints-changed', {
+              robotId: robotIdParam,
+              robotName: robotIdParam,
+              values: frame.jointValues
+            });
+            
+            // Call frame callback
+            state.onFrame(frame, endEffectorFrame, progress);
+            
+            // Emit frame played event
+            EventBus.emit('trajectory:frame-played', {
+              robotId: robotIdParam,
+              trajectoryName: state.trajectory.name,
+              frameIndex: targetFrameIndex,
+              progress,
+              hasEndEffector: !!endEffectorFrame
+            });
+
+            // Update last frame time
+            state.lastFrameTime = currentTime;
+            
+            // FIX: Update the ref state
+            playbackStatesRef.current.set(robotIdParam, state);
+          } else {
+            console.warn(`[TrajectoryContext] Failed to apply joint values for frame ${targetFrameIndex}`);
+          }
+        }
+
+        // Check if finished
+        if (progress >= 1) {
+          if (state.loop) {
+            // Reset for loop
+            state.startTime = Date.now();
+            state.currentFrameIndex = 0;
+            state.lastFrameTime = Date.now();
+            playbackStatesRef.current.set(robotIdParam, state);
+            console.log(`[TrajectoryContext] Looping playback for ${robotIdParam}`);
+          } else {
+            // End playback
+            console.log(`[TrajectoryContext] Playback completed for ${robotIdParam}`);
+            const onComplete = state.onComplete;
+            stopPlayback(robotIdParam);
+            onComplete();
+            
+            // Emit playback completed event
+            EventBus.emit('trajectory:playback-completed', {
+              robotId: robotIdParam,
+              trajectoryName: state.trajectory.name
+            });
+            
+            return;
+          }
+        }
+
+        // Schedule next frame
+        requestAnimationFrame(playFrame);
+      };
+      
+      return playFrame;
     };
 
-    // Start playback
-    requestAnimationFrame(playFrame);
+    // Start playback with fixed closure
+    const playbackLoop = createPlaybackLoop(robotId);
+    requestAnimationFrame(playbackLoop);
+    
     return true;
-  }, [getTrajectory, isRobotAnimating, playbackStates, setJointValues]);
+  }, [getTrajectory, isRobotAnimating, setJointValues]);
 
   const stopPlayback = useCallback((robotId) => {
-    const playbackState = playbackStates.get(robotId);
+    const playbackState = playbackStatesRef.current.get(robotId);
     if (!playbackState) return false;
 
     console.log(`[TrajectoryContext] Stopping playback for robot ${robotId}`);
 
-    // Clear playback state
+    // FIX: Clear from both state and ref
+    playbackStatesRef.current.delete(robotId);
     setPlaybackStates(prev => {
       const newMap = new Map(prev);
       newMap.delete(robotId);
@@ -402,7 +421,7 @@ export const TrajectoryProvider = ({ children }) => {
     });
     
     return true;
-  }, [playbackStates]);
+  }, []);
 
   // ========== STATE QUERIES ==========
   const isRecording = useCallback((robotId) => {
@@ -411,17 +430,19 @@ export const TrajectoryProvider = ({ children }) => {
   }, [recordingStates]);
 
   const isPlaying = useCallback((robotId) => {
-    const playbackState = playbackStates.get(robotId);
+    // FIX: Check ref instead of state
+    const playbackState = playbackStatesRef.current.get(robotId);
     return playbackState && playbackState.isPlaying;
-  }, [playbackStates]);
+  }, []);
 
   const getPlaybackProgress = useCallback((robotId) => {
-    const playbackState = playbackStates.get(robotId);
+    // FIX: Use ref instead of state
+    const playbackState = playbackStatesRef.current.get(robotId);
     if (!playbackState || !playbackState.trajectory) return 0;
     
     const elapsed = (Date.now() - playbackState.startTime) * playbackState.speed;
     return Math.min(elapsed / playbackState.trajectory.duration, 1);
-  }, [playbackStates]);
+  }, []);
 
   // ========== IMPORT/EXPORT ==========
   const exportTrajectory = useCallback((trajectoryName, robotId) => {
@@ -546,13 +567,14 @@ export const TrajectoryProvider = ({ children }) => {
       }
       
       // Clear all playback animation frames
-      playbackStates.forEach((state) => {
+      playbackStatesRef.current.forEach((state) => {
         if (state.animationFrame) {
           cancelAnimationFrame(state.animationFrame);
         }
       });
+      playbackStatesRef.current.clear();
     };
-  }, [playbackStates]);
+  }, []);
 
   // ========== CONTEXT VALUE ==========
   const value = {
