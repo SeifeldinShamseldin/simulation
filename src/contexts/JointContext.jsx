@@ -305,99 +305,118 @@ export const JointProvider = ({ children }) => {
     }
   }, [findRobotWithFallbacks, isRobotReady]);
 
-  // Extract joint information when robot loads or registers
+  // ========== OPTIMIZED ROBOT EVENT SUBSCRIPTIONS ==========
   useEffect(() => {
     const handleRobotLoaded = (data) => {
-      const { robotName, robot, robotId } = data;
-      const targetRobotId = robotId || robotName;
+      console.log(`[JointContext] Robot loaded: ${data.robotId || data.robotName}`);
       
-      if (!robot || !targetRobotId) return;
-      
-      console.log(`[JointContext] Robot loaded: ${targetRobotId}, extracting joint info`);
-      
-      // 🚨 CRITICAL FIX: Register robot in local registry immediately
-      robotRegistryRef.current.set(targetRobotId, robot);
-      
-      const joints = [];
-      const values = {};
-      
-      // Extract joint information
-      robot.traverse((child) => {
-        if (child.isURDFJoint && child.jointType !== 'fixed') {
-          joints.push({
-            name: child.name,
-            type: child.jointType,
-            limits: child.limit || {},
-            axis: child.axis ? child.axis.toArray() : [0, 0, 1]
+      // Initialize joint values for the robot
+      if (data.robotId || data.robotName) {
+        const robotId = data.robotId || data.robotName;
+        const robot = findRobotWithFallbacks(robotId);
+        
+        if (robot) {
+          const initialValues = getRobotJointValues(robotId);
+          console.log(`[JointContext] Initialized joint values for ${robotId}:`, initialValues);
+          
+          // Set initial values in state
+          setRobotJointValues(prev => {
+            const newMap = new Map(prev);
+            newMap.set(robotId, initialValues);
+            return newMap;
           });
-          values[child.name] = child.angle || 0;
         }
-      });
-      
-      // Store joint info and values
-      setRobotJoints(prev => new Map(prev).set(targetRobotId, joints));
-      setRobotJointValues(prev => new Map(prev).set(targetRobotId, values));
-      setIsAnimating(prev => new Map(prev).set(targetRobotId, false));
-      
-      console.log(`[JointContext] Extracted ${joints.length} joints for ${targetRobotId}`);
-      console.log(`[JointContext] Joint values:`, values);
+      }
     };
 
-    // 🚨 NEW: Handle robot registration events (from useRobotControl)
     const handleRobotRegistered = (data) => {
-      const { robotId, robotName, robot } = data;
-      const targetRobotId = robotId || robotName;
+      console.log(`[JointContext] Robot registered: ${data.robotId || data.robotName}`);
       
-      if (!robot || !targetRobotId) return;
-      
-      console.log(`[JointContext] Robot registered: ${targetRobotId}`);
-      
-      // Register in local registry
-      robotRegistryRef.current.set(targetRobotId, robot);
-      
-      // Extract joint info if not already done
-      if (!robotJoints.has(targetRobotId)) {
-        handleRobotLoaded({ robotName: targetRobotId, robot, robotId: targetRobotId });
+      // Similar to loaded, but for registration events
+      if (data.robotId || data.robotName) {
+        const robotId = data.robotId || data.robotName;
+        const robot = findRobotWithFallbacks(robotId);
+        
+        if (robot) {
+          const initialValues = getRobotJointValues(robotId);
+          console.log(`[JointContext] Initialized joint values for registered ${robotId}:`, initialValues);
+          
+          setRobotJointValues(prev => {
+            const newMap = new Map(prev);
+            newMap.set(robotId, initialValues);
+            return newMap;
+          });
+        }
       }
     };
 
     const handleRobotRemoved = (data) => {
-      const { robotName, robotId } = data;
-      const targetRobotId = robotId || robotName;
+      console.log(`[JointContext] Robot removed: ${data.robotId || data.robotName}`);
       
-      console.log(`[JointContext] Robot removed: ${targetRobotId}`);
-      
-      // Stop any ongoing animation
-      stopAnimation(targetRobotId);
-      
-      // Clean up robot data
-      robotRegistryRef.current.delete(targetRobotId);
-      setRobotJoints(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(targetRobotId);
-        return newMap;
-      });
-      setRobotJointValues(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(targetRobotId);
-        return newMap;
-      });
-      setIsAnimating(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(targetRobotId);
-        return newMap;
-      });
+      // Clean up joint values and stop any animations
+      if (data.robotId || data.robotName) {
+        const robotId = data.robotId || data.robotName;
+        
+        // Stop any ongoing animations
+        stopAnimation(robotId);
+        
+        // Remove from state
+        setRobotJointValues(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(robotId);
+          return newMap;
+        });
+        
+        setAnimationProgress(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(robotId);
+          return newMap;
+        });
+        
+        setIsAnimating(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(robotId);
+          return newMap;
+        });
+      }
     };
 
-    const unsubscribeLoaded = EventBus.on('robot:loaded', handleRobotLoaded);
-    const unsubscribeRegistered = EventBus.on('robot:registered', handleRobotRegistered); // NEW
-    const unsubscribeRemoved = EventBus.on('robot:removed', handleRobotRemoved);
-    
-    return () => {
-      unsubscribeLoaded();
-      unsubscribeRegistered();
-      unsubscribeRemoved();
+    // Single event handler with switch statement
+    const handleRobotEvents = (eventType, data) => {
+      switch (eventType) {
+        case 'robot:loaded':
+          handleRobotLoaded(data);
+          break;
+        case 'robot:registered':
+          handleRobotRegistered(data);
+          break;
+        case 'robot:removed':
+          handleRobotRemoved(data);
+          break;
+        default:
+          break;
+      }
     };
+
+    // Helper function to create multiple subscriptions
+    const createMultiSubscription = (events, handler) => {
+      const unsubscribers = events.map(event => 
+        EventBus.on(event, (data) => handler(event, data))
+      );
+      
+      return () => {
+        unsubscribers.forEach(unsub => unsub());
+      };
+    };
+
+    // Single subscription for multiple robot events
+    const unsubscribe = createMultiSubscription([
+      'robot:loaded',
+      'robot:registered',
+      'robot:removed'
+    ], handleRobotEvents);
+    
+    return () => unsubscribe();
   }, [stopAnimation, robotJoints]);
 
   // Animate to target joint values with FIXED current value detection

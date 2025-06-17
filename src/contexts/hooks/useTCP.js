@@ -1,8 +1,12 @@
 // src/contexts/hooks/useTCP.js - Enhanced with position and orientation
-import { useCallback, useState, useEffect } from 'react';
+import { useCallback, useState, useEffect, useMemo } from 'react';
 import { useTCPContext } from '../TCPContext';
 import { useRobotSelection } from './useRobotManager';
 import EventBus from '../../utils/EventBus';
+
+// Debug utility to reduce console pollution
+const DEBUG = process.env.NODE_ENV === 'development';
+const log = DEBUG ? console.log : () => {};
 
 export const useTCP = (robotId = null) => {
   const {
@@ -18,11 +22,11 @@ export const useTCP = (robotId = null) => {
     setToolVisibility,
     getToolInfo,
     getCurrentEndEffectorPoint,
-    getCurrentEndEffectorOrientation, // New method from TCPContext
+    getCurrentEndEffectorOrientation,
     getEndEffectorLink: getEndEffectorLinkFromContext,
     recalculateEndEffector,
     getRobotEndEffectorPosition,
-    getRobotEndEffectorOrientation, // New method from TCPContext
+    getRobotEndEffectorOrientation,
     hasToolAttached,
     clearError
   } = useTCPContext();
@@ -32,45 +36,33 @@ export const useTCP = (robotId = null) => {
   // Use provided robotId or fall back to active robot
   const targetRobotId = robotId || activeRobotId;
   
-  // State for current end effector position and orientation
-  const [currentEndEffectorPoint, setCurrentEndEffectorPoint] = useState({ x: 0, y: 0, z: 0 });
-  const [currentEndEffectorOrientation, setCurrentEndEffectorOrientation] = useState({ 
-    x: 0, y: 0, z: 0, w: 1 // quaternion
-  });
-  
   // Get current tool info for target robot
   const currentTool = targetRobotId ? attachedTools.get(targetRobotId) : null;
   
-  // Listen for end effector updates (position and orientation)
+  // ========== DERIVED STATE FROM CONTEXT ==========
+  
+  // Derive end effector position from context instead of local state
+  const currentEndEffectorPoint = useMemo(() => {
+    if (!targetRobotId || !isInitialized) {
+      return { x: 0, y: 0, z: 0 };
+    }
+    return getCurrentEndEffectorPoint(targetRobotId) || { x: 0, y: 0, z: 0 };
+  }, [targetRobotId, isInitialized, getCurrentEndEffectorPoint]);
+  
+  // Derive end effector orientation from context instead of local state
+  const currentEndEffectorOrientation = useMemo(() => {
+    if (!targetRobotId || !isInitialized) {
+      return { x: 0, y: 0, z: 0, w: 1 };
+    }
+    return getCurrentEndEffectorOrientation(targetRobotId) || { x: 0, y: 0, z: 0, w: 1 };
+  }, [targetRobotId, isInitialized, getCurrentEndEffectorOrientation]);
+  
+  // Listen for end effector updates (for event emission only)
   useEffect(() => {
     const handleEndEffectorUpdate = (data) => {
       if (data.robotId === targetRobotId) {
-        // Update position
-        if (data.endEffectorPoint) {
-          console.log(`[TCP Hook] End effector position updated for ${targetRobotId}:`, {
-            x: data.endEffectorPoint.x,
-            y: data.endEffectorPoint.y, 
-            z: data.endEffectorPoint.z
-          });
-          
-          setCurrentEndEffectorPoint({
-            x: data.endEffectorPoint.x,
-            y: data.endEffectorPoint.y,
-            z: data.endEffectorPoint.z
-          });
-        }
-        
-        // Update orientation if provided
-        if (data.endEffectorOrientation) {
-          console.log(`[TCP Hook] End effector orientation updated for ${targetRobotId}:`, data.endEffectorOrientation);
-          
-          setCurrentEndEffectorOrientation({
-            x: data.endEffectorOrientation.x || 0,
-            y: data.endEffectorOrientation.y || 0,
-            z: data.endEffectorOrientation.z || 0,
-            w: data.endEffectorOrientation.w || 1
-          });
-        }
+        log(`[TCP Hook] End effector update event received for ${targetRobotId}`);
+        // No need to update local state - context will handle it
       }
     };
     
@@ -78,155 +70,107 @@ export const useTCP = (robotId = null) => {
     return () => unsubscribe();
   }, [targetRobotId]);
   
-  // ========== OPTIMIZED EFFECTS - Split into focused effects ==========
+  // ========== SIMPLIFIED EFFECT - ONLY FOR RECALCULATION ==========
   
-  // Effect 1: Handle initialization and robot changes
+  // Effect only handles recalculation when needed
   useEffect(() => {
-    console.log(`[TCP Hook] Initialization effect - targetRobotId: ${targetRobotId}, isInitialized: ${isInitialized}`);
+    if (!targetRobotId || !isInitialized) return;
+    
+    log(`[TCP Hook] Recalculation effect - targetRobotId: ${targetRobotId}, hasTool: ${!!currentTool}`);
+    
+    // Force recalculation when tool changes
+    try {
+      recalculateEndEffector(targetRobotId);
+      log(`[TCP Hook] Forced recalculation for ${targetRobotId}`);
+    } catch (error) {
+      console.error(`[TCP Hook] Error during recalculation:`, error);
+    }
+    
+  }, [targetRobotId, isInitialized, currentTool, recalculateEndEffector]);
+  
+  // ========== OPTIMIZED SINGLE EFFECT ==========
+  
+  // Combined effect: Handle initialization, robot changes, tool changes, and method changes
+  useEffect(() => {
+    log(`[TCP Hook] Combined effect - targetRobotId: ${targetRobotId}, isInitialized: ${isInitialized}, hasTool: ${!!currentTool}`);
     
     if (!targetRobotId || !isInitialized) {
-      console.log(`[TCP Hook] Reset end effector data - robotId: ${targetRobotId}, initialized: ${isInitialized}`);
-      setCurrentEndEffectorPoint({ x: 0, y: 0, z: 0 });
-      setCurrentEndEffectorOrientation({ x: 0, y: 0, z: 0, w: 1 });
+      log(`[TCP Hook] Reset end effector data - robotId: ${targetRobotId}, initialized: ${isInitialized}`);
       return;
     }
     
-    // Only proceed if we have both robot and initialization
-    console.log(`[TCP Hook] Getting current end effector data for ${targetRobotId}`);
-    
-    try {
-      // Get position and orientation in one call
-      const endEffectorState = recalculateEndEffector(targetRobotId);
-      console.log(`[TCP Hook] recalculateEndEffector returned:`, endEffectorState);
-      
-      if (endEffectorState) {
-        // Extract and set position
-        const extractedPoint = {
-          x: endEffectorState.position?.x || 0,
-          y: endEffectorState.position?.y || 0,
-          z: endEffectorState.position?.z || 0
-        };
-        setCurrentEndEffectorPoint(extractedPoint);
-        console.log(`[TCP Hook] Set current end effector position:`, extractedPoint);
+    // Single recalculation function
+    const updateEndEffector = () => {
+      try {
+        log(`[TCP Hook] Recalculating end effector for ${targetRobotId}`);
         
-        // Extract and set orientation
-        const extractedOrientation = {
-          x: endEffectorState.orientation?.x || 0,
-          y: endEffectorState.orientation?.y || 0,
-          z: endEffectorState.orientation?.z || 0,
-          w: endEffectorState.orientation?.w || 1
-        };
-        setCurrentEndEffectorOrientation(extractedOrientation);
-        console.log(`[TCP Hook] Set current end effector orientation:`, extractedOrientation);
-      } else {
-        // Fallback: try individual methods if combined call fails
-        console.log(`[TCP Hook] Combined call failed, trying individual methods`);
+        // Try combined method first
+        const endEffectorState = recalculateEndEffector(targetRobotId);
+        log(`[TCP Hook] recalculateEndEffector returned:`, endEffectorState);
         
-        // Get position
-        const currentPoint = getCurrentEndEffectorPoint(targetRobotId);
-        console.log(`[TCP Hook] getCurrentEndEffectorPoint returned:`, currentPoint);
-        
-        if (currentPoint) {
-          const extractedPoint = {
-            x: currentPoint.x || 0,
-            y: currentPoint.y || 0,
-            z: currentPoint.z || 0
-          };
-          setCurrentEndEffectorPoint(extractedPoint);
-          console.log(`[TCP Hook] Set current end effector position:`, extractedPoint);
+        if (endEffectorState) {
+          // Update position if available
+          if (endEffectorState.position) {
+            const extractedPoint = {
+              x: endEffectorState.position.x || 0,
+              y: endEffectorState.position.y || 0,
+              z: endEffectorState.position.z || 0
+            };
+            log(`[TCP Hook] Set current end effector position:`, extractedPoint);
+          }
+          
+          // Update orientation if available
+          if (endEffectorState.orientation) {
+            const extractedOrientation = {
+              x: endEffectorState.orientation.x || 0,
+              y: endEffectorState.orientation.y || 0,
+              z: endEffectorState.orientation.z || 0,
+              w: endEffectorState.orientation.w || 1
+            };
+            log(`[TCP Hook] Set current end effector orientation:`, extractedOrientation);
+          }
+        } else {
+          // Fallback: try individual methods if combined call fails
+          log(`[TCP Hook] Combined call failed, trying individual methods`);
+          
+          // Get position
+          const currentPoint = getCurrentEndEffectorPoint(targetRobotId);
+          log(`[TCP Hook] getCurrentEndEffectorPoint returned:`, currentPoint);
+          
+          if (currentPoint) {
+            const extractedPoint = {
+              x: currentPoint.x || 0,
+              y: currentPoint.y || 0,
+              z: currentPoint.z || 0
+            };
+            log(`[TCP Hook] Set current end effector position:`, extractedPoint);
+          }
+          
+          // Get orientation
+          const currentOrientation = getCurrentEndEffectorOrientation(targetRobotId);
+          log(`[TCP Hook] getCurrentEndEffectorOrientation returned:`, currentOrientation);
+          
+          if (currentOrientation) {
+            const extractedOrientation = {
+              x: currentOrientation.x || 0,
+              y: currentOrientation.y || 0,
+              z: currentOrientation.z || 0,
+              w: currentOrientation.w || 1
+            };
+            log(`[TCP Hook] Set current end effector orientation:`, extractedOrientation);
+          }
         }
-        
-        // Get orientation
-        const currentOrientation = getCurrentEndEffectorOrientation(targetRobotId);
-        console.log(`[TCP Hook] getCurrentEndEffectorOrientation returned:`, currentOrientation);
-        
-        if (currentOrientation) {
-          const extractedOrientation = {
-            x: currentOrientation.x || 0,
-            y: currentOrientation.y || 0,
-            z: currentOrientation.z || 0,
-            w: currentOrientation.w || 1
-          };
-          setCurrentEndEffectorOrientation(extractedOrientation);
-          console.log(`[TCP Hook] Set current end effector orientation:`, extractedOrientation);
-        }
+      } catch (error) {
+        console.error(`[TCP Hook] Error updating end effector data:`, error);
+        // Reset to default values on error
+        return;
       }
-    } catch (error) {
-      console.error(`[TCP Hook] Error getting end effector data:`, error);
-      // Reset to default values on error
-      setCurrentEndEffectorPoint({ x: 0, y: 0, z: 0 });
-      setCurrentEndEffectorOrientation({ x: 0, y: 0, z: 0, w: 1 });
-    }
-  }, [targetRobotId, isInitialized]); // ✅ Focused dependencies
-  
-  // Effect 2: Handle tool changes (separate from initialization)
-  useEffect(() => {
-    if (!targetRobotId || !isInitialized) return;
+    };
     
-    console.log(`[TCP Hook] Tool change effect - currentTool: ${!!currentTool}`);
+    // Execute the update
+    updateEndEffector();
     
-    // Only recalculate when tool changes, not on every render
-    try {
-      const endEffectorState = recalculateEndEffector(targetRobotId);
-      
-      if (endEffectorState) {
-        // Update position if available
-        if (endEffectorState.position) {
-          setCurrentEndEffectorPoint({
-            x: endEffectorState.position.x || 0,
-            y: endEffectorState.position.y || 0,
-            z: endEffectorState.position.z || 0
-          });
-        }
-        
-        // Update orientation if available
-        if (endEffectorState.orientation) {
-          setCurrentEndEffectorOrientation({
-            x: endEffectorState.orientation.x || 0,
-            y: endEffectorState.orientation.y || 0,
-            z: endEffectorState.orientation.z || 0,
-            w: endEffectorState.orientation.w || 1
-          });
-        }
-      }
-    } catch (error) {
-      console.error(`[TCP Hook] Error updating end effector data for tool change:`, error);
-    }
-  }, [currentTool, targetRobotId, isInitialized]); // ✅ Only when tool changes
-  
-  // Effect 3: Handle recalculation method changes (rare)
-  useEffect(() => {
-    if (!targetRobotId || !isInitialized) return;
-    
-    console.log(`[TCP Hook] Recalculation method change effect`);
-    
-    // This effect only runs when the recalculation methods themselves change
-    // (which should be rare, only when TCPContext updates its methods)
-    try {
-      const endEffectorState = recalculateEndEffector(targetRobotId);
-      
-      if (endEffectorState) {
-        if (endEffectorState.position) {
-          setCurrentEndEffectorPoint({
-            x: endEffectorState.position.x || 0,
-            y: endEffectorState.position.y || 0,
-            z: endEffectorState.position.z || 0
-          });
-        }
-        
-        if (endEffectorState.orientation) {
-          setCurrentEndEffectorOrientation({
-            x: endEffectorState.orientation.x || 0,
-            y: endEffectorState.orientation.y || 0,
-            z: endEffectorState.orientation.z || 0,
-            w: endEffectorState.orientation.w || 1
-          });
-        }
-      }
-    } catch (error) {
-      console.error(`[TCP Hook] Error updating end effector data for method change:`, error);
-    }
-  }, [recalculateEndEffector, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation]); // ✅ Only when methods change
+  }, [targetRobotId, isInitialized, currentTool, recalculateEndEffector, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation]); // ✅ All dependencies in one place
   
   // Robot-specific methods
   const attachToolToRobot = useCallback(async (toolId) => {
@@ -325,7 +269,7 @@ export const useTCP = (robotId = null) => {
     isToolVisible: currentTool?.visible ?? false,
     toolTransforms: currentTool?.transforms ?? null,
     
-    // End effector state (position and orientation)
+    // End effector state (position and orientation) - DERIVED FROM CONTEXT
     currentEndEffectorPoint,
     currentEndEffectorOrientation,
     hasValidEndEffector: !!(currentEndEffectorPoint.x !== 0 || currentEndEffectorPoint.y !== 0 || currentEndEffectorPoint.z !== 0),

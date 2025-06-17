@@ -2,51 +2,15 @@
 import { useCallback, useMemo } from 'react';
 import { useRobotContext } from '../RobotContext';
 
+// Debug utility to reduce console pollution
+const DEBUG = process.env.NODE_ENV === 'development';
+const log = DEBUG ? console.log : () => {};
+
 // ========== MAIN HOOK (Merged from useRobot and useRobotManager) ==========
 export const useRobotManager = () => {
   const context = useRobotContext();
   
-  // ========== MEMOIZED METHODS ==========
-  
-  // Robot Discovery Methods
-  const getRobotById = useCallback((robotId) => {
-    return context.availableRobots.find(robot => robot.id === robotId);
-  }, [context.availableRobots]);
-  
-  const getWorkspaceRobotById = useCallback((workspaceRobotId) => {
-    return context.workspaceRobots.find(robot => robot.id === workspaceRobotId);
-  }, [context.workspaceRobots]);
-  
-  const getRobotsByCategory = useCallback((categoryId) => {
-    return context.availableRobots.filter(robot => robot.category === categoryId);
-  }, [context.availableRobots]);
-  
-  const getCategoryById = useCallback((categoryId) => {
-    return context.categories.find(category => category.id === categoryId);
-  }, [context.categories]);
-  
-  // Robot State Methods
-  const isRobotActive = useCallback((robotId) => {
-    return context.activeRobotId === robotId;
-  }, [context.activeRobotId]);
-  
-  const hasWorkspaceRobot = useCallback((robotId) => {
-    return context.workspaceRobots.some(r => r.robotId === robotId);
-  }, [context.workspaceRobots]);
-  
-  const isRobotLoadedCheck = useCallback((robotName) => {
-    return context.robots.has(robotName);
-  }, [context.robots]);
-  
-  const isRobotActiveCheck = useCallback((robotName) => {
-    return context.activeRobots.has(robotName);
-  }, [context.activeRobots]);
-  
-  const getRobotData = useCallback((robotName) => {
-    return context.robots.get(robotName);
-  }, [context.robots]);
-  
-  // Computed Properties
+  // ========== MEMOIZED COMPUTED PROPERTIES (Only expensive computations) ==========
   const computedProperties = useMemo(() => ({
     robotCount: context.robotCount,
     isEmpty: context.isEmpty,
@@ -69,7 +33,34 @@ export const useRobotManager = () => {
     context.activeRobots.size
   ]);
   
-  // ========== MEMOIZED RETURN OBJECT ==========
+  // ========== MEMOIZED EXPENSIVE COMPUTATIONS ==========
+  
+  // Only memoize complex operations that are expensive
+  const getRobotsByCategory = useCallback((categoryId) => {
+    return context.availableRobots.filter(robot => robot.category === categoryId);
+  }, [context.availableRobots]);
+  
+  const isRobotActive = useCallback((robotId) => {
+    return context.activeRobotId === robotId;
+  }, [context.activeRobotId]);
+  
+  const hasWorkspaceRobot = useCallback((robotId) => {
+    return context.workspaceRobots.some(r => r.robotId === robotId);
+  }, [context.workspaceRobots]);
+  
+  const isRobotLoadedCheck = useCallback((robotName) => {
+    return context.robots.has(robotName);
+  }, [context.robots]);
+  
+  const isRobotActiveCheck = useCallback((robotName) => {
+    return context.activeRobots.has(robotName);
+  }, [context.activeRobots]);
+  
+  const getRobotData = useCallback((robotName) => {
+    return context.robots.get(robotName);
+  }, [context.robots]);
+  
+  // ========== MEMOIZED RETURN OBJECT (Only for expensive operations) ==========
   return useMemo(() => ({
     // ========== ROBOT STATE (from useRobot) ==========
     availableRobots: context.availableRobots,
@@ -125,18 +116,20 @@ export const useRobotManager = () => {
     getCurrentRobot: context.getCurrentRobot,
     getCurrentRobotName: context.getCurrentRobotName,
     
-    // ========== COMPUTED PROPERTIES (merged) ==========
+    // ========== COMPUTED PROPERTIES (memoized) ==========
     ...computedProperties,
     
     // ========== ERROR HANDLING (merged) ==========
     clearError: context.clearError,
     clearSuccess: context.clearSuccess,
     
-    // ========== CONVENIENCE METHODS (optimized) ==========
-    getRobotById,
-    getWorkspaceRobotById,
+    // ========== SIMPLE GETTERS (No memoization needed) ==========
+    getRobotById: (robotId) => context.availableRobots.find(robot => robot.id === robotId),
+    getWorkspaceRobotById: (workspaceRobotId) => context.workspaceRobots.find(robot => robot.id === workspaceRobotId),
+    getCategoryById: (categoryId) => context.categories.find(category => category.id === categoryId),
+    
+    // ========== COMPLEX OPERATIONS (Memoized) ==========
     getRobotsByCategory,
-    getCategoryById,
     isRobotActive,
     hasWorkspaceRobot,
     isRobotLoadedCheck,
@@ -189,11 +182,8 @@ export const useRobotManager = () => {
     // Computed properties
     computedProperties,
     
-    // Memoized methods
-    getRobotById,
-    getWorkspaceRobotById,
+    // Memoized complex operations
     getRobotsByCategory,
-    getCategoryById,
     isRobotActive,
     hasWorkspaceRobot,
     isRobotLoadedCheck,

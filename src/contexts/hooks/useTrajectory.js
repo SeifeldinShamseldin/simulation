@@ -5,6 +5,10 @@ import { useTCP } from './useTCP';
 import { useRobotManager } from './useRobotManager';
 import EventBus from '../../utils/EventBus';
 
+// Debug utility to reduce console pollution
+const DEBUG = process.env.NODE_ENV === 'development';
+const log = DEBUG ? console.log : () => {};
+
 export const useTrajectory = (robotId = null) => {
   const { getJointValues, setJointValues, isAnimating } = useJoints(robotId);
   const { currentEndEffectorPoint, currentEndEffectorOrientation } = useTCP(robotId);
@@ -70,7 +74,7 @@ export const useTrajectory = (robotId = null) => {
       
       if (result.success) {
         setAvailableTrajectories(result.trajectories || []);
-        console.log(`[useTrajectory] Found ${result.trajectories?.length || 0} trajectories`);
+        log(`[useTrajectory] Found ${result.trajectories?.length || 0} trajectories`);
       } else {
         setError(result.message || 'Failed to scan trajectories');
       }
@@ -127,7 +131,7 @@ export const useTrajectory = (robotId = null) => {
       lastFrameTimeRef.current = currentTime;
       setFrameCount(recordingDataRef.current.frames.length);
       
-      console.log(`[useTrajectory] Recorded frame ${recordingDataRef.current.frames.length} for ${robotId}`);
+      log(`[useTrajectory] Recorded frame ${recordingDataRef.current.frames.length} for ${robotId}`);
       
       // Emit frame recorded event
       EventBus.emit('trajectory:frame-recorded', {
@@ -144,7 +148,7 @@ export const useTrajectory = (robotId = null) => {
   const startRecording = useCallback((name) => {
     if (!robotId || isRecording) return false;
     
-    console.log(`[useTrajectory] Starting recording "${name}" for robot ${robotId}`);
+    log(`[useTrajectory] Starting recording "${name}" for robot ${robotId}`);
     
     // Get initial state, ensuring getJointValues is a function
     const initialJoints = typeof getJointValues === 'function' ? getJointValues() : {};
@@ -191,7 +195,7 @@ export const useTrajectory = (robotId = null) => {
       recordedAt: new Date().toISOString()
     };
     
-    console.log(`[useTrajectory] Stopped recording with ${trajectory.frameCount} frames`);
+    log(`[useTrajectory] Stopped recording with ${trajectory.frameCount} frames`);
     
     // Save trajectory
     try {
@@ -210,7 +214,7 @@ export const useTrajectory = (robotId = null) => {
       
       if (!response.ok) throw new Error('Failed to save');
       
-      console.log(`[useTrajectory] Saved trajectory "${trajectory.name}"`);
+      log(`[useTrajectory] Saved trajectory "${trajectory.name}"`);
       
       // Refresh available trajectories
       await scanTrajectories();
@@ -269,7 +273,7 @@ export const useTrajectory = (robotId = null) => {
     
     const { speed = 1.0, loop = false, onComplete = () => {}, onFrame = () => {} } = options;
     
-    console.log(`[useTrajectory] Starting playback of "${trajectory.name}" for ${robotId}`);
+    log(`[useTrajectory] Starting playback of "${trajectory.name}" for ${robotId}`);
     
     // Initialize playback state
     playbackStateRef.current = {
@@ -298,7 +302,7 @@ export const useTrajectory = (robotId = null) => {
     const playFrame = () => {
       const state = playbackStateRef.current;
       if (!state || !state.isPlaying) {
-        console.log('[useTrajectory] Playback stopped');
+        log('[useTrajectory] Playback stopped');
         return;
       }
       
@@ -323,7 +327,7 @@ export const useTrajectory = (robotId = null) => {
         // Apply joint values
         const success = setJointValues(frame.jointValues);
         if (success) {
-          console.log(`[useTrajectory] Applied frame ${frameIndex}/${state.trajectory.frames.length}`);
+          log(`[useTrajectory] Applied frame ${frameIndex}/${state.trajectory.frames.length}`);
           state.frameIndex = frameIndex;
           
           // Update playback end effector state
@@ -402,7 +406,7 @@ export const useTrajectory = (robotId = null) => {
       });
     }
     
-    console.log('[useTrajectory] Playback stopped');
+    log('[useTrajectory] Playback stopped');
   }, [robotId, currentTrajectory]);
   
   const deleteTrajectory = useCallback(async (manufacturer, model, name) => {
@@ -414,7 +418,7 @@ export const useTrajectory = (robotId = null) => {
       const result = await response.json();
       
       if (result.success) {
-        console.log(`[useTrajectory] Deleted trajectory: ${name}`);
+        log(`[useTrajectory] Deleted trajectory: ${name}`);
         await scanTrajectories();
         return true;
       } else {
@@ -437,7 +441,7 @@ export const useTrajectory = (robotId = null) => {
       const result = await response.json();
       
       if (result.success) {
-        console.log(`[useTrajectory] Analyzed trajectory: ${trajectoryInfo.name}`);
+        log(`[useTrajectory] Analyzed trajectory: ${trajectoryInfo.name}`);
         return result.analysis;
       } else {
         console.warn(`[useTrajectory] Analysis failed for trajectory: ${trajectoryInfo.name}`);
@@ -606,25 +610,25 @@ export const useTrajectory = (robotId = null) => {
   // ========== COMPREHENSIVE CLEANUP ON UNMOUNT ==========
   useEffect(() => {
     return () => {
-      console.log('[useTrajectory] Cleaning up resources on unmount');
+      log('[useTrajectory] Cleaning up resources on unmount');
       
       // ✅ Clean up animation frame
       if (animationFrameRef.current) {
-        console.log('[useTrajectory] Cancelling animation frame');
+        log('[useTrajectory] Cancelling animation frame');
         cancelAnimationFrame(animationFrameRef.current);
         animationFrameRef.current = null;
       }
       
       // ✅ Clean up playback state
       if (playbackStateRef.current) {
-        console.log('[useTrajectory] Cleaning up playback state');
+        log('[useTrajectory] Cleaning up playback state');
         playbackStateRef.current.isPlaying = false;
         playbackStateRef.current = null;
       }
       
       // ✅ Clean up recording data
       if (recordingDataRef.current) {
-        console.log('[useTrajectory] Cleaning up recording data');
+        log('[useTrajectory] Cleaning up recording data');
         recordingDataRef.current.frames = [];
         recordingDataRef.current.endEffectorPath = [];
         recordingDataRef.current.name = null;
@@ -637,7 +641,7 @@ export const useTrajectory = (robotId = null) => {
       
       // ✅ Stop any ongoing recording
       if (isRecording) {
-        console.log('[useTrajectory] Stopping ongoing recording during cleanup');
+        log('[useTrajectory] Stopping ongoing recording during cleanup');
         setIsRecording(false);
         setRecordingName(null);
         setFrameCount(0);
@@ -645,7 +649,7 @@ export const useTrajectory = (robotId = null) => {
       
       // ✅ Stop any ongoing playback
       if (isPlaying) {
-        console.log('[useTrajectory] Stopping ongoing playback during cleanup');
+        log('[useTrajectory] Stopping ongoing playback during cleanup');
         setIsPlaying(false);
         setProgress(0);
         setCurrentTrajectory(null);
@@ -654,7 +658,7 @@ export const useTrajectory = (robotId = null) => {
       // ✅ Clear any errors
       setError(null);
       
-      console.log('[useTrajectory] Cleanup completed');
+      log('[useTrajectory] Cleanup completed');
     };
   }, []); // Empty dependency array - only runs on unmount
   
@@ -787,7 +791,7 @@ export const useTrajectoryVisualization = (robotId = null) => {
       
       if (visData) {
         setVisualizationData(visData);
-        console.log('[useTrajectoryVisualization] Loaded visualization with', 
+        log('[useTrajectoryVisualization] Loaded visualization with', 
           visData.visualization?.smoothPoints?.length || 0, 'smooth points');
       } else {
         setVisError('Failed to create visualization data');

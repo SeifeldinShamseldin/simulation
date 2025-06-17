@@ -2,10 +2,14 @@
 import { useCallback, useMemo } from 'react';
 import { useEnvironmentContext } from '../EnvironmentContext';
 
+// Debug utility to reduce console pollution
+const DEBUG = process.env.NODE_ENV === 'development';
+const log = DEBUG ? console.log : () => {};
+
 export const useEnvironment = () => {
   const context = useEnvironmentContext();
   
-  // ========== MEMOIZED COMPUTED PROPERTIES ==========
+  // ========== MEMOIZED COMPUTED PROPERTIES (Only expensive computations) ==========
   const computedProperties = useMemo(() => ({
     hasLoadedObjects: context.loadedObjects.length > 0,
     hasCategories: context.categories.length > 0,
@@ -19,36 +23,17 @@ export const useEnvironment = () => {
     context.currentView
   ]);
   
-  // ========== MEMOIZED HELPER METHODS ==========
+  // ========== MEMOIZED EXPENSIVE COMPUTATIONS ==========
   
-  // Object Management Helpers
-  const getObjectById = useCallback((instanceId) => {
-    return context.loadedObjects.find(obj => obj.instanceId === instanceId);
-  }, [context.loadedObjects]);
-  
+  // Only memoize complex operations that are expensive
   const getObjectsByCategory = useCallback((category) => {
     return context.loadedObjects.filter(obj => obj.category === category);
   }, [context.loadedObjects]);
-  
-  // Human Management Helpers
-  const getHumanById = useCallback((humanId) => {
-    return context.spawnedHumans.find(h => h.id === humanId);
-  }, [context.spawnedHumans]);
   
   const getActiveHuman = useCallback(() => {
     return context.spawnedHumans.find(h => h.isActive);
   }, [context.spawnedHumans]);
   
-  const getHumanPosition = useCallback((humanId) => {
-    return context.humanPositions[humanId] || { x: 0, y: 0, z: 0 };
-  }, [context.humanPositions]);
-  
-  // Category Helpers
-  const getCategoryById = useCallback((categoryId) => {
-    return context.categories.find(cat => cat.id === categoryId);
-  }, [context.categories]);
-  
-  // State Checks
   const isObjectLoaded = useCallback((objectId) => {
     return context.loadedObjects.some(obj => obj.objectId === objectId);
   }, [context.loadedObjects]);
@@ -57,21 +42,15 @@ export const useEnvironment = () => {
     return context.spawnedHumans.some(h => h.id === humanId);
   }, [context.spawnedHumans]);
   
-  // Scene Object Helpers
-  const getSceneObjectById = useCallback((objectId) => {
-    return context.sceneObjects.get(objectId);
-  }, [context.sceneObjects]);
-  
   const getAllSceneObjects = useCallback(() => {
     return Array.from(context.sceneObjects.values());
   }, [context.sceneObjects]);
   
-  // Physics Helpers
   const hasPhysicsBody = useCallback((objectId) => {
     return context.world && context.sceneObjects.has(objectId);
   }, [context.world, context.sceneObjects]);
   
-  // ========== MEMOIZED RETURN OBJECT ==========
+  // ========== MEMOIZED RETURN OBJECT (Only for expensive operations) ==========
   return useMemo(() => ({
     // ========== ENVIRONMENT STATE ==========
     categories: context.categories,
@@ -148,27 +127,20 @@ export const useEnvironment = () => {
     // ========== CONVENIENCE GETTERS (memoized) ==========
     ...computedProperties,
     
-    // ========== OBJECT MANAGEMENT HELPERS (memoized) ==========
-    getObjectById,
+    // ========== SIMPLE GETTERS (No memoization needed) ==========
+    getObjectById: (instanceId) => context.loadedObjects.find(obj => obj.instanceId === instanceId),
+    getWorkspaceRobotById: (workspaceRobotId) => context.workspaceRobots.find(robot => robot.id === workspaceRobotId),
+    getHumanById: (humanId) => context.spawnedHumans.find(h => h.id === humanId),
+    getHumanPosition: (humanId) => context.humanPositions[humanId] || { x: 0, y: 0, z: 0 },
+    getCategoryById: (categoryId) => context.categories.find(cat => cat.id === categoryId),
+    getSceneObjectById: (objectId) => context.sceneObjects.get(objectId),
+    
+    // ========== COMPLEX OPERATIONS (Memoized) ==========
     getObjectsByCategory,
-    
-    // ========== HUMAN MANAGEMENT HELPERS (memoized) ==========
-    getHumanById,
     getActiveHuman,
-    getHumanPosition,
-    
-    // ========== CATEGORY HELPERS (memoized) ==========
-    getCategoryById,
-    
-    // ========== STATE CHECKS (memoized) ==========
     isObjectLoaded,
     isHumanSpawned,
-    
-    // ========== SCENE OBJECT HELPERS (memoized) ==========
-    getSceneObjectById,
     getAllSceneObjects,
-    
-    // ========== PHYSICS HELPERS (memoized) ==========
     hasPhysicsBody
   }), [
     // Context state dependencies
@@ -226,16 +198,11 @@ export const useEnvironment = () => {
     // Computed properties
     computedProperties,
     
-    // Memoized methods
-    getObjectById,
+    // Memoized complex operations
     getObjectsByCategory,
-    getHumanById,
     getActiveHuman,
-    getHumanPosition,
-    getCategoryById,
     isObjectLoaded,
     isHumanSpawned,
-    getSceneObjectById,
     getAllSceneObjects,
     hasPhysicsBody
   ]);

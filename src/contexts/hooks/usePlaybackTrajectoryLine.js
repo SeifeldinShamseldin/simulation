@@ -467,18 +467,55 @@ export const usePlaybackTrajectoryLine = () => {
       }
     };
 
-    // Subscribe to events
-    const unsubscribes = [
-      EventBus.on('trajectory:playback-started', enhancedPlaybackHandler),
-      EventBus.on('trajectory:loaded-for-playback', handleTrajectoryDataAvailable),
-      EventBus.on('trajectory:available-trajectories', handleTrajectoriesAvailable),
-      EventBus.on('tcp:endeffector-updated', handleEndEffectorUpdate),
-      EventBus.on('trajectory:playback-stopped', handlePlaybackStopped),
-      EventBus.on('trajectory:playback-completed', handlePlaybackStopped)
-    ];
+    // ========== OPTIMIZED EVENT SUBSCRIPTIONS ==========
+    
+    // Single event handler with switch statement
+    const handleEvents = (eventType, data) => {
+      switch (eventType) {
+        case 'trajectory:playback-started':
+          enhancedPlaybackHandler(data);
+          break;
+        case 'trajectory:loaded-for-playback':
+          handleTrajectoryDataAvailable(data);
+          break;
+        case 'trajectory:available-trajectories':
+          handleTrajectoriesAvailable(data);
+          break;
+        case 'tcp:endeffector-updated':
+          handleEndEffectorUpdate(data);
+          break;
+        case 'trajectory:playback-stopped':
+        case 'trajectory:playback-completed':
+          handlePlaybackStopped();
+          break;
+        default:
+          break;
+      }
+    };
+
+    // Helper function to create multiple subscriptions
+    const createMultiSubscription = (events, handler) => {
+      const unsubscribers = events.map(event => 
+        EventBus.on(event, (data) => handler(event, data))
+      );
+      
+      return () => {
+        unsubscribers.forEach(unsub => unsub());
+      };
+    };
+
+    // Single subscription for multiple events
+    const unsubscribe = createMultiSubscription([
+      'trajectory:playback-started',
+      'trajectory:loaded-for-playback',
+      'trajectory:available-trajectories',
+      'tcp:endeffector-updated',
+      'trajectory:playback-stopped',
+      'trajectory:playback-completed'
+    ], handleEvents);
 
     return () => {
-      unsubscribes.forEach(unsub => unsub());
+      unsubscribe();
       // Clean up on unmount for the last active robot
       if (activeRobotIdRef.current) {
         cleanup(activeRobotIdRef.current);

@@ -100,6 +100,9 @@ const [loadedRobots, setLoadedRobots] = useState(new Map()); // Unified robots M
 const [activeRobots, setActiveRobots] = useState(new Set()); // From RobotManagerContext
 const [loadingStates, setLoadingStates] = useState(new Map()); // From RobotManagerContext
 
+// --- FIX: Track pending active robot to avoid race condition ---
+const [pendingActiveRobotId, setPendingActiveRobotId] = useState(null);
+
 // Loading & Error States
 const [isLoading, setIsLoading] = useState(false);
 const [error, setError] = useState(null);
@@ -409,6 +412,8 @@ const loadRobot = useCallback(async (robotName, urdfPath, options = {}) => {
     
     // Store the robot
     setRobots(prev => new Map(prev).set(robotName, robotData));
+    // --- FIX: Set pending active robot ID instead of calling setActiveRobotId directly ---
+    setPendingActiveRobotId(robotName);
     
     // Set loading state to loaded
     setLoadingStates(prev => new Map(prev).set(robotName, LOADING_STATES.LOADED));
@@ -934,6 +939,14 @@ const value = {
   clearError,
   clearSuccess
 };
+
+// --- FIX: useEffect to set active robot only after it is present in loadedRobots ---
+useEffect(() => {
+  if (pendingActiveRobotId && loadedRobots.has(pendingActiveRobotId)) {
+    setActiveRobotId(pendingActiveRobotId);
+    setPendingActiveRobotId(null);
+  }
+}, [loadedRobots, pendingActiveRobotId, setActiveRobotId]);
 
 return (
   <RobotContext.Provider value={value}>
