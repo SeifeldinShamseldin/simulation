@@ -186,8 +186,7 @@ const RobotManager = ({
   isPanel = false, 
   onClose,
   setShowAddModal,
-  onRobotSelected,
-  setActiveRobotId
+  onRobotSelected
 }) => {
   // ========== HOOK USAGE (Data Only) ==========
   const { 
@@ -235,14 +234,6 @@ const RobotManager = ({
       await loadRobot(robot.id, robot.urdfPath, {
         position: { x: 0, y: 0, z: 0 },
       });
-      
-      // 🚨 Ensure robot is set as active after loading
-      if (onRobotSelected) {
-        onRobotSelected(robot.id);
-      }
-      if (typeof setActiveRobotId === 'function') {
-        setActiveRobotId(robot.id);
-      }
       
       setLocalSuccess(`${robot.name} loaded successfully!`);
       setTimeout(() => setLocalSuccess(''), 3000);

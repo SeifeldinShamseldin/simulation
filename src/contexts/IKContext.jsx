@@ -1,5 +1,5 @@
 // src/contexts/IKContext.jsx - IK as Central API with Dynamic Solvers
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { useRobotSelection, useRobotManagement } from './hooks/useRobotManager';
 import { useTCPContext } from './TCPContext';
@@ -21,6 +21,10 @@ export const IKProvider = ({ children }) => {
   // State
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
   const [targetOrientation, setTargetOrientation] = useState({ roll: 0, pitch: 0, yaw: 0 });
+  const [currentEndEffector, setCurrentEndEffector] = useState({
+    position: { x: 0, y: 0, z: 0 },
+    orientation: { x: 0, y: 0, z: 0, w: 1 }
+  });
   const [isAnimating, setIsAnimating] = useState(false);
   const [solverStatus, setSolverStatus] = useState('Initializing...');
   const [currentSolver, setCurrentSolver] = useState('CCD');
@@ -30,23 +34,6 @@ export const IKProvider = ({ children }) => {
   // Refs
   const solversRef = useRef({});
   const isReady = useRef(false);
-
-  // ========== DERIVED STATE FROM CONTEXT ==========
-  
-  // Derive current end effector from context instead of local state
-  const currentEndEffector = useMemo(() => {
-    if (!activeRobotId) {
-      return {
-        position: { x: 0, y: 0, z: 0 },
-        orientation: { x: 0, y: 0, z: 0, w: 1 }
-      };
-    }
-    
-    const position = getCurrentEndEffectorPoint(activeRobotId) || { x: 0, y: 0, z: 0 };
-    const orientation = getCurrentEndEffectorOrientation(activeRobotId) || { x: 0, y: 0, z: 0, w: 1 };
-    
-    return { position, orientation };
-  }, [activeRobotId, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation]);
 
   // ========== FETCH AVAILABLE SOLVERS FROM SERVER ==========
   useEffect(() => {
@@ -126,58 +113,62 @@ export const IKProvider = ({ children }) => {
     }
   }, [currentSolver, availableSolvers, loadSolver]);
 
-  // ========== OPTIMIZED EVENT SUBSCRIPTIONS ==========
+  // ========== SUBSCRIBE TO TCP END EFFECTOR UPDATES ==========
   useEffect(() => {
     if (!activeRobotId) return;
 
-    // Single event handler with switch statement
-    const handleEvents = (eventType, data) => {
-      switch (eventType) {
-        case 'tcp:endeffector-updated':
-        case 'tcp:tool-attached':
-        case 'tcp:tool-removed':
-          if (data.robotId === activeRobotId) {
-            console.log('[IK] TCP update detected for', activeRobotId);
-          }
-          break;
-          
-        case 'robot:joint-changed':
-        case 'robot:joints-changed':
-          if (data.robotId === activeRobotId) {
-            // Recalculate end effector after joint changes
-            setTimeout(() => {
-              recalculateEndEffector(activeRobotId);
-            }, 10);
-          }
-          break;
-          
-        default:
-          break;
+    // Update end effector data whenever it changes
+    const updateEndEffectorData = () => {
+      const position = getCurrentEndEffectorPoint(activeRobotId);
+      const orientation = getCurrentEndEffectorOrientation(activeRobotId);
+      
+      setCurrentEndEffector({
+        position: position || { x: 0, y: 0, z: 0 },
+        orientation: orientation || { x: 0, y: 0, z: 0, w: 1 }
+      });
+      
+      console.log(`[IK] Updated end effector data for ${activeRobotId}:`, {
+        position,
+        orientation,
+        hasTCP: hasToolAttached(activeRobotId)
+      });
+    };
+
+    // Initial update
+    updateEndEffectorData();
+
+    // Listen for TCP changes
+    const handleTCPUpdate = (data) => {
+      if (data.robotId === activeRobotId) {
+        console.log('[IK] TCP update detected, refreshing end effector data');
+        updateEndEffectorData();
       }
     };
 
-    // Helper function to create multiple subscriptions
-    const createMultiSubscription = (events, handler) => {
-      const unsubscribers = events.map(event => 
-        EventBus.on(event, (data) => handler(event, data))
-      );
-      
-      return () => {
-        unsubscribers.forEach(unsub => unsub());
-      };
+    const handleJointChange = (data) => {
+      if (data.robotId === activeRobotId) {
+        // Recalculate end effector after joint changes
+        setTimeout(() => {
+          recalculateEndEffector(activeRobotId);
+          updateEndEffectorData();
+        }, 10);
+      }
     };
 
-    // Single subscription for multiple events
-    const unsubscribe = createMultiSubscription([
-      'tcp:endeffector-updated',
-      'tcp:tool-attached', 
-      'tcp:tool-removed',
-      'robot:joint-changed',
-      'robot:joints-changed'
-    ], handleEvents);
+    const unsubscribeTCP = EventBus.on('tcp:endeffector-updated', handleTCPUpdate);
+    const unsubscribeTool = EventBus.on('tcp:tool-attached', handleTCPUpdate);
+    const unsubscribeRemove = EventBus.on('tcp:tool-removed', handleTCPUpdate);
+    const unsubscribeJoint = EventBus.on('robot:joint-changed', handleJointChange);
+    const unsubscribeJoints = EventBus.on('robot:joints-changed', handleJointChange);
 
-    return () => unsubscribe();
-  }, [activeRobotId, recalculateEndEffector]);
+    return () => {
+      unsubscribeTCP();
+      unsubscribeTool();
+      unsubscribeRemove();
+      unsubscribeJoint();
+      unsubscribeJoints();
+    };
+  }, [activeRobotId, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation, hasToolAttached, recalculateEndEffector]);
 
   // ========== ANIMATION COMPLETE HANDLER ==========
   useEffect(() => {
@@ -187,8 +178,14 @@ export const IKProvider = ({ children }) => {
         setIsAnimating(false);
         setSolverStatus(data.success ? 'Movement Complete' : 'Movement Stopped');
         
-        // Update status after movement
+        // Update end effector position after movement
         setTimeout(() => {
+          const position = getCurrentEndEffectorPoint(activeRobotId);
+          const orientation = getCurrentEndEffectorOrientation(activeRobotId);
+          setCurrentEndEffector({
+            position: position || { x: 0, y: 0, z: 0 },
+            orientation: orientation || { x: 0, y: 0, z: 0, w: 1 }
+          });
           setSolverStatus('Ready');
         }, 100);
       }
@@ -196,7 +193,7 @@ export const IKProvider = ({ children }) => {
     
     const unsubscribe = EventBus.on('ik:animation-complete', handleAnimationComplete);
     return () => unsubscribe();
-  }, [activeRobotId]);
+  }, [activeRobotId, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation]);
 
   // ========== MAIN SOLVE FUNCTION ==========
   const solve = useCallback(async (robot, targetPos, targetOri = null) => {

@@ -662,71 +662,43 @@ export const TCPProvider = ({ children }) => {
     }
   }, [isViewerReady, getSceneSetup, getRobotManager]);
 
-  // ========== OPTIMIZED EVENT SUBSCRIPTIONS ==========
+  // Event handlers
   useEffect(() => {
-    if (!isInitialized) return;
+    if (!isInitialized || !tcpManagerRef.current) return;
+
+    const tcpManager = tcpManagerRef.current;
 
     const handleRobotEvent = (data) => {
       const robotId = data.robotId || data.robotName;
-      if (robotId && tcpManagerRef.current) {
-        tcpManagerRef.current.registerRobot(robotId, data.robot);
+      if (robotId && data.robot) {
+        tcpManager.registerRobot(robotId, data.robot);
+        setTimeout(() => tcpManager.recalculateEndEffector(robotId), 100);
       }
     };
 
     const handleJointChange = (data) => {
       const robotId = data.robotId || data.robotName;
-      if (robotId && tcpManagerRef.current) {
-        tcpManagerRef.current.recalculateEndEffector(robotId);
+      if (robotId) {
+        setTimeout(() => tcpManager.recalculateEndEffector(robotId), 10);
       }
     };
 
     const handleForceRecalculate = (data) => {
-      const robotId = data.robotId || data.robotName;
-      if (robotId && tcpManagerRef.current) {
-        tcpManagerRef.current.recalculateEndEffector(robotId);
+      if (data.robotId) {
+        tcpManager.recalculateEndEffector(data.robotId);
       }
     };
 
-    // Single event handler with switch statement
-    const handleEvents = (eventType, data) => {
-      switch (eventType) {
-        case 'robot:registered':
-        case 'robot:loaded':
-          handleRobotEvent(data);
-          break;
-        case 'robot:joint-changed':
-        case 'robot:joints-changed':
-          handleJointChange(data);
-          break;
-        case 'tcp:force-recalculate':
-          handleForceRecalculate(data);
-          break;
-        default:
-          break;
-      }
-    };
+    // Subscribe to events
+    const unsubscribes = [
+      EventBus.on('robot:registered', handleRobotEvent),
+      EventBus.on('robot:loaded', handleRobotEvent),
+      EventBus.on('robot:joint-changed', handleJointChange),
+      EventBus.on('robot:joints-changed', handleJointChange),
+      EventBus.on('tcp:force-recalculate', handleForceRecalculate)
+    ];
 
-    // Helper function to create multiple subscriptions
-    const createMultiSubscription = (events, handler) => {
-      const unsubscribers = events.map(event => 
-        EventBus.on(event, (data) => handler(event, data))
-      );
-      
-      return () => {
-        unsubscribers.forEach(unsub => unsub());
-      };
-    };
-
-    // Single subscription for multiple events
-    const unsubscribe = createMultiSubscription([
-      'robot:registered',
-      'robot:loaded',
-      'robot:joint-changed',
-      'robot:joints-changed',
-      'tcp:force-recalculate'
-    ], handleEvents);
-
-    return () => unsubscribe();
+    return () => unsubscribes.forEach(unsub => unsub());
   }, [isInitialized]);
 
   // Tool management methods
