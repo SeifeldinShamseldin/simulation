@@ -13,6 +13,7 @@ export const usePlaybackTrajectoryLine = () => {
   const currentMarkerRef = useRef(null);
   const activePlaybackRef = useRef(null);
   const storedTrajectoryRef = useRef(null); // Store the full trajectory data
+  const activeRobotIdRef = useRef(null); // NEW: Store the robotId of the currently active trajectory
 
   useEffect(() => {
     if (!isViewerReady) return;
@@ -20,24 +21,57 @@ export const usePlaybackTrajectoryLine = () => {
     const scene = getScene();
     if (!scene) return;
 
-    // Listen for playback start and load full trajectory
+    // Listen for playback start and load full trajectory - SIMPLIFIED
     const handlePlaybackStarted = async (data) => {
-      const { robotId, trajectoryName } = data;
+      const { trajectoryName } = data; // robotId is handled in handleTrajectoryDataAvailable
       console.log('[usePlaybackTrajectoryLine] Playback started:', trajectoryName);
-      
-      // Clean up any existing visualization first
-      cleanup();
-      
-      // Store active playback info
-      activePlaybackRef.current = { robotId, trajectoryName };
+      // No longer setting active refs or cleaning up here
+      // This event primarily indicates playback has begun, visualization is handled when data is loaded
     };
 
     // Listen for the trajectory data when it's loaded for playback
     const handleTrajectoryDataAvailable = async (data) => {
       const { trajectory, robotId } = data;
-      
+      console.log(`[usePlaybackTrajectoryLine] handleTrajectoryDataAvailable - received robotId: ${robotId}`);
+
+      // NEW: Set active robot ID and playback ref immediately
+      const prevActiveRobotId = activeRobotIdRef.current;
+      if (prevActiveRobotId && prevActiveRobotId !== robotId) {
+        console.log(`[usePlaybackTrajectoryLine] Cleaning up previous robot (${prevActiveRobotId}) visualization for new robot (${robotId})`);
+        cleanup(prevActiveRobotId);
+      } else if (!prevActiveRobotId && getScene()) {
+        console.log(`[usePlaybackTrajectoryLine] No previous active robot, performing general cleanup.`);
+        const scene = getScene();
+        const allVisObjects = scene.children.filter(child =>
+          child.name.startsWith('playback_trajectory_line_') ||
+          child.name.startsWith('waypoint_sphere_') ||
+          child.name.startsWith('orientation_frame_') ||
+          child.name.startsWith('trajectory_marker_')
+        );
+        allVisObjects.forEach(obj => {
+          scene.remove(obj);
+          if (obj.geometry) obj.geometry.dispose();
+          if (obj.material) obj.material.dispose();
+           if (obj.isGroup) {
+            obj.children.forEach(child => {
+              if (child.geometry) child.geometry.dispose();
+              if (child.material) child.material.dispose();
+            });
+          }
+        });
+      }
+      activeRobotIdRef.current = robotId;
+      activePlaybackRef.current = { robotId, trajectoryName: trajectory.name }; // Ensure trajectoryName is available
+
       if (!trajectory || !trajectory.endEffectorPath || trajectory.endEffectorPath.length < 2) {
         console.log('[usePlaybackTrajectoryLine] No valid trajectory data');
+        return;
+      }
+
+      // The check below will now pass as activePlaybackRef.current is set above
+      console.log(`[usePlaybackTrajectoryLine] handleTrajectoryDataAvailable - activePlaybackRef.current?.robotId: ${activePlaybackRef.current?.robotId}, received robotId: ${robotId}`);
+      if (activePlaybackRef.current?.robotId !== robotId) {
+        console.warn(`[usePlaybackTrajectoryLine] Mismatched robotId. Expected ${activePlaybackRef.current?.robotId}, got ${robotId}. Skipping visualization.`);
         return;
       }
 
@@ -63,11 +97,11 @@ export const usePlaybackTrajectoryLine = () => {
       }
 
       // Create all visualization elements synchronously
-      createFullVisualization(trajectory, visualization, scene);
+      createFullVisualization(trajectory, visualization, scene, robotId);
     };
     
     // Separate function to create all visualization elements
-    const createFullVisualization = (trajectory, visualization, scene) => {
+    const createFullVisualization = (trajectory, visualization, scene, robotId) => {
       // Create the full trajectory line with gradient colors
       const points = visualization.smoothPoints.map(p => new THREE.Vector3(p.x, p.y, p.z));
       
@@ -91,7 +125,7 @@ export const usePlaybackTrajectoryLine = () => {
 
       // Create and add line to scene
       const line = new THREE.Line(geometry, material);
-      line.name = 'playback_trajectory_line';
+      line.name = `playback_trajectory_line_${robotId}`;
       scene.add(line);
       lineRef.current = line;
 
@@ -103,6 +137,7 @@ export const usePlaybackTrajectoryLine = () => {
             color: new THREE.Color().setHSL(index / visualization.waypoints.length, 1, 0.5)
           });
           const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+          sphere.name = `waypoint_sphere_${robotId}_${index}`; // Assign unique name
           sphere.position.set(waypoint.position.x, waypoint.position.y, waypoint.position.z);
           scene.add(sphere);
           waypointsRef.current.push(sphere);
@@ -110,7 +145,7 @@ export const usePlaybackTrajectoryLine = () => {
       }
 
       // Create orientation frames immediately
-      createOrientationFrames(trajectory, scene);
+      createOrientationFrames(trajectory, scene, robotId);
 
       // Create current position marker
       const markerGeometry = new THREE.SphereGeometry(0.025, 16, 16);
@@ -120,7 +155,7 @@ export const usePlaybackTrajectoryLine = () => {
         emissiveIntensity: 0.5
       });
       const marker = new THREE.Mesh(markerGeometry, markerMaterial);
-      marker.name = 'trajectory_marker';
+      marker.name = `trajectory_marker_${robotId}`;
       if (points.length > 0) {
         marker.position.copy(points[0]);
       }
@@ -131,7 +166,7 @@ export const usePlaybackTrajectoryLine = () => {
     };
 
     // NEW: Function to create orientation frames
-    const createOrientationFrames = (trajectory, scene) => {
+    const createOrientationFrames = (trajectory, scene, robotId) => {
       if (!scene) {
         console.error('[usePlaybackTrajectoryLine] No scene provided for orientation frames');
         return;
@@ -226,7 +261,7 @@ export const usePlaybackTrajectoryLine = () => {
 
         // Create a group for this frame
         const frameGroup = new THREE.Group();
-        frameGroup.name = `orientation_frame_${i}`;
+        frameGroup.name = `orientation_frame_${robotId}_${i}`;
         frameGroup.position.set(
           pathPoint.position.x,
           pathPoint.position.y,
@@ -341,47 +376,95 @@ export const usePlaybackTrajectoryLine = () => {
     };
 
     // Clean up function
-    const cleanup = () => {
-      if (lineRef.current && scene) {
-        scene.remove(lineRef.current);
-        lineRef.current.geometry.dispose();
-        lineRef.current.material.dispose();
+    const cleanup = (targetRobotId) => {
+      console.log(`[usePlaybackTrajectoryLine] Cleanup initiated for robotId: ${targetRobotId}`); // NEW LOG
+      const scene = getScene();
+      if (!scene) {
+        console.warn('[usePlaybackTrajectoryLine] Cleanup: No scene available.'); // NEW LOG
+        return;
+      }
+
+      // Remove existing visualization elements for the targetRobotId
+      const objectsToRemove = [];
+      scene.children.forEach(child => {
+        if (child.name.startsWith(`playback_trajectory_line_${targetRobotId}`) ||
+            child.name.startsWith(`waypoint_sphere_${targetRobotId}`) ||
+            child.name.startsWith(`orientation_frame_${targetRobotId}`) ||
+            child.name.startsWith(`trajectory_marker_${targetRobotId}`)) {
+          objectsToRemove.push(child);
+          console.log(`[usePlaybackTrajectoryLine] Cleanup: Found object to remove: ${child.name}`); // NEW LOG
+        }
+      });
+
+      if (objectsToRemove.length === 0) {
+        console.log(`[usePlaybackTrajectoryLine] Cleanup: No objects found to remove for robotId: ${targetRobotId}`); // NEW LOG
+      }
+
+      objectsToRemove.forEach(obj => {
+        scene.remove(obj);
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) obj.material.dispose();
+        // For groups, dispose children's geometries and materials
+        if (obj.isGroup) {
+          obj.children.forEach(child => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
+          });
+        }
+      });
+
+      // Clear refs that are no longer managing all objects but specifically for last one
+      if (lineRef.current?.name?.startsWith(`playback_trajectory_line_${targetRobotId}`)) {
+        console.log(`[usePlaybackTrajectoryLine] Cleanup: Clearing lineRef for ${targetRobotId}`); // NEW LOG
         lineRef.current = null;
       }
-      
-      waypointsRef.current.forEach(waypoint => {
-        scene.remove(waypoint);
-        waypoint.geometry.dispose();
-        waypoint.material.dispose();
-      });
-      waypointsRef.current = [];
-
-      // NEW: Clean up orientation frames
-      orientationFramesRef.current.forEach(frameGroup => {
-        scene.remove(frameGroup);
-        frameGroup.traverse((child) => {
-          if (child.geometry) child.geometry.dispose();
-          if (child.material) child.material.dispose();
-        });
-      });
-      orientationFramesRef.current = [];
-      
-      if (currentMarkerRef.current && scene) {
-        scene.remove(currentMarkerRef.current);
-        currentMarkerRef.current.geometry.dispose();
-        currentMarkerRef.current.material.dispose();
+      waypointsRef.current = waypointsRef.current.filter(wp => !wp.name.startsWith(`waypoint_sphere_${targetRobotId}`));
+      orientationFramesRef.current = orientationFramesRef.current.filter(of => !of.name.startsWith(`orientation_frame_${targetRobotId}`));
+      if (currentMarkerRef.current?.name?.startsWith(`trajectory_marker_${targetRobotId}`)) {
+        console.log(`[usePlaybackTrajectoryLine] Cleanup: Clearing currentMarkerRef for ${targetRobotId}`); // NEW LOG
         currentMarkerRef.current = null;
       }
       
-      // Clear references
-      activePlaybackRef.current = null;
-      storedTrajectoryRef.current = null;
+      // Clear references only if the robot that was cleaned up is the active one
+      if (activeRobotIdRef.current === targetRobotId) {
+        console.log(`[usePlaybackTrajectoryLine] Cleanup: Resetting active playback references for ${targetRobotId}`); // NEW LOG
+        activePlaybackRef.current = null;
+        storedTrajectoryRef.current = null;
+        activeRobotIdRef.current = null;
+      }
     };
 
     // Handle playback stop
     const handlePlaybackStopped = () => {
       console.log('[usePlaybackTrajectoryLine] Playback stopped - cleaning up immediately');
-      cleanup();
+      if (activeRobotIdRef.current) {
+        console.log(`[usePlaybackTrajectoryLine] handlePlaybackStopped: Initiating cleanup for active robot: ${activeRobotIdRef.current}`); // NEW LOG
+        cleanup(activeRobotIdRef.current);
+      } else {
+        console.log('[usePlaybackTrajectoryLine] handlePlaybackStopped: No active robot, performing general cleanup.'); // NEW LOG
+        // Fallback cleanup if for some reason activeRobotIdRef is null
+        // This would remove ALL visualization elements that fit the pattern
+        const scene = getScene();
+        if (scene) {
+          const allVisObjects = scene.children.filter(child =>
+            child.name.startsWith('playback_trajectory_line_') ||
+            child.name.startsWith('waypoint_sphere_') ||
+            child.name.startsWith('orientation_frame_') ||
+            child.name.startsWith('trajectory_marker_')
+          );
+          allVisObjects.forEach(obj => {
+            scene.remove(obj);
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
+             if (obj.isGroup) {
+              obj.children.forEach(child => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
+              });
+            }
+          });
+        }
+      }
     };
 
     // Subscribe to events
@@ -396,7 +479,10 @@ export const usePlaybackTrajectoryLine = () => {
 
     return () => {
       unsubscribes.forEach(unsub => unsub());
-      cleanup();
+      // Clean up on unmount for the last active robot
+      if (activeRobotIdRef.current) {
+        cleanup(activeRobotIdRef.current);
+      }
     };
   }, [isViewerReady, getScene, loadTrajectoryFromFile, createTrajectoryVisualization]);
 

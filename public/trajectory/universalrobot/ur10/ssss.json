@@ -1,0 +1,433 @@
+{
+  "name": "ssss",
+  "robotId": "ur10_1750121677744",
+  "startTime": 1750121685000,
+  "frames": [
+    {
+      "timestamp": 0,
+      "jointValues": {}
+    },
+    {
+      "timestamp": 1305,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 0.0628318530717964,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1323,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 0.251327412287184,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1345,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 0.502654824574367,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1403,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 1.38230076757951,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1483,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 1.5079644737231,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1589,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 1.44513262065131,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1613,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 1.31946891450771,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1682,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 0.565486677646163,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1700,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 0.31415926535898,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1718,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 0.188495559215388,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1743,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 0.125663706143592,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1763,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": 5e-16,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1780,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": -0.0628318530717954,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1800,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": -0.125663706143591,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1831,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": -0.251327412287183,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1857,
+      "jointValues": {
+        "shoulder_pan_joint": 0,
+        "shoulder_lift_joint": 0,
+        "elbow_joint": -0.314159265358979,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    }
+  ],
+  "endEffectorPath": [
+    {
+      "timestamp": 0,
+      "position": {
+        "x": 1.1843,
+        "y": 0.011599999947464646,
+        "z": -0.2561409999525389
+      },
+      "orientation": {
+        "x": 1.7225464243361572e-16,
+        "y": 1,
+        "z": -1.025516338515331e-10,
+        "w": 1.1102230249273963e-16
+      }
+    },
+    {
+      "timestamp": 1305,
+      "position": {
+        "x": 1.1843,
+        "y": 0.011599999947464646,
+        "z": -0.2561409999525389
+      },
+      "orientation": {
+        "x": 1.7225464243361572e-16,
+        "y": 1,
+        "z": -1.025516338515331e-10,
+        "w": 1.1102230249273963e-16
+      }
+    },
+    {
+      "timestamp": 1323,
+      "position": {
+        "x": 1.15248297549446,
+        "y": -0.09358896129925506,
+        "z": -0.2561409999309643
+      },
+      "orientation": {
+        "x": 0.09410831331851469,
+        "y": 0.99556196460308,
+        "z": -1.0209650499366517e-10,
+        "w": 9.65107181940724e-12
+      }
+    },
+    {
+      "timestamp": 1345,
+      "position": {
+        "x": 1.0805698580922238,
+        "y": -0.22106197858554535,
+        "z": -0.2561409999048192
+      },
+      "orientation": {
+        "x": 0.21814324139654317,
+        "y": 0.9759167619387473,
+        "z": -1.0008185594383889e-10,
+        "w": 2.237105416741083e-11
+      }
+    },
+    {
+      "timestamp": 1403,
+      "position": {
+        "x": 0.9499866453173242,
+        "y": -0.3488079789681815,
+        "z": -0.25614099987861805
+      },
+      "orientation": {
+        "x": 0.3681245526846784,
+        "y": 0.9297764858882512,
+        "z": -9.535009353235698e-11,
+        "w": 3.7751877564604797e-11
+      }
+    },
+    {
+      "timestamp": 1483,
+      "position": {
+        "x": 0.5689405386267632,
+        "y": -0.4549882987382009,
+        "z": -0.2561409998568402
+      },
+      "orientation": {
+        "x": 0.661311865323654,
+        "y": 0.7501110696304577,
+        "z": -7.692510819374459e-11,
+        "w": 6.78186955534038e-11
+      }
+    },
+    {
+      "timestamp": 1589,
+      "position": {
+        "x": 0.5324633218474755,
+        "y": -0.45113555984157694,
+        "z": -0.2561409998576304
+      },
+      "orientation": {
+        "x": 0.6845471059286886,
+        "y": 0.7289686274214117,
+        "z": -7.475691593572889e-11,
+        "w": 7.020150509310097e-11
+      }
+    },
+    {
+      "timestamp": 1613,
+      "position": {
+        "x": 0.6055876914281004,
+        "y": -0.4565430117421324,
+        "z": -0.2561409998565213
+      },
+      "orientation": {
+        "x": 0.6374239897486903,
+        "y": 0.7705132427757888,
+        "z": -7.901738465725426e-11,
+        "w": 6.536895714904539e-11
+      }
+    },
+    {
+      "timestamp": 1682,
+      "position": {
+        "x": 0.7509849985923701,
+        "y": -0.439795186212918,
+        "z": -0.2561409998599563
+      },
+      "orientation": {
+        "x": 0.5358267949789988,
+        "y": 0.8443279255020139,
+        "z": -8.65872021355746e-11,
+        "w": 5.495000702575711e-11
+      }
+    },
+    {
+      "timestamp": 1700,
+      "position": {
+        "x": 1.1015190721282289,
+        "y": -0.19095282097124763,
+        "z": -0.2561409999109947
+      },
+      "orientation": {
+        "x": 0.1873813145857252,
+        "y": 0.9822872507286885,
+        "z": -1.0073516032966985e-10,
+        "w": 1.9216369019806498e-11
+      }
+    },
+    {
+      "timestamp": 1718,
+      "position": {
+        "x": 1.1375467231689418,
+        "y": -0.1270902942195647,
+        "z": -0.2561409999240931
+      },
+      "orientation": {
+        "x": 0.1253332335643047,
+        "y": 0.9921147013144778,
+        "z": -1.0174298215381527e-10,
+        "w": 1.2853238024773715e-11
+      }
+    },
+    {
+      "timestamp": 1743,
+      "position": {
+        "x": 1.15248297549446,
+        "y": -0.09358896129925506,
+        "z": -0.2561409999309643
+      },
+      "orientation": {
+        "x": 0.09410831331851469,
+        "y": 0.99556196460308,
+        "z": -1.0209650499366517e-10,
+        "w": 9.65107181940724e-12
+      }
+    },
+    {
+      "timestamp": 1763,
+      "position": {
+        "x": 1.1759058335699584,
+        "y": -0.024106706858312718,
+        "z": -0.25614099994521533
+      },
+      "orientation": {
+        "x": 0.03141075907812873,
+        "y": 0.9995065603657316,
+        "z": -1.0250103045141801e-10,
+        "w": 3.2213356314986467e-12
+      }
+    },
+    {
+      "timestamp": 1780,
+      "position": {
+        "x": 1.1843,
+        "y": 0.011599999947464341,
+        "z": -0.2561409999525389
+      },
+      "orientation": {
+        "x": 4.2225464243361574e-16,
+        "y": 1,
+        "z": -1.025516338515331e-10,
+        "w": 1.1102230251837753e-16
+      }
+    },
+    {
+      "timestamp": 1800,
+      "position": {
+        "x": 1.1904355597890415,
+        "y": 0.0477633217949394,
+        "z": -0.2561409999599561
+      },
+      "orientation": {
+        "x": -0.031410759078127896,
+        "y": 0.9995065603657316,
+        "z": -1.0250103117024553e-10,
+        "w": -3.221113696459221e-12
+      }
+    },
+    {
+      "timestamp": 1831,
+      "position": {
+        "x": 1.1958430116895968,
+        "y": 0.1208876913755652,
+        "z": -0.25614099997495415
+      },
+      "orientation": {
+        "x": -0.09410831331851385,
+        "y": 0.99556196460308,
+        "z": -1.0209650714731085e-10,
+        "w": -9.650850760244021e-12
+      }
+    },
+    {
+      "timestamp": 1857,
+      "position": {
+        "x": 1.1950935630588893,
+        "y": 0.15756015062932816,
+        "z": -0.2561409999824758
+      },
+      "orientation": {
+        "x": -0.12533323356430387,
+        "y": 0.992114701314478,
+        "z": -1.0174298502203564e-10,
+        "w": -1.2853017731056713e-11
+      }
+    }
+  ],
+  "duration": 3606,
+  "frameCount": 17,
+  "recordedAt": "2025-06-17T00:54:48.606Z",
+  "manufacturer": "universalrobot",
+  "model": "ur10",
+  "savedAt": "2025-06-17T00:54:48.628Z"
+}

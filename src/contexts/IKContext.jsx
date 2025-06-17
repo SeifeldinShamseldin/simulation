@@ -260,12 +260,57 @@ export const IKProvider = ({ children }) => {
         console.log('[IK] Solution found:', jointValues);
         setSolverStatus(options.animate !== false ? 'Moving...' : 'Applying...');
         
-        // Send to Joint Context
+        // Default joint constraints for 6-axis robot
+        const defaultJointConstraints = {
+          'joint_1': { 
+            maxVelocity: 2.1,      // rad/s (~120 deg/s)
+            maxAcceleration: 5.0,   // rad/s²
+            maxJerk: 25.0          // rad/s³
+          },
+          'joint_2': { 
+            maxVelocity: 1.9,      // rad/s (~110 deg/s)
+            maxAcceleration: 4.0,
+            maxJerk: 20.0
+          },
+          'joint_3': { 
+            maxVelocity: 2.3,      // rad/s (~130 deg/s)
+            maxAcceleration: 5.0,
+            maxJerk: 25.0
+          },
+          'joint_4': { 
+            maxVelocity: 3.5,      // rad/s (~200 deg/s)
+            maxAcceleration: 8.0,
+            maxJerk: 40.0
+          },
+          'joint_5': { 
+            maxVelocity: 3.5,      // rad/s
+            maxAcceleration: 8.0,
+            maxJerk: 40.0
+          },
+          'joint_6': { 
+            maxVelocity: 5.2,      // rad/s (~300 deg/s)
+            maxAcceleration: 12.0,
+            maxJerk: 60.0
+          }
+        };
+        
+        // Send to Joint Context with motion profile options
         EventBus.emit('ik:joint-values-calculated', {
           robotId: activeRobotId,
           jointValues,
           animate: options.animate !== false,
-          duration: options.duration || 1000
+          duration: options.duration || 1000,
+          // NEW: Pass motion profile options
+          motionProfile: options.motionProfile || 'trapezoidal',
+          jointConstraints: options.jointConstraints || defaultJointConstraints,
+          animationSpeed: options.animationSpeed || 1.0,
+          onProgress: (progressData) => {
+            // Optional: emit progress for UI updates
+            EventBus.emit('ik:animation-progress', {
+              robotId: activeRobotId,
+              ...progressData
+            });
+          }
         });
         
         return true;

@@ -108,10 +108,16 @@ const [successMessage, setSuccessMessage] = useState('');
 // Refs from RobotManagerContext
 const sceneSetupRef = useRef(null);
 const urdfLoaderRef = useRef(null);
+const loadedRobotsRef = useRef(new Map()); // NEW: Ref to hold the latest loadedRobots map
 
 // Alias for compatibility - robots Map points to loadedRobots
 const robots = loadedRobots;
 const setRobots = setLoadedRobots;
+
+// Keep loadedRobotsRef up-to-date
+useEffect(() => {
+  loadedRobotsRef.current = loadedRobots;
+}, [loadedRobots]);
 
 // Initialize scene and loader when viewer is ready
 useEffect(() => {
@@ -288,7 +294,7 @@ const setActiveRobotId = useCallback((robotId) => {
   setActiveRobotIdState(robotId);
   
   if (robotId) {
-    const robotData = loadedRobots.get(robotId);
+    const robotData = loadedRobotsRef.current.get(robotId); // Use ref to get the latest loadedRobots
     if (robotData) {
       const robot = robotData.robot || robotData.model;
       console.log(`[RobotContext] Setting active robot object for: ${robotId}`);
@@ -303,14 +309,14 @@ const setActiveRobotId = useCallback((robotId) => {
         robot: robot 
       });
     } else {
-      console.warn(`[RobotContext] Robot ${robotId} not found in loaded robots`);
+      console.warn(`[RobotContext] Robot ${robotId} not found in loaded robots (via ref)`); // Updated log
       setActiveRobot(null);
     }
   } else {
     setActiveRobot(null);
     setActiveRobots(new Set());
   }
-}, [loadedRobots]);
+}, []); // Empty dependency array, as it now uses a ref
 
 /**
  * Load a URDF model and add to scene (from RobotManagerContext)
@@ -318,8 +324,6 @@ const setActiveRobotId = useCallback((robotId) => {
 const loadRobot = useCallback(async (robotName, urdfPath, options = {}) => {
   const {
     position = { x: 0, y: 0, z: 0 },
-    makeActive = true,
-    clearOthers = false
   } = options;
 
   if (!sceneSetupRef.current || !urdfLoaderRef.current) {
@@ -390,7 +394,6 @@ const loadRobot = useCallback(async (robotName, urdfPath, options = {}) => {
       model: robot,
       robot: robot, // Alias for compatibility
       urdfPath: urdfPath,
-      isActive: makeActive,
       validation,
       id: robotName // Add id for compatibility
     };
@@ -409,14 +412,6 @@ const loadRobot = useCallback(async (robotName, urdfPath, options = {}) => {
     
     // Set loading state to loaded
     setLoadingStates(prev => new Map(prev).set(robotName, LOADING_STATES.LOADED));
-    
-    if (makeActive) {
-      setActiveRobots(prev => new Set(prev).add(robotName));
-      // Use setTimeout to ensure loadedRobots state is updated first
-      setTimeout(() => {
-        setActiveRobotId(robotName);
-      }, 0);
-    }
     
     // Update scene
     if (sceneSetupRef.current.setUpAxis) {

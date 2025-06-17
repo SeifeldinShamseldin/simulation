@@ -113,7 +113,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
       return;
     }
 
-    const success = playTrajectory(trajectoryInfo, {
+    const success = playTrajectory(trajectoryInfo, activeRobotId, {
       ...playbackOptions,
       onComplete: () => {
         console.log(`[TrajectoryViewer] Playback of "${trajectoryInfo.name}" completed`);

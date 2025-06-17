@@ -1,0 +1,708 @@
+{
+  "name": "asff",
+  "robotId": "tm12_1750121458596",
+  "startTime": 1750121468485,
+  "frames": [
+    {
+      "timestamp": 0,
+      "jointValues": {}
+    },
+    {
+      "timestamp": 1437,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": -0.173834793498635,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1488,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": -0.115889862332423,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1539,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 2e-16,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1556,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 0.0579449311662119,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1575,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 0.231779724664847,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1597,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 0.405614518163482,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1619,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 0.637394242828329,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1643,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 0.811229036326965,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1675,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 0.927118898659388,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1710,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 1.10095369215802,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1729,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 1.15889862332424,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1747,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 1.27478848565666,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1766,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 1.39067834798908,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1833,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 2.14396245314983,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1944,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 2.25985231548226,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1964,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 2.14396245314983,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 1985,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 1.9701276596512,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 2005,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 1.62245807265393,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 2024,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 1.33273341682287,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 2043,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 0.9850638298256,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 2059,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 0.695339173994541,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 2075,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 0.463559449329694,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 2094,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": 0.231779724664847,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 2117,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": -0.0579449311662116,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 2134,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": -0.231779724664847,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 2199,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": -0.405614518163482,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    },
+    {
+      "timestamp": 2265,
+      "jointValues": {
+        "shoulder_1_joint": 0,
+        "shoulder_2_joint": 0,
+        "elbow_joint": -0.463559449329694,
+        "wrist_1_joint": 0,
+        "wrist_2_joint": 0,
+        "wrist_3_joint": 0
+      }
+    }
+  ],
+  "endEffectorPath": [
+    {
+      "timestamp": 0,
+      "position": {
+        "x": 4.782479915591302e-7,
+        "y": 1.4652000369767495,
+        "z": 0.2694499999999912
+      },
+      "orientation": {
+        "x": -3.2679484318833997e-7,
+        "y": 1.6339744833558956e-7,
+        "z": 5.341132569193512e-14,
+        "w": 0.9999999999999332
+      }
+    },
+    {
+      "timestamp": 1437,
+      "position": {
+        "x": 4.782479915591302e-7,
+        "y": 1.4652000369767495,
+        "z": 0.2694499999999912
+      },
+      "orientation": {
+        "x": -3.2679484318833997e-7,
+        "y": 1.6339744833558956e-7,
+        "z": 5.341132569193512e-14,
+        "w": 0.9999999999999332
+      }
+    },
+    {
+      "timestamp": 1488,
+      "position": {
+        "x": -0.11482807980407074,
+        "y": 1.4551942599719316,
+        "z": 0.2694500375253769
+      },
+      "orientation": {
+        "x": -3.1137700674483256e-7,
+        "y": 1.3441221684897375e-7,
+        "z": 0.0868079998954836,
+        "w": 0.9962250604928742
+      }
+    },
+    {
+      "timestamp": 1539,
+      "position": {
+        "x": -0.038447639907552,
+        "y": 1.4640857989785705,
+        "z": 0.26945001256463985
+      },
+      "orientation": {
+        "x": -3.2192433168869237e-7,
+        "y": 1.5386214399978128e-7,
+        "z": 0.028968412487169557,
+        "w": 0.9995803274764095
+      }
+    },
+    {
+      "timestamp": 1556,
+      "position": {
+        "x": 4.782479916919101e-7,
+        "y": 1.4652000369767495,
+        "z": 0.2694499999999912
+      },
+      "orientation": {
+        "x": -3.2679484318834e-7,
+        "y": 1.6339744833558958e-7,
+        "z": 5.3311325696866335e-14,
+        "w": 0.9999999999999332
+      }
+    },
+    {
+      "timestamp": 1575,
+      "position": {
+        "x": 0.11482903080450442,
+        "y": 1.4551941969039648,
+        "z": 0.2694499624746052
+      },
+      "orientation": {
+        "x": -3.3974541810330203e-7,
+        "y": 1.9114904885584453e-7,
+        "z": -0.08680799989537719,
+        "w": 0.9962250604928647
+      }
+    },
+    {
+      "timestamp": 1597,
+      "position": {
+        "x": 0.22619635645358202,
+        "y": 1.4254783409418945,
+        "z": 0.26944992608032825
+      },
+      "orientation": {
+        "x": -3.5013095621594724e-7,
+        "y": 2.1745749718336004e-7,
+        "z": -0.17296060989413972,
+        "w": 0.9849287423082328
+      }
+    },
+    {
+      "timestamp": 1619,
+      "position": {
+        "x": 0.36352769281087294,
+        "y": 1.356827758815109,
+        "z": 0.26944988120114105
+      },
+      "orientation": {
+        "x": -3.5985562570309394e-7,
+        "y": 2.499489791497636e-7,
+        "z": -0.28568836740490355,
+        "w": 0.9583225744650541
+      }
+    },
+    {
+      "timestamp": 1643,
+      "position": {
+        "x": 0.4541332977123049,
+        "y": 1.2855793365291937,
+        "z": 0.2694498515916841
+      },
+      "orientation": {
+        "x": -3.639857131881163e-7,
+        "y": 2.7213926776759697e-7,
+        "z": -0.36779997704403733,
+        "w": 0.9299049289503735
+      }
+    },
+    {
+      "timestamp": 1675,
+      "position": {
+        "x": 0.5070846252614913,
+        "y": 1.2298192434924051,
+        "z": 0.26944983428745456
+      },
+      "orientation": {
+        "x": -3.6521348398287253e-7,
+        "y": 2.8580105512555653e-7,
+        "z": -0.4210358133674144,
+        "w": 0.9070440142913822
+      }
+    },
+    {
+      "timestamp": 1710,
+      "position": {
+        "x": 0.5735591763685598,
+        "y": 1.1356553046787565,
+        "z": 0.26944981256390044
+      },
+      "orientation": {
+        "x": -3.647564088378228e-7,
+        "y": 3.044815167863574e-7,
+        "z": -0.4981851053394106,
+        "w": 0.8670707011644061
+      }
+    },
+    {
+      "timestamp": 1729,
+      "position": {
+        "x": 0.5919599058802151,
+        "y": 1.101877908842811,
+        "z": 0.26944980655063233
+      },
+      "orientation": {
+        "x": -3.639913096355424e-7,
+        "y": 3.1020396748962666e-7,
+        "z": -0.5230936924658963,
+        "w": 0.8522751837887605
+      }
+    },
+    {
+      "timestamp": 1747,
+      "position": {
+        "x": 0.6227452200987075,
+        "y": 1.0314130559503072,
+        "z": 0.2694497964901412
+      },
+      "orientation": {
+        "x": -3.6154546693636975e-7,
+        "y": 3.208631798330609e-7,
+        "z": -0.5715731600394562,
+        "w": 0.820551109146942
+      }
+    },
+    {
+      "timestamp": 1766,
+      "position": {
+        "x": 0.6451761399660632,
+        "y": 0.9578611362024395,
+        "z": 0.2694497891598232
+      },
+      "orientation": {
+        "x": -3.578860333581652e-7,
+        "y": 3.3044535854137475e-7,
+        "z": -0.61813404188274,
+        "w": 0.7860727105462126
+      }
+    },
+    {
+      "timestamp": 1833,
+      "position": {
+        "x": 0.6589517449240314,
+        "y": 0.8822088806330611,
+        "z": 0.26944978465801767
+      },
+      "orientation": {
+        "x": -3.5302529243264865e-7,
+        "y": 3.3891833934823645e-7,
+        "z": -0.6626200482156519,
+        "w": 0.748955720788918
+      }
+    },
+    {
+      "timestamp": 1944,
+      "position": {
+        "x": 0.48712345622857106,
+        "y": 0.35021875920434026,
+        "z": 0.26944984081056855
+      },
+      "orientation": {
+        "x": 2.8056333107376914e-7,
+        "y": -3.6487872295053915e-7,
+        "z": 0.9163627295621571,
+        "w": -0.4003490325568191
+      }
+    },
+    {
+      "timestamp": 1964,
+      "position": {
+        "x": 0.5360147784665438,
+        "y": 0.4095708415141889,
+        "z": 0.26944982483314034
+      },
+      "orientation": {
+        "x": 2.93646677432586e-7,
+        "y": -3.653608384891824e-7,
+        "z": 0.8916395457703706,
+        "w": -0.4527459778045383
+      }
+    },
+    {
+      "timestamp": 1985,
+      "position": {
+        "x": 0.5956900802387791,
+        "y": 0.5081840844188843,
+        "z": 0.2694498053315668
+      },
+      "orientation": {
+        "x": -3.114107302069208e-7,
+        "y": 3.637851358636976e-7,
+        "z": -0.8489716876290565,
+        "w": 0.528438334722267
+      }
+    },
+    {
+      "timestamp": 2005,
+      "position": {
+        "x": 0.6546030709940932,
+        "y": 0.6905820431228554,
+        "z": 0.2694497860791216
+      },
+      "orientation": {
+        "x": -3.3573456598087886e-7,
+        "y": 3.5507082431643207e-7,
+        "z": -0.763796028634556,
+        "w": 0.6454576877238676
+      }
+    },
+    {
+      "timestamp": 2024,
+      "position": {
+        "x": 0.6531601653721467,
+        "y": 0.9202346208929624,
+        "z": 0.2694497865506804
+      },
+      "orientation": {
+        "x": -3.5560490050138233e-7,
+        "y": 3.348223646915542e-7,
+        "z": -0.6406459065334772,
+        "w": 0.7678364555305125
+      }
+    },
+    {
+      "timestamp": 2043,
+      "position": {
+        "x": 0.5735591763685598,
+        "y": 1.1356553046787565,
+        "z": 0.26944981256390044
+      },
+      "orientation": {
+        "x": -3.647564088378228e-7,
+        "y": 3.044815167863574e-7,
+        "z": -0.4981851053394106,
+        "w": 0.8670707011644061
+      }
+    },
+    {
+      "timestamp": 2059,
+      "position": {
+        "x": 0.48141694126151413,
+        "y": 1.258466569966207,
+        "z": 0.26944984267552574
+      },
+      "orientation": {
+        "x": -3.6475267526118626e-7,
+        "y": 2.790872867124904e-7,
+        "z": -0.3945834910551586,
+        "w": 0.9188600919544351
+      }
+    },
+    {
+      "timestamp": 2075,
+      "position": {
+        "x": 0.33074556386863946,
+        "y": 1.3769481797360061,
+        "z": 0.2694498919141757
+      },
+      "orientation": {
+        "x": -3.578730479700271e-7,
+        "y": 2.421241677162062e-7,
+        "z": -0.25780738821399124,
+        "w": 0.9661963312816365
+      }
+    },
+    {
+      "timestamp": 2094,
+      "position": {
+        "x": 0.18966898833340753,
+        "y": 1.437530340536672,
+        "z": 0.26944993801728706
+      },
+      "orientation": {
+        "x": -3.469593599665485e-7,
+        "y": 2.0886086651408462e-7,
+        "z": -0.14435620100091087,
+        "w": 0.9895257890688957
+      }
+    },
+    {
+      "timestamp": 2117,
+      "position": {
+        "x": 4.782479916919101e-7,
+        "y": 1.4652000369767495,
+        "z": 0.2694499999999912
+      },
+      "orientation": {
+        "x": -3.2679484318834e-7,
+        "y": 1.6339744833558958e-7,
+        "z": 5.3311325696866335e-14,
+        "w": 0.9999999999999332
+      }
+    },
+    {
+      "timestamp": 2134,
+      "position": {
+        "x": -0.11482807980407074,
+        "y": 1.4551942599719316,
+        "z": 0.2694500375253769
+      },
+      "orientation": {
+        "x": -3.1137700674483256e-7,
+        "y": 1.3441221684897375e-7,
+        "z": 0.0868079998954836,
+        "w": 0.9962250604928742
+      }
+    },
+    {
+      "timestamp": 2199,
+      "position": {
+        "x": -0.2261954217741463,
+        "y": 1.4254784651768013,
+        "z": 0.2694500739196527
+      },
+      "orientation": {
+        "x": -2.9360831157258766e-7,
+        "y": 1.0441218938691518e-7,
+        "z": 0.1729606098942444,
+        "w": 0.9849287423082514
+      }
+    },
+    {
+      "timestamp": 2265,
+      "position": {
+        "x": -0.2619635308473405,
+        "y": 1.411331320965076,
+        "z": 0.2694500856084867
+      },
+      "orientation": {
+        "x": -2.871856942904942e-7,
+        "y": 9.422562944220034e-8,
+        "z": 0.2014198451562231,
+        "w": 0.9795050004860374
+      }
+    }
+  ],
+  "duration": 4530,
+  "frameCount": 28,
+  "recordedAt": "2025-06-17T00:51:13.015Z",
+  "manufacturer": "techmanroboter",
+  "model": "tm12",
+  "savedAt": "2025-06-17T00:51:13.020Z"
+}

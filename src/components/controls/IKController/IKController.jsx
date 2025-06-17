@@ -1,7 +1,38 @@
 // components/controls/IKController/IKController.jsx - Fixed infinite loop and input handling
 import React, { useState, useEffect } from 'react';
+import * as THREE from 'three';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import { useIK } from '../../../contexts/hooks/useIK';
+
+/**
+ * Utility function to convert quaternion to Euler angles
+ * @param {Object} quaternion - Quaternion object with x, y, z, w components
+ * @returns {Object} Euler angles in radians { roll, pitch, yaw }
+ */
+const quaternionToEuler = (quaternion) => {
+  if (!quaternion) {
+    return { roll: 0, pitch: 0, yaw: 0 };
+  }
+
+  // Create THREE.js quaternion
+  const q = new THREE.Quaternion(
+    quaternion.x,
+    quaternion.y,
+    quaternion.z,
+    quaternion.w
+  );
+
+  // Create Euler angles
+  const euler = new THREE.Euler();
+  euler.setFromQuaternion(q, 'XYZ');
+
+  // Return in roll, pitch, yaw format
+  return {
+    roll: euler.x,
+    pitch: euler.y,
+    yaw: euler.z
+  };
+};
 
 /**
  * Component for controlling Inverse Kinematics with position and orientation
@@ -31,6 +62,11 @@ const IKController = () => {
   const [targetOrientation, setTargetOrientation] = useState({ roll: 0, pitch: 0, yaw: 0 });
   const [orientationInitialized, setOrientationInitialized] = useState(false);
   const [orientationMode, setOrientationMode] = useState(false);
+  
+  // NEW: Motion profile state
+  const [motionProfile, setMotionProfile] = useState('trapezoidal');
+  const [animationSpeed, setAnimationSpeed] = useState(1.0);
+  const [useMotionProfile, setUseMotionProfile] = useState(true);
 
   // Update solver settings when solver changes
   useEffect(() => {
@@ -46,16 +82,16 @@ const IKController = () => {
 
   // FIXED: Only sync target orientation with current ONCE when robot first loads or changes
   useEffect(() => {
-    if (currentEulerAngles && !orientationInitialized && activeRobotId) {
-      console.log('[IKController] Initializing target orientation from current:', currentEulerAngles);
+    if (!orientationInitialized && robot && isReady) {
+      const euler = quaternionToEuler(currentOrientation);
       setTargetOrientation({
-        roll: currentEulerAngles.roll * 180 / Math.PI,
-        pitch: currentEulerAngles.pitch * 180 / Math.PI,
-        yaw: currentEulerAngles.yaw * 180 / Math.PI
+        roll: euler.roll * 180 / Math.PI,
+        pitch: euler.pitch * 180 / Math.PI,
+        yaw: euler.yaw * 180 / Math.PI
       });
       setOrientationInitialized(true);
     }
-  }, [currentEulerAngles, orientationInitialized, activeRobotId]);
+  }, [robot, isReady, currentOrientation, orientationInitialized]);
 
   // Reset initialization when robot changes
   useEffect(() => {
@@ -135,14 +171,16 @@ const IKController = () => {
         });
       }
       
-      await executeIK(targetPosition, { 
+      // Execute IK with motion profile options
+      await executeIK(targetPosition, {
         animate,
         targetOrientation: targetOrientationRad,
-        orientationMode: currentSolver === 'HalimIK' ? solverSettings.orientationMode : orientationMode
+        motionProfile: useMotionProfile ? motionProfile : null,
+        animationSpeed,
+        duration: 2000 // Will be overridden by motion profile calculation
       });
-      
     } catch (error) {
-      console.error('[IKController] IK execution failed:', error);
+      console.error('[IKController] Error executing IK:', error);
     }
   };
 
@@ -578,6 +616,49 @@ const IKController = () => {
         >
           Use Current Position & Orientation
         </button>
+
+        {/* NEW: Motion Profile Controls */}
+        <div className="controls-form-group">
+          <h5 className="controls-h6 controls-mb-2">Motion Profile:</h5>
+          <div className="controls-motion-profile-controls">
+            <label>
+              <input
+                type="checkbox"
+                checked={useMotionProfile}
+                onChange={(e) => setUseMotionProfile(e.target.checked)}
+              />
+              Use Motion Profile
+            </label>
+            
+            {useMotionProfile && (
+              <>
+                <label>
+                  Profile Type:
+                  <select
+                    value={motionProfile}
+                    onChange={(e) => setMotionProfile(e.target.value)}
+                  >
+                    <option value="trapezoidal">Trapezoidal (Standard)</option>
+                    <option value="s-curve">S-Curve (Smooth)</option>
+                  </select>
+                </label>
+                
+                <label>
+                  Speed:
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="2.0"
+                    step="0.1"
+                    value={animationSpeed}
+                    onChange={(e) => setAnimationSpeed(parseFloat(e.target.value))}
+                  />
+                  <span>{animationSpeed}x</span>
+                </label>
+              </>
+            )}
+          </div>
+        </div>
 
         {/* Move/Stop buttons */}
         <div className="controls-btn-group controls-w-100 controls-mt-2">

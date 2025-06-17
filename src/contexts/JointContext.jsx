@@ -4,6 +4,7 @@ import { useViewer } from './ViewerContext';
 import { useRobotSelection } from './hooks/useRobotManager';
 import EventBus from '../utils/EventBus';
 import { useRobotContext } from './RobotContext'; // Updated import
+import { MultiAxisProfiler, TrapezoidalProfile } from '../utils/motionProfiles'; // Add motion profiles import
 
 export const JointContext = createContext();
 
@@ -404,10 +405,17 @@ export const JointProvider = ({ children }) => {
     const {
       duration = 1000,
       tolerance = 0.001,
-      maxDuration = 10000, // Maximum animation time (10 seconds)
+      maxDuration = 10000,
       animationSpeed = 1.0,
       onProgress = null,
-      easing = 'exponential' // New option for easing function
+      motionProfile = 'trapezoidal', // New: 'trapezoidal' or 's-curve'
+      jointConstraints = {}, // New: per-joint velocity/acceleration limits
+      // Default constraints for all joints if not specified
+      defaultConstraints = {
+        maxVelocity: 2.0,        // rad/s or deg/s depending on your units
+        maxAcceleration: 4.0,    // rad/s² or deg/s²
+        maxJerk: 20.0           // rad/s³ (for s-curve only)
+      }
     } = options;
     
     // Skip if robot is not ready
@@ -417,7 +425,7 @@ export const JointProvider = ({ children }) => {
     }
 
     return new Promise((resolve) => {
-      console.log(`[JointContext] Starting animation for ${robotId} with tolerance ${tolerance}`);
+      console.log(`[JointContext] Starting motion profile animation for ${robotId}`);
       
       // Cancel any existing animation for this robot
       const existingFrameId = animationFrameRef.current.get(robotId);
@@ -433,6 +441,28 @@ export const JointProvider = ({ children }) => {
       const startTime = Date.now();
       const robot = findRobotWithFallbacks(robotId);
       
+      // Build joint constraints map
+      const jointLimits = {};
+      Object.keys(targetValues).forEach(jointName => {
+        jointLimits[jointName] = jointConstraints[jointName] || defaultConstraints;
+      });
+      
+      // Create multi-axis profiler
+      const profiler = new MultiAxisProfiler({ profileType: motionProfile });
+      
+      // Calculate synchronized motion profiles for all joints
+      const profileData = profiler.calculateSynchronizedProfiles(
+        currentValues,
+        targetValues,
+        jointLimits
+      );
+      
+      console.log(`[JointContext] Motion profile calculated:`, {
+        type: motionProfile,
+        totalTime: profileData.totalTime,
+        joints: Object.keys(profileData.profiles)
+      });
+      
       // Calculate total error at start
       let initialError = 0;
       Object.keys(targetValues).forEach(jointName => {
@@ -447,22 +477,7 @@ export const JointProvider = ({ children }) => {
       setIsAnimating(prev => new Map(prev).set(robotId, true));
       console.log(`[JointContext] Set isAnimating=true for ${robotId}`);
       
-      console.log(`[JointContext] Animating ${robotId} from:`, currentValues, 'to:', targetValues);
-      console.log(`[JointContext] Initial error: ${initialError}, tolerance: ${tolerance}`);
-      
-      // Easing functions
-      const easingFunctions = {
-        linear: t => t,
-        exponential: t => 1 - Math.exp(-5 * t),
-        smoothstep: t => t * t * (3 - 2 * t),
-        smootherstep: t => t * t * t * (t * (t * 6 - 15) + 10)
-      };
-      
-      const getEasing = (t) => {
-        const func = easingFunctions[easing] || easingFunctions.exponential;
-        return func(t);
-      };
-      
+      // Animation loop using motion profiles
       const animate = () => {
         const robot = findRobotWithFallbacks(robotId);
         
@@ -476,22 +491,21 @@ export const JointProvider = ({ children }) => {
           return;
         }
         
-        const elapsed = Date.now() - startTime;
-        const timeProgress = Math.min(elapsed / duration, 1);
-        const smoothProgress = getEasing(timeProgress);
+        const elapsed = (Date.now() - startTime) / 1000; // Convert to seconds
+        const scaledElapsed = elapsed * animationSpeed; // Apply animation speed
         
-        // Interpolate joint values
-        const interpolatedValues = {};
+        // Get interpolated joint values from motion profile
+        const interpolatedValues = profiler.getJointValues(scaledElapsed, profileData);
+        const progress = profiler.getProgress(scaledElapsed, profileData);
+        
+        // Calculate current error
         let currentError = 0;
         let maxJointError = 0;
         
         Object.keys(targetValues).forEach(jointName => {
-          const start = currentValues[jointName] || 0;
-          const end = targetValues[jointName];
-          const value = start + (end - start) * smoothProgress;
-          interpolatedValues[jointName] = value;
-          
-          const diff = end - value;
+          const current = interpolatedValues[jointName];
+          const target = targetValues[jointName];
+          const diff = target - current;
           currentError += diff * diff;
           maxJointError = Math.max(maxJointError, Math.abs(diff));
         });
@@ -509,62 +523,80 @@ export const JointProvider = ({ children }) => {
             return newMap;
           });
           
-          // CRITICAL: Emit joint change event for trajectory recording
+          // Emit joint change event for trajectory recording
           EventBus.emit('robot:joints-changed', {
             robotId,
             robotName: robotId,
             values: interpolatedValues,
-            source: 'ik-animation',
-            progress: timeProgress
+            source: 'motion-profile-animation',
+            progress,
+            profileType: motionProfile
           });
         }
         
-        // Calculate error-based progress
-        const errorProgress = initialError > 0 ? 1 - (currentError / initialError) : 1;
-        
-        // Update progress based on both time and error
-        const combinedProgress = Math.max(timeProgress, errorProgress);
-        setAnimationProgress(prev => new Map(prev).set(robotId, combinedProgress));
+        // Update animation progress
+        setAnimationProgress(prev => new Map(prev).set(robotId, progress));
         
         // Call progress callback if provided
         if (onProgress) {
+          // Get current velocities for each joint
+          const velocities = {};
+          Object.keys(profileData.profiles).forEach(jointName => {
+            const profile = profileData.profiles[jointName];
+            if (profile.profiler) {
+              velocities[jointName] = profile.profiler.getVelocity(
+                scaledElapsed, 
+                profile, 
+                profile.distance
+              );
+            }
+          });
+          
           onProgress({
-            timeProgress,
-            errorProgress,
+            progress,
             currentError,
             maxJointError,
             tolerance,
-            elapsed
+            elapsed: elapsed * 1000, // Back to milliseconds
+            velocities,
+            profileType: motionProfile
           });
         }
         
         // Check completion conditions
+        const profileComplete = progress >= 1;
         const withinTolerance = currentError <= tolerance;
-        const timeExpired = elapsed >= maxDuration;
-        const shouldStop = withinTolerance || timeExpired || timeProgress >= 1;
+        const timeExpired = elapsed * 1000 >= maxDuration;
+        const shouldStop = profileComplete || withinTolerance || timeExpired;
         
         if (shouldStop) {
-          // If within tolerance, apply exact target values
-          if (withinTolerance) {
-            console.log(`[JointContext] Within tolerance (${currentError} <= ${tolerance}), applying exact values`);
+          // If profile is complete, apply exact target values
+          if (profileComplete || withinTolerance) {
+            console.log(`[JointContext] Motion profile complete, applying exact values`);
             setRobotJointValues_Internal(robotId, targetValues);
             setRobotJointValues(prev => {
               const newMap = new Map(prev);
               newMap.set(robotId, targetValues);
               return newMap;
             });
+            
+            // Final joint change event with exact values
+            EventBus.emit('robot:joints-changed', {
+              robotId,
+              robotName: robotId,
+              values: targetValues,
+              source: 'motion-profile-complete',
+              progress: 1
+            });
           }
           
           // Animation complete
-          console.log(`[JointContext] Animation complete for ${robotId}. Final error: ${currentError}, Within tolerance: ${withinTolerance}`);
+          console.log(`[JointContext] Animation complete for ${robotId}. Profile time: ${profileData.totalTime}s`);
           
           // Clean up animation state
           setIsAnimating(prev => new Map(prev).set(robotId, false));
           setAnimationProgress(prev => new Map(prev).set(robotId, 0));
           animationFrameRef.current.delete(robotId);
-          
-          console.log(`[JointContext] Set isAnimating=false for ${robotId}`);
-          console.log(`[JointContext] Notifying IK animation complete`);
           
           // Notify IK that animation is complete
           EventBus.emit('ik:animation-complete', {
@@ -573,7 +605,8 @@ export const JointProvider = ({ children }) => {
             withinTolerance,
             finalError: currentError,
             maxJointError,
-            duration: elapsed
+            duration: elapsed * 1000,
+            profileType: motionProfile
           });
           
           resolve({
@@ -581,17 +614,11 @@ export const JointProvider = ({ children }) => {
             withinTolerance,
             finalError: currentError,
             maxJointError,
-            duration: elapsed
+            duration: elapsed * 1000,
+            profileType: motionProfile
           });
         } else {
-          // Calculate adaptive speed based on error
-          const errorRatio = currentError / tolerance;
-          const speedMultiplier = errorRatio > 10 ? animationSpeed * 1.5 :
-                                errorRatio > 5 ? animationSpeed * 1.2 :
-                                errorRatio > 2 ? animationSpeed :
-                                animationSpeed * 0.8;
-          
-          // Schedule next frame with adaptive timing
+          // Schedule next frame
           const frameId = requestAnimationFrame(animate);
           animationFrameRef.current.set(robotId, frameId);
         }
@@ -921,7 +948,8 @@ export const JointProvider = ({ children }) => {
     getJointLimits,
     isRobotAnimating,
     getAnimationProgress,
-    stopAnimation
+    stopAnimation,
+    animateToJointValues
   };
 
   return (

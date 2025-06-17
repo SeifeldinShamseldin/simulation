@@ -233,17 +233,10 @@ const RobotManager = ({
       // Load robot into the viewer
       await loadRobot(robot.id, robot.urdfPath, {
         position: { x: 0, y: 0, z: 0 },
-        makeActive: true,
-        clearOthers: false
       });
       
       setLocalSuccess(`${robot.name} loaded successfully!`);
       setTimeout(() => setLocalSuccess(''), 3000);
-      
-      // Navigate to robot controls
-      if (onRobotSelected) {
-        onRobotSelected(robot.id);
-      }
       
       EventBus.emit('robot:workspace-robot-loaded', {
         robotId: robot.id,
@@ -255,6 +248,23 @@ const RobotManager = ({
       setLocalError('Failed to load robot: ' + error.message);
     }
   };
+
+  // NEW: Listen for robot:loaded event to set active robot
+  useEffect(() => {
+    const handleRobotLoaded = (data) => {
+      const { robotId } = data;
+      console.log(`[RobotManager] Received robot:loaded event for robotId: ${robotId}`);
+      if (onRobotSelected) {
+        onRobotSelected(robotId);
+      }
+    };
+
+    EventBus.on('robot:loaded', handleRobotLoaded);
+
+    return () => {
+      EventBus.off('robot:loaded', handleRobotLoaded);
+    };
+  }, [onRobotSelected]);
 
   const handleRemoveRobot = (robotId) => {
     if (window.confirm('Remove this robot from your workspace?')) {
