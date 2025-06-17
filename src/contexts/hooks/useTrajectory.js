@@ -603,14 +603,60 @@ export const useTrajectory = (robotId = null) => {
     scanTrajectories();
   }, [scanTrajectories]);
   
-  // Cleanup on unmount
+  // ========== COMPREHENSIVE CLEANUP ON UNMOUNT ==========
   useEffect(() => {
     return () => {
+      console.log('[useTrajectory] Cleaning up resources on unmount');
+      
+      // ✅ Clean up animation frame
       if (animationFrameRef.current) {
+        console.log('[useTrajectory] Cancelling animation frame');
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
+      
+      // ✅ Clean up playback state
+      if (playbackStateRef.current) {
+        console.log('[useTrajectory] Cleaning up playback state');
+        playbackStateRef.current.isPlaying = false;
+        playbackStateRef.current = null;
+      }
+      
+      // ✅ Clean up recording data
+      if (recordingDataRef.current) {
+        console.log('[useTrajectory] Cleaning up recording data');
+        recordingDataRef.current.frames = [];
+        recordingDataRef.current.endEffectorPath = [];
+        recordingDataRef.current.name = null;
+        recordingDataRef.current.robotId = null;
+        recordingDataRef.current.startTime = null;
+      }
+      
+      // ✅ Clean up last frame time
+      lastFrameTimeRef.current = 0;
+      
+      // ✅ Stop any ongoing recording
+      if (isRecording) {
+        console.log('[useTrajectory] Stopping ongoing recording during cleanup');
+        setIsRecording(false);
+        setRecordingName(null);
+        setFrameCount(0);
+      }
+      
+      // ✅ Stop any ongoing playback
+      if (isPlaying) {
+        console.log('[useTrajectory] Stopping ongoing playback during cleanup');
+        setIsPlaying(false);
+        setProgress(0);
+        setCurrentTrajectory(null);
+      }
+      
+      // ✅ Clear any errors
+      setError(null);
+      
+      console.log('[useTrajectory] Cleanup completed');
     };
-  }, []);
+  }, []); // Empty dependency array - only runs on unmount
   
   return {
     // Robot identification

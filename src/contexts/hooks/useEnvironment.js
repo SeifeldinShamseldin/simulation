@@ -1,11 +1,78 @@
 // src/contexts/hooks/useEnvironment.js
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useEnvironmentContext } from '../EnvironmentContext';
 
 export const useEnvironment = () => {
   const context = useEnvironmentContext();
   
-  return {
+  // ========== MEMOIZED COMPUTED PROPERTIES ==========
+  const computedProperties = useMemo(() => ({
+    hasLoadedObjects: context.loadedObjects.length > 0,
+    hasCategories: context.categories.length > 0,
+    hasSpawnedHumans: context.spawnedHumans.length > 0,
+    isInObjectsView: context.currentView === 'objects',
+    isCategoriesView: context.currentView === 'categories',
+  }), [
+    context.loadedObjects.length,
+    context.categories.length,
+    context.spawnedHumans.length,
+    context.currentView
+  ]);
+  
+  // ========== MEMOIZED HELPER METHODS ==========
+  
+  // Object Management Helpers
+  const getObjectById = useCallback((instanceId) => {
+    return context.loadedObjects.find(obj => obj.instanceId === instanceId);
+  }, [context.loadedObjects]);
+  
+  const getObjectsByCategory = useCallback((category) => {
+    return context.loadedObjects.filter(obj => obj.category === category);
+  }, [context.loadedObjects]);
+  
+  // Human Management Helpers
+  const getHumanById = useCallback((humanId) => {
+    return context.spawnedHumans.find(h => h.id === humanId);
+  }, [context.spawnedHumans]);
+  
+  const getActiveHuman = useCallback(() => {
+    return context.spawnedHumans.find(h => h.isActive);
+  }, [context.spawnedHumans]);
+  
+  const getHumanPosition = useCallback((humanId) => {
+    return context.humanPositions[humanId] || { x: 0, y: 0, z: 0 };
+  }, [context.humanPositions]);
+  
+  // Category Helpers
+  const getCategoryById = useCallback((categoryId) => {
+    return context.categories.find(cat => cat.id === categoryId);
+  }, [context.categories]);
+  
+  // State Checks
+  const isObjectLoaded = useCallback((objectId) => {
+    return context.loadedObjects.some(obj => obj.objectId === objectId);
+  }, [context.loadedObjects]);
+  
+  const isHumanSpawned = useCallback((humanId) => {
+    return context.spawnedHumans.some(h => h.id === humanId);
+  }, [context.spawnedHumans]);
+  
+  // Scene Object Helpers
+  const getSceneObjectById = useCallback((objectId) => {
+    return context.sceneObjects.get(objectId);
+  }, [context.sceneObjects]);
+  
+  const getAllSceneObjects = useCallback(() => {
+    return Array.from(context.sceneObjects.values());
+  }, [context.sceneObjects]);
+  
+  // Physics Helpers
+  const hasPhysicsBody = useCallback((objectId) => {
+    return context.world && context.sceneObjects.has(objectId);
+  }, [context.world, context.sceneObjects]);
+  
+  // ========== MEMOIZED RETURN OBJECT ==========
+  return useMemo(() => ({
     // ========== ENVIRONMENT STATE ==========
     categories: context.categories,
     loadedObjects: context.loadedObjects,
@@ -78,66 +145,103 @@ export const useEnvironment = () => {
     clearError: context.clearError,
     clearSuccess: context.clearSuccess,
     
-    // ========== CONVENIENCE GETTERS ==========
-    hasLoadedObjects: context.loadedObjects.length > 0,
-    hasCategories: context.categories.length > 0,
-    hasSpawnedHumans: context.spawnedHumans.length > 0,
-    isInObjectsView: context.currentView === 'objects',
-    isCategoriesView: context.currentView === 'categories',
+    // ========== CONVENIENCE GETTERS (memoized) ==========
+    ...computedProperties,
     
-    // ========== OBJECT MANAGEMENT HELPERS ==========
-    getObjectById: useCallback((instanceId) => {
-      return context.loadedObjects.find(obj => obj.instanceId === instanceId);
-    }, [context.loadedObjects]),
+    // ========== OBJECT MANAGEMENT HELPERS (memoized) ==========
+    getObjectById,
+    getObjectsByCategory,
     
-    getObjectsByCategory: useCallback((category) => {
-      return context.loadedObjects.filter(obj => obj.category === category);
-    }, [context.loadedObjects]),
+    // ========== HUMAN MANAGEMENT HELPERS (memoized) ==========
+    getHumanById,
+    getActiveHuman,
+    getHumanPosition,
     
-    // ========== HUMAN MANAGEMENT HELPERS ==========
-    getHumanById: useCallback((humanId) => {
-      return context.spawnedHumans.find(h => h.id === humanId);
-    }, [context.spawnedHumans]),
+    // ========== CATEGORY HELPERS (memoized) ==========
+    getCategoryById,
     
-    getActiveHuman: useCallback(() => {
-      return context.spawnedHumans.find(h => h.isActive);
-    }, [context.spawnedHumans]),
+    // ========== STATE CHECKS (memoized) ==========
+    isObjectLoaded,
+    isHumanSpawned,
     
-    getHumanPosition: useCallback((humanId) => {
-      return context.humanPositions[humanId] || { x: 0, y: 0, z: 0 };
-    }, [context.humanPositions]),
+    // ========== SCENE OBJECT HELPERS (memoized) ==========
+    getSceneObjectById,
+    getAllSceneObjects,
     
-    // ========== CATEGORY HELPERS ==========
-    getCategoryById: useCallback((categoryId) => {
-      return context.categories.find(cat => cat.id === categoryId);
-    }, [context.categories]),
+    // ========== PHYSICS HELPERS (memoized) ==========
+    hasPhysicsBody
+  }), [
+    // Context state dependencies
+    context.categories,
+    context.loadedObjects,
+    context.selectedCategory,
+    context.currentView,
+    context.spawnedHumans,
+    context.selectedHuman,
+    context.humanPositions,
+    context.isLoading,
+    context.error,
+    context.successMessage,
+    context.sceneObjects,
+    context.objectRegistries,
+    context.world,
+    context.isPhysicsEnabled,
     
-    // ========== STATE CHECKS ==========
-    isObjectLoaded: useCallback((objectId) => {
-      return context.loadedObjects.some(obj => obj.objectId === objectId);
-    }, [context.loadedObjects]),
+    // Context method dependencies (these should be stable from EnvironmentContext)
+    context.scanEnvironment,
+    context.loadObject,
+    context.updateObject,
+    context.removeObject,
+    context.clearAllObjects,
+    context.handleMoveHuman,
+    context.deleteObject,
+    context.deleteCategory,
+    context.selectCategory,
+    context.goBackToCategories,
+    context.setCurrentView,
+    context.setSelectedCategory,
+    context.registerObject,
+    context.unregisterObject,
+    context.getObjectsByType,
+    context.addObject,
+    context.isInScene,
+    context.calculateSmartPosition,
+    context.setCameraPosition,
+    context.setCameraTarget,
+    context.resetCamera,
+    context.focusOnObject,
+    context.createPhysicsBody,
+    context.removePhysicsBody,
+    context.syncWithObject,
+    context.setCategories,
+    context.setLoadedObjects,
+    context.setSpawnedHumans,
+    context.setSelectedHuman,
+    context.setHumanPositions,
+    context.setError,
+    context.setSuccessMessage,
+    context.clearError,
+    context.clearSuccess,
     
-    isHumanSpawned: useCallback((humanId) => {
-      return context.spawnedHumans.some(h => h.id === humanId);
-    }, [context.spawnedHumans]),
+    // Computed properties
+    computedProperties,
     
-    // ========== SCENE OBJECT HELPERS ==========
-    getSceneObjectById: useCallback((objectId) => {
-      return context.sceneObjects.get(objectId);
-    }, [context.sceneObjects]),
-    
-    getAllSceneObjects: useCallback(() => {
-      return Array.from(context.sceneObjects.values());
-    }, [context.sceneObjects]),
-    
-    // ========== PHYSICS HELPERS ==========
-    hasPhysicsBody: useCallback((objectId) => {
-      return context.world && context.sceneObjects.has(objectId);
-    }, [context.world, context.sceneObjects])
-  };
+    // Memoized methods
+    getObjectById,
+    getObjectsByCategory,
+    getHumanById,
+    getActiveHuman,
+    getHumanPosition,
+    getCategoryById,
+    isObjectLoaded,
+    isHumanSpawned,
+    getSceneObjectById,
+    getAllSceneObjects,
+    hasPhysicsBody
+  ]);
 };
 
-// ========== SPECIALIZED HOOKS ==========
+// ========== SPECIALIZED HOOKS (Optimized) ==========
 
 export const useEnvironmentObjects = () => {
   const {
@@ -151,7 +255,7 @@ export const useEnvironmentObjects = () => {
     isObjectLoaded
   } = useEnvironment();
   
-  return {
+  return useMemo(() => ({
     objects: loadedObjects,
     loadObject,
     updateObject,
@@ -162,7 +266,16 @@ export const useEnvironmentObjects = () => {
     isLoaded: isObjectLoaded,
     count: loadedObjects.length,
     isEmpty: loadedObjects.length === 0
-  };
+  }), [
+    loadedObjects,
+    loadObject,
+    updateObject,
+    removeObject,
+    clearAllObjects,
+    getObjectById,
+    getObjectsByCategory,
+    isObjectLoaded
+  ]);
 };
 
 export const useEnvironmentHumans = () => {
@@ -177,7 +290,12 @@ export const useEnvironmentHumans = () => {
     isHumanSpawned
   } = useEnvironment();
   
-  return {
+  const hasActive = useMemo(() => 
+    spawnedHumans.some(h => h.isActive), 
+    [spawnedHumans]
+  );
+  
+  return useMemo(() => ({
     humans: spawnedHumans,
     selectedHuman,
     positions: humanPositions,
@@ -187,9 +305,19 @@ export const useEnvironmentHumans = () => {
     getPosition: getHumanPosition,
     isSpawned: isHumanSpawned,
     count: spawnedHumans.length,
-    hasActive: spawnedHumans.some(h => h.isActive),
+    hasActive,
     isEmpty: spawnedHumans.length === 0
-  };
+  }), [
+    spawnedHumans,
+    selectedHuman,
+    humanPositions,
+    handleMoveHuman,
+    getHumanById,
+    getActiveHuman,
+    getHumanPosition,
+    isHumanSpawned,
+    hasActive
+  ]);
 };
 
 export const useEnvironmentCategories = () => {
@@ -201,7 +329,7 @@ export const useEnvironmentCategories = () => {
     getCategoryById
   } = useEnvironment();
   
-  return {
+  return useMemo(() => ({
     categories,
     selected: selectedCategory,
     select: selectCategory,
@@ -209,7 +337,13 @@ export const useEnvironmentCategories = () => {
     getById: getCategoryById,
     count: categories.length,
     isEmpty: categories.length === 0
-  };
+  }), [
+    categories,
+    selectedCategory,
+    selectCategory,
+    deleteCategory,
+    getCategoryById
+  ]);
 };
 
 export const useEnvironmentView = () => {
@@ -223,7 +357,7 @@ export const useEnvironmentView = () => {
     isInObjectsView
   } = useEnvironment();
   
-  return {
+  return useMemo(() => ({
     currentView,
     selectedCategory,
     selectCategory,
@@ -231,7 +365,15 @@ export const useEnvironmentView = () => {
     setView: setCurrentView,
     isCategoriesView,
     isObjectsView: isInObjectsView
-  };
+  }), [
+    currentView,
+    selectedCategory,
+    selectCategory,
+    goBackToCategories,
+    setCurrentView,
+    isCategoriesView,
+    isInObjectsView
+  ]);
 };
 
 export const useEnvironmentScene = () => {
@@ -247,7 +389,7 @@ export const useEnvironmentScene = () => {
     getAllSceneObjects
   } = useEnvironment();
   
-  return {
+  return useMemo(() => ({
     objects: sceneObjects,
     registries: objectRegistries,
     registerObject,
@@ -258,7 +400,17 @@ export const useEnvironmentScene = () => {
     getById: getSceneObjectById,
     getAll: getAllSceneObjects,
     count: sceneObjects.size
-  };
+  }), [
+    sceneObjects,
+    objectRegistries,
+    registerObject,
+    unregisterObject,
+    getObjectsByType,
+    addObject,
+    isInScene,
+    getSceneObjectById,
+    getAllSceneObjects
+  ]);
 };
 
 export const useEnvironmentPhysics = () => {
@@ -271,22 +423,29 @@ export const useEnvironmentPhysics = () => {
     hasPhysicsBody
   } = useEnvironment();
   
-  return {
+  return useMemo(() => ({
     world,
     isEnabled: isPhysicsEnabled,
     createBody: createPhysicsBody,
     removeBody: removePhysicsBody,
     syncWith: syncWithObject,
     hasBody: hasPhysicsBody
-  };
+  }), [
+    world,
+    isPhysicsEnabled,
+    createPhysicsBody,
+    removePhysicsBody,
+    syncWithObject,
+    hasPhysicsBody
+  ]);
 };
 
 export const useEnvironmentPlacement = () => {
   const { calculateSmartPosition } = useEnvironment();
   
-  return {
+  return useMemo(() => ({
     calculatePosition: calculateSmartPosition
-  };
+  }), [calculateSmartPosition]);
 };
 
 export default useEnvironment;

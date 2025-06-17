@@ -1,12 +1,76 @@
 // src/contexts/hooks/useRobotManager.js - MERGED & OPTIMIZED
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useRobotContext } from '../RobotContext';
 
 // ========== MAIN HOOK (Merged from useRobot and useRobotManager) ==========
 export const useRobotManager = () => {
   const context = useRobotContext();
   
-  return {
+  // ========== MEMOIZED METHODS ==========
+  
+  // Robot Discovery Methods
+  const getRobotById = useCallback((robotId) => {
+    return context.availableRobots.find(robot => robot.id === robotId);
+  }, [context.availableRobots]);
+  
+  const getWorkspaceRobotById = useCallback((workspaceRobotId) => {
+    return context.workspaceRobots.find(robot => robot.id === workspaceRobotId);
+  }, [context.workspaceRobots]);
+  
+  const getRobotsByCategory = useCallback((categoryId) => {
+    return context.availableRobots.filter(robot => robot.category === categoryId);
+  }, [context.availableRobots]);
+  
+  const getCategoryById = useCallback((categoryId) => {
+    return context.categories.find(category => category.id === categoryId);
+  }, [context.categories]);
+  
+  // Robot State Methods
+  const isRobotActive = useCallback((robotId) => {
+    return context.activeRobotId === robotId;
+  }, [context.activeRobotId]);
+  
+  const hasWorkspaceRobot = useCallback((robotId) => {
+    return context.workspaceRobots.some(r => r.robotId === robotId);
+  }, [context.workspaceRobots]);
+  
+  const isRobotLoadedCheck = useCallback((robotName) => {
+    return context.robots.has(robotName);
+  }, [context.robots]);
+  
+  const isRobotActiveCheck = useCallback((robotName) => {
+    return context.activeRobots.has(robotName);
+  }, [context.activeRobots]);
+  
+  const getRobotData = useCallback((robotName) => {
+    return context.robots.get(robotName);
+  }, [context.robots]);
+  
+  // Computed Properties
+  const computedProperties = useMemo(() => ({
+    robotCount: context.robotCount,
+    isEmpty: context.isEmpty,
+    hasWorkspaceRobots: context.hasWorkspaceRobots,
+    hasAvailableRobots: context.hasAvailableRobots,
+    hasLoadedRobots: context.hasLoadedRobots,
+    hasActiveRobot: context.hasActiveRobot,
+    hasRobots: context.hasRobots,
+    activeRobotCount: context.activeRobotCount,
+    hasActiveRobots: context.activeRobots.size > 0,
+  }), [
+    context.robotCount,
+    context.isEmpty,
+    context.hasWorkspaceRobots,
+    context.hasAvailableRobots,
+    context.hasLoadedRobots,
+    context.hasActiveRobot,
+    context.hasRobots,
+    context.activeRobotCount,
+    context.activeRobots.size
+  ]);
+  
+  // ========== MEMOIZED RETURN OBJECT ==========
+  return useMemo(() => ({
     // ========== ROBOT STATE (from useRobot) ==========
     availableRobots: context.availableRobots,
     categories: context.categories,
@@ -62,57 +126,80 @@ export const useRobotManager = () => {
     getCurrentRobotName: context.getCurrentRobotName,
     
     // ========== COMPUTED PROPERTIES (merged) ==========
-    robotCount: context.robotCount,
-    isEmpty: context.isEmpty,
-    hasWorkspaceRobots: context.hasWorkspaceRobots,
-    hasAvailableRobots: context.hasAvailableRobots,
-    hasLoadedRobots: context.hasLoadedRobots,
-    hasActiveRobot: context.hasActiveRobot,
-    hasRobots: context.hasRobots,
-    activeRobotCount: context.activeRobotCount,
-    hasActiveRobots: context.activeRobots.size > 0,
+    ...computedProperties,
     
     // ========== ERROR HANDLING (merged) ==========
     clearError: context.clearError,
     clearSuccess: context.clearSuccess,
     
     // ========== CONVENIENCE METHODS (optimized) ==========
-    getRobotById: useCallback((robotId) => {
-      return context.availableRobots.find(robot => robot.id === robotId);
-    }, [context.availableRobots]),
+    getRobotById,
+    getWorkspaceRobotById,
+    getRobotsByCategory,
+    getCategoryById,
+    isRobotActive,
+    hasWorkspaceRobot,
+    isRobotLoadedCheck,
+    isRobotActiveCheck,
+    getRobotData
+  }), [
+    // Context dependencies
+    context.availableRobots,
+    context.categories,
+    context.workspaceRobots,
+    context.activeRobotId,
+    context.activeRobot,
+    context.loadedRobots,
+    context.robots,
+    context.activeRobots,
+    context.isLoading,
+    context.error,
+    context.successMessage,
     
-    getWorkspaceRobotById: useCallback((workspaceRobotId) => {
-      return context.workspaceRobots.find(robot => robot.id === workspaceRobotId);
-    }, [context.workspaceRobots]),
+    // Context methods (these should be stable from RobotContext)
+    context.discoverRobots,
+    context.refresh,
+    context.addRobotToWorkspace,
+    context.removeRobotFromWorkspace,
+    context.isRobotInWorkspace,
+    context.getWorkspaceRobot,
+    context.clearWorkspace,
+    context.importRobots,
+    context.exportRobots,
+    context.loadRobot,
+    context.unloadRobot,
+    context.isRobotLoaded,
+    context.getRobot,
+    context.getAllRobots,
+    context.setActiveRobotId,
+    context.setActiveRobot,
+    context.getRobotLoadStatus,
+    context.getLoadedRobots,
+    context.setRobotActive,
+    context.removeRobot,
+    context.setJointValue,
+    context.setJointValues,
+    context.getJointValues,
+    context.resetJoints,
+    context.getCurrentRobot,
+    context.getCurrentRobotName,
+    context.clearError,
+    context.clearSuccess,
     
-    getRobotsByCategory: useCallback((categoryId) => {
-      return context.availableRobots.filter(robot => robot.category === categoryId);
-    }, [context.availableRobots]),
+    // Computed properties
+    computedProperties,
     
-    getCategoryById: useCallback((categoryId) => {
-      return context.categories.find(category => category.id === categoryId);
-    }, [context.categories]),
-    
-    isRobotActive: useCallback((robotId) => {
-      return context.activeRobotId === robotId;
-    }, [context.activeRobotId]),
-    
-    hasWorkspaceRobot: useCallback((robotId) => {
-      return context.workspaceRobots.some(r => r.robotId === robotId);
-    }, [context.workspaceRobots]),
-    
-    isRobotLoadedCheck: useCallback((robotName) => {
-      return context.robots.has(robotName);
-    }, [context.robots]),
-    
-    isRobotActiveCheck: useCallback((robotName) => {
-      return context.activeRobots.has(robotName);
-    }, [context.activeRobots]),
-    
-    getRobotData: useCallback((robotName) => {
-      return context.robots.get(robotName);
-    }, [context.robots])
-  };
+    // Memoized methods
+    getRobotById,
+    getWorkspaceRobotById,
+    getRobotsByCategory,
+    getCategoryById,
+    isRobotActive,
+    hasWorkspaceRobot,
+    isRobotLoadedCheck,
+    isRobotActiveCheck,
+    getRobotData
+  ]);
 };
 
 // ========== SPECIALIZED HOOKS (Merged & Optimized) ==========
@@ -120,7 +207,7 @@ export const useRobotManager = () => {
 export const useRobotWorkspace = () => {
   const manager = useRobotManager();
   
-  return {
+  return useMemo(() => ({
     // Workspace State
     robots: manager.workspaceRobots,
     count: manager.robotCount,
@@ -139,13 +226,27 @@ export const useRobotWorkspace = () => {
     // Helper Methods
     getById: manager.getWorkspaceRobotById,
     hasRobot: manager.hasWorkspaceRobot
-  };
+  }), [
+    manager.workspaceRobots,
+    manager.robotCount,
+    manager.isEmpty,
+    manager.hasWorkspaceRobots,
+    manager.addRobotToWorkspace,
+    manager.removeRobotFromWorkspace,
+    manager.isRobotInWorkspace,
+    manager.getWorkspaceRobot,
+    manager.clearWorkspace,
+    manager.importRobots,
+    manager.exportRobots,
+    manager.getWorkspaceRobotById,
+    manager.hasWorkspaceRobot
+  ]);
 };
 
 export const useRobotDiscovery = () => {
   const manager = useRobotManager();
   
-  return {
+  return useMemo(() => ({
     // Discovery State
     robots: manager.availableRobots,
     categories: manager.categories,
@@ -164,13 +265,22 @@ export const useRobotDiscovery = () => {
     robotCount: manager.availableRobots.length,
     categoryCount: manager.categories.length,
     isEmpty: manager.availableRobots.length === 0
-  };
+  }), [
+    manager.availableRobots,
+    manager.categories,
+    manager.hasAvailableRobots,
+    manager.discoverRobots,
+    manager.refresh,
+    manager.getRobotById,
+    manager.getRobotsByCategory,
+    manager.getCategoryById
+  ]);
 };
 
 export const useRobotManagement = () => {
   const manager = useRobotManager();
   
-  return {
+  return useMemo(() => ({
     // Loading State
     loadedRobots: manager.loadedRobots,
     hasLoaded: manager.hasLoadedRobots,
@@ -186,13 +296,26 @@ export const useRobotManagement = () => {
     // Computed Properties
     loadedCount: manager.loadedRobots.size,
     hasRobots: manager.loadedRobots.size > 0
-  };
+  }), [
+    manager.loadedRobots,
+    manager.hasLoadedRobots,
+    manager.loadRobot,
+    manager.unloadRobot,
+    manager.isRobotLoaded,
+    manager.getRobot,
+    manager.getRobotLoadStatus,
+    manager.getLoadedRobots
+  ]);
 };
 
 export const useRobotSelection = () => {
   const manager = useRobotManager();
   
-  return {
+  const clearActive = useCallback(() => {
+    manager.setActiveRobotId(null);
+  }, [manager.setActiveRobotId]);
+  
+  return useMemo(() => ({
     // Selection State
     activeId: manager.activeRobotId,
     activeRobot: manager.activeRobot,
@@ -201,17 +324,25 @@ export const useRobotSelection = () => {
     // Selection Operations
     setActive: manager.setActiveRobotId,
     setActiveRobot: manager.setActiveRobot,
-    clearActive: () => manager.setActiveRobotId(null),
+    clearActive,
     
     // Helper Methods
     isActive: manager.isRobotActive
-  };
+  }), [
+    manager.activeRobotId,
+    manager.activeRobot,
+    manager.hasActiveRobot,
+    manager.setActiveRobotId,
+    manager.setActiveRobot,
+    clearActive,
+    manager.isRobotActive
+  ]);
 };
 
 export const useRobotLoading = () => {
   const manager = useRobotManager();
   
-  return {
+  return useMemo(() => ({
     // Loading State
     isLoading: manager.isLoading,
     error: manager.error,
@@ -227,13 +358,20 @@ export const useRobotLoading = () => {
     
     // Additional from useRobotManagerLoading
     loadRobot: manager.loadRobot
-  };
+  }), [
+    manager.isLoading,
+    manager.error,
+    manager.successMessage,
+    manager.clearError,
+    manager.clearSuccess,
+    manager.loadRobot
+  ]);
 };
 
 export const useRobotCategories = () => {
   const manager = useRobotManager();
   
-  return {
+  return useMemo(() => ({
     // Category State
     categories: manager.categories,
     count: manager.categories.length,
@@ -242,7 +380,11 @@ export const useRobotCategories = () => {
     // Category Operations
     getRobotsByCategory: manager.getRobotsByCategory,
     getById: manager.getCategoryById
-  };
+  }), [
+    manager.categories,
+    manager.getRobotsByCategory,
+    manager.getCategoryById
+  ]);
 };
 
 export const useRobotManagerJointControl = (robotName = null) => {
@@ -251,49 +393,73 @@ export const useRobotManagerJointControl = (robotName = null) => {
   // Use provided robotName or fall back to current active robot
   const targetRobotName = robotName || manager.getCurrentRobotName();
   
-  return {
+  const setJointValue = useCallback((jointName, value) => {
+    if (!targetRobotName) return false;
+    return manager.setJointValue(targetRobotName, jointName, value);
+  }, [targetRobotName, manager.setJointValue]);
+  
+  const setJointValues = useCallback((values) => {
+    if (!targetRobotName) return false;
+    return manager.setJointValues(targetRobotName, values);
+  }, [targetRobotName, manager.setJointValues]);
+  
+  const getJointValues = useCallback(() => {
+    if (!targetRobotName) return {};
+    return manager.getJointValues(targetRobotName);
+  }, [targetRobotName, manager.getJointValues]);
+  
+  const resetJoints = useCallback(() => {
+    if (!targetRobotName) return;
+    manager.resetJoints(targetRobotName);
+  }, [targetRobotName, manager.resetJoints]);
+  
+  return useMemo(() => ({
     robotName: targetRobotName,
-    setJointValue: useCallback((jointName, value) => {
-      if (!targetRobotName) return false;
-      return manager.setJointValue(targetRobotName, jointName, value);
-    }, [targetRobotName, manager]),
-    
-    setJointValues: useCallback((values) => {
-      if (!targetRobotName) return false;
-      return manager.setJointValues(targetRobotName, values);
-    }, [targetRobotName, manager]),
-    
-    getJointValues: useCallback(() => {
-      if (!targetRobotName) return {};
-      return manager.getJointValues(targetRobotName);
-    }, [targetRobotName, manager]),
-    
-    resetJoints: useCallback(() => {
-      if (!targetRobotName) return;
-      manager.resetJoints(targetRobotName);
-    }, [targetRobotName, manager]),
-    
+    setJointValue,
+    setJointValues,
+    getJointValues,
+    resetJoints,
     hasRobot: !!targetRobotName
-  };
+  }), [
+    targetRobotName,
+    setJointValue,
+    setJointValues,
+    getJointValues,
+    resetJoints
+  ]);
 };
 
 export const useActiveRobotManager = () => {
   const manager = useRobotManager();
   
-  return {
+  return useMemo(() => ({
     activeRobots: manager.activeRobots,
     currentRobot: manager.getCurrentRobot(),
     currentRobotName: manager.getCurrentRobotName(),
     setRobotActive: manager.setRobotActive,
     hasActiveRobots: manager.hasActiveRobots,
     activeCount: manager.activeRobots.size
-  };
+  }), [
+    manager.activeRobots,
+    manager.getCurrentRobot,
+    manager.getCurrentRobotName,
+    manager.setRobotActive,
+    manager.hasActiveRobots
+  ]);
 };
 
 export const useRobotManagerCollection = () => {
   const manager = useRobotManager();
   
-  return {
+  const getRobotNames = useCallback(() => {
+    return Array.from(manager.robots.keys());
+  }, [manager.robots]);
+  
+  const getRobotModels = useCallback(() => {
+    return Array.from(manager.robots.values()).map(robotData => robotData.model || robotData.robot);
+  }, [manager.robots]);
+  
+  return useMemo(() => ({
     robots: manager.robots,
     getAllRobots: manager.getAllRobots,
     getRobot: manager.getRobot,
@@ -304,14 +470,20 @@ export const useRobotManagerCollection = () => {
     isEmpty: manager.isEmpty,
     
     // Convenience methods
-    getRobotNames: useCallback(() => {
-      return Array.from(manager.robots.keys());
-    }, [manager.robots]),
-    
-    getRobotModels: useCallback(() => {
-      return Array.from(manager.robots.values()).map(robotData => robotData.model || robotData.robot);
-    }, [manager.robots])
-  };
+    getRobotNames,
+    getRobotModels
+  }), [
+    manager.robots,
+    manager.getAllRobots,
+    manager.getRobot,
+    manager.removeRobot,
+    manager.clearAllRobots,
+    manager.hasRobots,
+    manager.robotCount,
+    manager.isEmpty,
+    getRobotNames,
+    getRobotModels
+  ]);
 };
 
 // ========== CONVENIENCE HOOKS (Additional) ==========
@@ -319,11 +491,11 @@ export const useRobotManagerCollection = () => {
 export const useActiveRobot = () => {
   const { activeId, activeRobot, hasActive } = useRobotSelection();
   
-  return {
+  return useMemo(() => ({
     id: activeId,
     robot: activeRobot,
     hasActive
-  };
+  }), [activeId, activeRobot, hasActive]);
 };
 
 export const useWorkspaceRobotCount = () => {
@@ -334,11 +506,11 @@ export const useWorkspaceRobotCount = () => {
 export const useRobotErrors = () => {
   const { error, hasError, clearError } = useRobotLoading();
   
-  return {
+  return useMemo(() => ({
     error,
     hasError,
     clear: clearError
-  };
+  }), [error, hasError, clearError]);
 };
 
 // ========== BACKWARD COMPATIBILITY EXPORTS ==========
