@@ -866,7 +866,8 @@ export const EnvironmentProvider = ({ children }) => {
     };
   }, [removePhysicsBody]);
 
-  const value = {
+  // Memoize context value to prevent unnecessary re-renders
+  const value = useMemo(() => ({
     // ========== ENVIRONMENT STATE ==========
     categories,
     loadedObjects,
@@ -939,7 +940,54 @@ export const EnvironmentProvider = ({ children }) => {
     // ========== UTILS ==========
     clearError: () => setError(null),
     clearSuccess: () => setSuccessMessage('')
-  };
+  }), [
+    categories,
+    loadedObjects,
+    selectedCategory,
+    currentView,
+    spawnedHumans,
+    selectedHuman,
+    humanPositions,
+    isLoading,
+    error,
+    successMessage,
+    sceneObjects,
+    objectRegistries,
+    scanEnvironment,
+    loadObject,
+    updateObject,
+    removeObject,
+    clearAllObjects,
+    handleMoveHuman,
+    deleteObject,
+    deleteCategory,
+    selectCategory,
+    goBackToCategories,
+    setCurrentView,
+    setSelectedCategory,
+    registerObject,
+    unregisterObject,
+    getObjectsByType,
+    addObject,
+    isInScene,
+    calculateSmartPosition,
+    setCameraPosition,
+    setCameraTarget,
+    resetCamera,
+    focusOnObject,
+    cameraController,
+    createPhysicsBody,
+    removePhysicsBody,
+    syncWithObject,
+    sceneSetupRef,
+    setCategories,
+    setLoadedObjects,
+    setSpawnedHumans,
+    setSelectedHuman,
+    setHumanPositions,
+    setError,
+    setSuccessMessage
+  ]);
 
   return (
     <EnvironmentContext.Provider value={value}>

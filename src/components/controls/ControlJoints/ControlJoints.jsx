@@ -2,6 +2,7 @@
 import React, { useCallback } from 'react';
 import { useJoints } from '../../../contexts/hooks/useJoints';
 import { useRobotContext } from '../../../contexts/RobotContext'; // Updated import
+import { debugJoint } from '../../../utils/DebugSystem'; // Updated debug import
 
 const ControlJoints = () => {
   const {
@@ -23,7 +24,7 @@ const ControlJoints = () => {
 
   const handleJointChange = useCallback((jointName, value) => {
     if (!isRobotReady(robotId)) {
-      console.warn('[ControlJoints] Robot not ready for joint updates');
+      debugJoint('Robot not ready for joint updates');
       return;
     }
     
@@ -31,20 +32,20 @@ const ControlJoints = () => {
     const success = setJointValue(jointName, numValue);
     
     if (!success) {
-      console.warn(`[ControlJoints] Failed to update joint ${jointName}`);
+      debugJoint(`Failed to update joint ${jointName}`);
       // You could add a toast notification here
     }
   }, [robotId, isRobotReady, setJointValue]);
 
   const handleReset = useCallback(() => {
     if (!isRobotReady(robotId)) {
-      console.warn('[ControlJoints] Robot not ready for reset');
+      debugJoint('Robot not ready for reset');
       return;
     }
     
     const success = resetJoints();
     if (!success) {
-      console.warn('[ControlJoints] Failed to reset joints');
+      debugJoint('Failed to reset joints');
       // You could add a toast notification here
     }
   }, [robotId, isRobotReady, resetJoints]);

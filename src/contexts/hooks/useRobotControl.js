@@ -3,13 +3,7 @@ import { useRobotContext } from '../RobotContext';
 import { useViewer } from '../ViewerContext';
 import { useTCP } from './useTCP';
 import EventBus from '../../utils/EventBus';
-
-// Debug utility to replace console.log
-const debug = (message, ...args) => {
-  if (process.env.NODE_ENV === 'development') {
-    console.log(`[useRobotControl] ${message}`, ...args);
-  }
-};
+import { debugRobot } from '../../utils/DebugSystem';
 
 export const useRobotControl = () => {
   const { activeRobotId, getRobot, loadedRobots } = useRobotContext();
@@ -43,7 +37,7 @@ export const useRobotControl = () => {
   useEffect(() => {
     if (!isReady || !robotManager) return;
 
-    debug(`Setting up robot control for: ${activeRobotId}`);
+    debugRobot(`Setting up robot control for: ${activeRobotId}`);
 
     // Ensure robot is registered with manager for compatibility
     if (robot && robotManager && !robotManager.robots?.has(activeRobotId)) {
@@ -58,7 +52,7 @@ export const useRobotControl = () => {
           isActive: true
         });
 
-        debug(`Registered robot ${activeRobotId} with manager`);
+        debugRobot(`Registered robot ${activeRobotId} with manager`);
         
         EventBus.emit('robot:registered', { 
           robotId: activeRobotId, 
@@ -66,7 +60,7 @@ export const useRobotControl = () => {
           robot: robot 
         });
       } catch (error) {
-        console.error(`[useRobotControl] Error registering robot:`, error);
+        debugRobot(`Error registering robot:`, error);
       }
     }
   }, [isReady, robotManager, robot, activeRobotId]);
@@ -77,14 +71,14 @@ export const useRobotControl = () => {
 
     const handleRobotUpdate = (data) => {
       if (data.robotId === activeRobotId || data.robotName === activeRobotId) {
-        debug(`Robot update received for: ${activeRobotId}`);
+        debugRobot(`Robot update received for: ${activeRobotId}`);
         // Robot will be updated via useMemo dependency
       }
     };
 
     const handleRobotLoaded = (data) => {
       if (data.robotId === activeRobotId || data.robotName === activeRobotId) {
-        debug(`Robot loaded event for: ${activeRobotId}`);
+        debugRobot(`Robot loaded event for: ${activeRobotId}`);
         // Robot will be updated via useMemo dependency
       }
     };
@@ -115,11 +109,11 @@ export const useRobotControl = () => {
 
   const setJointValue = useCallback((jointName, value) => {
     if (!robot?.setJointValue) {
-      debug(`Robot ${activeRobotId} missing setJointValue method`);
+      debugRobot(`Robot ${activeRobotId} missing setJointValue method`);
       return false;
     }
 
-    debug(`Setting joint ${jointName} = ${value} for robot ${activeRobotId}`);
+    debugRobot(`Setting joint ${jointName} = ${value} for robot ${activeRobotId}`);
     
     const success = robot.setJointValue(jointName, value);
     
@@ -143,11 +137,11 @@ export const useRobotControl = () => {
 
   const setJointValues = useCallback((values) => {
     if (!robot?.setJointValues) {
-      debug(`Robot ${activeRobotId} missing setJointValues method`);
+      debugRobot(`Robot ${activeRobotId} missing setJointValues method`);
       return false;
     }
 
-    debug(`Setting joint values for robot ${activeRobotId}:`, values);
+    debugRobot(`Setting joint values for robot ${activeRobotId}:`, values);
     
     const success = robot.setJointValues(values);
     
@@ -170,11 +164,11 @@ export const useRobotControl = () => {
 
   const resetJoints = useCallback(() => {
     if (!robot) {
-      debug(`No robot available for reset`);
+      debugRobot(`No robot available for reset`);
       return;
     }
 
-    debug(`Resetting joints for robot ${activeRobotId}`);
+    debugRobot(`Resetting joints for robot ${activeRobotId}`);
 
     // Use robot's reset method if available
     if (robot.resetJoints) {
@@ -211,7 +205,7 @@ export const useRobotControl = () => {
     const handleStateRequest = (data) => {
       if (data.robotId !== activeRobotId) return;
 
-      debug(`State requested for ${activeRobotId}`);
+      debugRobot(`State requested for ${activeRobotId}`);
 
       // Emit current joint values
       const jointValues = getJointValues();

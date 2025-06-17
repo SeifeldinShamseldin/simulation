@@ -7,7 +7,7 @@ const calculateRobotPositions = () => {
 };
 
 // src/contexts/RobotContext.jsx - UNIFIED ROBOT CONTEXT (Discovery + Loading + Management)
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
 import { useViewer } from './ViewerContext';
 import URDFLoader from '../core/Loader/URDFLoader';
@@ -848,7 +848,8 @@ const clearSuccess = useCallback(() => {
 
 // ========== CONTEXT VALUE ==========
 
-const value = {
+// Memoize context value to prevent unnecessary re-renders
+const value = useMemo(() => ({
   // ========== STATE ==========
   // Robot Discovery
   availableRobots,
@@ -933,7 +934,50 @@ const value = {
   // ========== ERROR HANDLING ==========
   clearError,
   clearSuccess
-};
+}), [
+  availableRobots,
+  categories,
+  availableTools,
+  workspaceRobots,
+  activeRobotId,
+  activeRobot,
+  loadedRobots,
+  robots,
+  activeRobots,
+  loadingStates,
+  isLoading,
+  error,
+  successMessage,
+  discoverRobots,
+  loadAvailableTools,
+  addRobotToWorkspace,
+  removeRobotFromWorkspace,
+  isRobotInWorkspace,
+  getWorkspaceRobot,
+  clearWorkspace,
+  importRobots,
+  exportRobots,
+  loadRobot,
+  unloadRobot,
+  isRobotLoaded,
+  getRobot,
+  setActiveRobotId,
+  setActiveRobot,
+  getRobotLoadStatus,
+  getAllRobots,
+  setRobotActive,
+  removeRobot,
+  getActiveRobots,
+  setJointValue,
+  setJointValues,
+  getJointValues,
+  resetJoints,
+  getCurrentRobot,
+  getCurrentRobotName,
+  isRobotReady,
+  clearError,
+  clearSuccess
+]);
 
 return (
   <RobotContext.Provider value={value}>

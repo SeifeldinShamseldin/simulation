@@ -1,5 +1,5 @@
 // src/contexts/IKContext.jsx - IK as Central API with Dynamic Solvers
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
 import { useRobotSelection, useRobotManagement } from './hooks/useRobotManager';
 import { useTCPContext } from './TCPContext';
@@ -372,7 +372,8 @@ export const IKProvider = ({ children }) => {
   }, []);
 
   // ========== CONTEXT VALUE ==========
-  const value = {
+  // Memoize context value to prevent unnecessary re-renders
+  const value = useMemo(() => ({
     // State
     targetPosition,
     targetOrientation,
@@ -396,7 +397,22 @@ export const IKProvider = ({ children }) => {
     hasValidEndEffector: currentEndEffector.position.x !== 0 || 
                         currentEndEffector.position.y !== 0 || 
                         currentEndEffector.position.z !== 0
-  };
+  }), [
+    targetPosition,
+    targetOrientation,
+    currentEndEffector,
+    isAnimating,
+    solverStatus,
+    currentSolver,
+    availableSolvers,
+    setTargetPosition,
+    setTargetOrientation,
+    setCurrentSolver,
+    executeIK,
+    stopAnimation,
+    configureSolver,
+    getSolverSettings
+  ]);
 
   return (
     <IKContext.Provider value={value}>

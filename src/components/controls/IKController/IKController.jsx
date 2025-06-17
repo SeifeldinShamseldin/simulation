@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import * as THREE from 'three';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import { useIK } from '../../../contexts/hooks/useIK';
+import { debugIK } from '../../../utils/DebugSystem';
 
 /**
  * Utility function to convert quaternion to Euler angles
@@ -76,7 +77,7 @@ const IKController = () => {
     } else {
       // Set default settings if getSolverSettings returns null
       setSolverSettings({});
-      console.warn(`[IKController] No settings found for solver: ${currentSolver}`);
+      debugIK(`No settings found for solver: ${currentSolver}`);
     }
   }, [currentSolver, getSolverSettings]);
 
@@ -107,7 +108,7 @@ const IKController = () => {
   };
 
   const handleOrientationChange = (axis, value) => {
-    console.log(`[IKController] Orientation change: ${axis} = ${value}`);
+    debugIK(`Orientation change: ${axis} = ${value}`);
     setTargetOrientation(prev => ({
       ...prev,
       [axis]: parseFloat(value) || 0
@@ -122,7 +123,7 @@ const IKController = () => {
   };
 
   const rotateRelative = (axis, delta) => {
-    console.log(`[IKController] Rotate relative: ${axis} += ${delta}`);
+    debugIK(`Rotate relative: ${axis} += ${delta}`);
     setTargetOrientation(prev => ({
       ...prev,
       [axis]: (prev[axis] || 0) + delta
@@ -133,11 +134,11 @@ const IKController = () => {
     if (!robot || !isReady || isAnimating) return;
     
     try {
-      console.log(`[IKController] Moving to target position:`, targetPosition);
-      console.log(`[IKController] Moving to target orientation:`, targetOrientation);
-      console.log(`[IKController] Orientation mode:`, orientationMode);
-      console.log(`[IKController] Current solver:`, currentSolver);
-      console.log(`[IKController] Solver settings:`, solverSettings);
+      debugIK(`Moving to target position:`, targetPosition);
+      debugIK(`Moving to target orientation:`, targetOrientation);
+      debugIK(`Orientation mode:`, orientationMode);
+      debugIK(`Current solver:`, currentSolver);
+      debugIK(`Solver settings:`, solverSettings);
       
       // Convert target orientation from degrees to radians for the solver
       const targetOrientationRad = {
@@ -180,12 +181,12 @@ const IKController = () => {
         duration: 2000 // Will be overridden by motion profile calculation
       });
     } catch (error) {
-      console.error('[IKController] Error executing IK:', error);
+      debugIK(`Error executing IK:`, error);
     }
   };
 
   const syncTargetToCurrent = () => {
-    console.log('[IKController] Syncing target to current');
+    debugIK('Syncing target to current');
     setTargetPosition({
       x: currentPosition.x,
       y: currentPosition.y,
@@ -198,7 +199,7 @@ const IKController = () => {
         pitch: currentEulerAngles.pitch * 180 / Math.PI,
         yaw: currentEulerAngles.yaw * 180 / Math.PI
       };
-      console.log('[IKController] Syncing orientation to:', newOrientation);
+      debugIK(`Syncing orientation to:`, newOrientation);
       setTargetOrientation(newOrientation);
     }
   };
@@ -224,7 +225,7 @@ const IKController = () => {
   };
 
   const handleStopMovement = () => {
-    console.log(`[IKController] Stop button clicked`);
+    debugIK(`Stop button clicked`);
     stopAnimation();
   };
 

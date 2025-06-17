@@ -409,7 +409,8 @@ export const ViewerProvider = ({ children }) => {
     };
   }, [dispose]);
   
-  const value = {
+  // Memoize context value to prevent unnecessary re-renders
+  const value = useMemo(() => ({
     // Existing API (for compatibility)
     isViewerReady,
     setViewerInstance,
@@ -460,7 +461,41 @@ export const ViewerProvider = ({ children }) => {
     
     // ========== ERROR HANDLING ==========
     clearError
-  };
+  }), [
+    isViewerReady,
+    setViewerInstance,
+    getSceneSetup,
+    getRobotManager,
+    focusOnRobot,
+    loadRobot,
+    resetJoints,
+    viewerInstanceRef,
+    viewerConfig,
+    dragControlsEnabled,
+    tableState,
+    isLoading,
+    error,
+    initializeViewer,
+    dispose,
+    updateViewerConfig,
+    render,
+    handleResize,
+    setDragControls,
+    setupDragControls,
+    disposeDragControls,
+    loadTable,
+    toggleTable,
+    focusOnObject,
+    setCameraPosition,
+    setCameraTarget,
+    cameraController,
+    getScene,
+    getCamera,
+    getRenderer,
+    getControls,
+    getRobotRoot,
+    clearError
+  ]);
   
   return (
     <ViewerContext.Provider value={value}>

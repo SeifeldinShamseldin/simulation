@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
 import { useViewer } from './ViewerContext';
 import { useRobotSelection } from './hooks/useRobotManager';
@@ -843,7 +843,8 @@ export const TCPProvider = ({ children }) => {
     };
   }, []);
 
-  const value = {
+  // Memoize context value to prevent unnecessary re-renders
+  const value = useMemo(() => ({
     // State
     availableTools,
     attachedTools,
@@ -870,7 +871,24 @@ export const TCPProvider = ({ children }) => {
     
     // Utils
     clearError: () => setError(null)
-  };
+  }), [
+    availableTools,
+    attachedTools,
+    isLoading,
+    error,
+    isInitialized,
+    loadAvailableTools,
+    attachTool,
+    removeTool,
+    setToolTransform,
+    setToolVisibility,
+    getCurrentEndEffectorPoint,
+    getCurrentEndEffectorOrientation,
+    getEndEffectorLink,
+    recalculateEndEffector,
+    getRobotEndEffectorPosition,
+    getRobotEndEffectorOrientation
+  ]);
 
   return (
     <TCPContext.Provider value={value}>

@@ -1,5 +1,5 @@
 // src/contexts/hooks/useJoints.js - Enhanced joint management hook
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useJointContext } from '../JointContext';
 import { useRobotSelection } from './useRobotManager';
 import EventBus from '../../utils/EventBus';
@@ -26,11 +26,26 @@ export const useJoints = (robotId = null) => {
   // Use provided robotId or fall back to active robot
   const targetRobotId = robotId || activeRobotId;
   
-  // Get data for target robot
-  const jointInfo = targetRobotId ? getJointInfo(targetRobotId) : [];
-  const jointValues = targetRobotId ? getJointValues(targetRobotId) : {};
-  const isRobotAnimating_current = targetRobotId ? isRobotAnimating(targetRobotId) : false;
-  const animationProgress_current = targetRobotId ? getAnimationProgress(targetRobotId) : 0;
+  // Get data for target robot - memoized to avoid recalculation
+  const robotData = useMemo(() => {
+    if (!targetRobotId) {
+      return {
+        jointInfo: [],
+        jointValues: {},
+        isAnimating: false,
+        animationProgress: 0
+      };
+    }
+    
+    return {
+      jointInfo: getJointInfo(targetRobotId),
+      jointValues: getJointValues(targetRobotId),
+      isAnimating: isRobotAnimating(targetRobotId),
+      animationProgress: getAnimationProgress(targetRobotId)
+    };
+  }, [targetRobotId, getJointInfo, getJointValues, isRobotAnimating, getAnimationProgress]);
+  
+  const { jointInfo, jointValues, isAnimating: isRobotAnimating_current, animationProgress: animationProgress_current } = robotData;
   
   // Enhanced joint value setting with fallback mechanisms
   const setRobotJointValue = useCallback((jointName, value) => {
@@ -108,7 +123,7 @@ export const useJoints = (robotId = null) => {
     stopAnimation(targetRobotId);
   }, [targetRobotId, stopAnimation]);
   
-  // Convenience methods
+  // Memoized convenience methods
   const getJointValue = useCallback((jointName) => {
     return jointValues[jointName] || 0;
   }, [jointValues]);
@@ -125,7 +140,16 @@ export const useJoints = (robotId = null) => {
     return jointInfo.find(joint => joint.name === jointName);
   }, [jointInfo]);
   
-  return {
+  // Memoized computed values
+  const computedValues = useMemo(() => ({
+    hasJoints: jointInfo.length > 0,
+    hasMovableJoints: jointInfo.some(joint => joint.type !== 'fixed'),
+    jointCount: jointInfo.length,
+    movableJointCount: jointInfo.filter(joint => joint.type !== 'fixed').length
+  }), [jointInfo]);
+  
+  // Memoized return object to prevent unnecessary re-renders
+  const returnValue = useMemo(() => ({
     // Robot identification
     robotId: targetRobotId,
     
@@ -149,11 +173,26 @@ export const useJoints = (robotId = null) => {
     getJointByName,
     
     // State checks
-    hasJoints: jointInfo.length > 0,
-    hasMovableJoints: jointInfo.some(joint => joint.type !== 'fixed'),
-    jointCount: jointInfo.length,
-    movableJointCount: jointInfo.filter(joint => joint.type !== 'fixed').length
-  };
+    ...computedValues
+  }), [
+    targetRobotId,
+    jointInfo,
+    jointValues,
+    isRobotAnimating_current,
+    animationProgress_current,
+    setRobotJointValue,
+    setRobotJointValues,
+    resetRobotJoints,
+    getRobotJointLimits,
+    stopRobotAnimation,
+    getJointValue,
+    hasJoint,
+    getMovableJoints,
+    getJointByName,
+    computedValues
+  ]);
+  
+  return returnValue;
 };
 
 export default useJoints;

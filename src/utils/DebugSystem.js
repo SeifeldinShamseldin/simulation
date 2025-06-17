@@ -15,10 +15,96 @@ class DebugSystem {
         error: 3
       };
       
+      // Context-specific debug flags
+      this.DEBUG_CONTEXTS = {
+        TCP: localStorage.getItem('debug_tcp') === 'true',
+        IK: localStorage.getItem('debug_ik') === 'true',
+        JOINT: localStorage.getItem('debug_joint') === 'true',
+        TRAJECTORY: localStorage.getItem('debug_trajectory') === 'true',
+        ROBOT: localStorage.getItem('debug_robot') === 'true',
+        VIEWER: localStorage.getItem('debug_viewer') === 'true',
+        EVENT: localStorage.getItem('debug_event') === 'true',
+        ANIMATION: localStorage.getItem('debug_animation') === 'true'
+      };
+      
       // Initialize console recording if enabled
       if (this.isEnabled) {
         this.setupConsoleRecording();
       }
+    }
+    
+    // Main debug function with context filtering
+    debug(context, ...args) {
+      if (this.isEnabled && this.DEBUG_CONTEXTS[context]) {
+        console.log(`[${context}]`, ...args);
+        this.addLog('debug', [`[${context}]`, ...args]);
+      }
+    }
+    
+    // Context-specific debug functions for convenience
+    tcp(...args) {
+      this.debug('TCP', ...args);
+    }
+    
+    ik(...args) {
+      this.debug('IK', ...args);
+    }
+    
+    joint(...args) {
+      this.debug('JOINT', ...args);
+    }
+    
+    trajectory(...args) {
+      this.debug('TRAJECTORY', ...args);
+    }
+    
+    robot(...args) {
+      this.debug('ROBOT', ...args);
+    }
+    
+    viewer(...args) {
+      this.debug('VIEWER', ...args);
+    }
+    
+    event(...args) {
+      this.debug('EVENT', ...args);
+    }
+    
+    animation(...args) {
+      this.debug('ANIMATION', ...args);
+    }
+    
+    // Enable/disable specific contexts
+    enableContext(context) {
+      if (this.DEBUG_CONTEXTS.hasOwnProperty(context)) {
+        this.DEBUG_CONTEXTS[context] = true;
+        localStorage.setItem(`debug_${context.toLowerCase()}`, 'true');
+      }
+    }
+    
+    disableContext(context) {
+      if (this.DEBUG_CONTEXTS.hasOwnProperty(context)) {
+        this.DEBUG_CONTEXTS[context] = false;
+        localStorage.setItem(`debug_${context.toLowerCase()}`, 'false');
+      }
+    }
+    
+    // Enable/disable all contexts
+    enableAllContexts() {
+      Object.keys(this.DEBUG_CONTEXTS).forEach(context => {
+        this.enableContext(context);
+      });
+    }
+    
+    disableAllContexts() {
+      Object.keys(this.DEBUG_CONTEXTS).forEach(context => {
+        this.disableContext(context);
+      });
+    }
+    
+    // Get current context status
+    getContextStatus() {
+      return { ...this.DEBUG_CONTEXTS };
     }
     
     setupConsoleRecording() {
@@ -150,4 +236,18 @@ class DebugSystem {
   }
   
   const debugSystem = new DebugSystem();
+  
+  // Export both the instance and the debug function for convenience
+  export const debug = (context, ...args) => debugSystem.debug(context, ...args);
+  
+  // Export context-specific functions
+  export const debugTCP = (...args) => debugSystem.tcp(...args);
+  export const debugIK = (...args) => debugSystem.ik(...args);
+  export const debugJoint = (...args) => debugSystem.joint(...args);
+  export const debugTrajectory = (...args) => debugSystem.trajectory(...args);
+  export const debugRobot = (...args) => debugSystem.robot(...args);
+  export const debugViewer = (...args) => debugSystem.viewer(...args);
+  export const debugEvent = (...args) => debugSystem.event(...args);
+  export const debugAnimation = (...args) => debugSystem.animation(...args);
+  
   export default debugSystem;

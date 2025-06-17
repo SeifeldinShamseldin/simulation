@@ -1,10 +1,11 @@
 // src/contexts/JointContext.jsx - Updated to use unified RobotContext
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useViewer } from './ViewerContext';
 import { useRobotSelection } from './hooks/useRobotManager';
 import EventBus from '../utils/EventBus';
 import { useRobotContext } from './RobotContext'; // Updated import
 import { MultiAxisProfiler, TrapezoidalProfile } from '../utils/motionProfiles'; // Add motion profiles import
+import { debug, debugJoint, debugRobot, debugAnimation, debugEvent } from '../utils/DebugSystem'; // Updated debug import
 
 export const JointContext = createContext();
 
@@ -32,7 +33,7 @@ export const JointProvider = ({ children }) => {
   useEffect(() => {
     if (isViewerReady) {
       robotManagerRef.current = getRobotManager();
-      console.log('[JointContext] Robot manager initialized:', !!robotManagerRef.current);
+      debugJoint('Robot manager initialized:', !!robotManagerRef.current);
     }
   }, [isViewerReady, getRobotManager]);
 
@@ -42,13 +43,13 @@ export const JointProvider = ({ children }) => {
     if (frameId) {
       cancelAnimationFrame(frameId);
       animationFrameRef.current.delete(robotId);
-      console.log(`[JointContext] Cancelled animation frame for ${robotId}`);
+      debugAnimation(`Cancelled animation frame for ${robotId}`);
     }
     
     setIsAnimating(prev => new Map(prev).set(robotId, false));
     setAnimationProgress(prev => new Map(prev).set(robotId, 0));
     
-    console.log(`[JointContext] Stopped animation for ${robotId}`);
+    debugAnimation(`Stopped animation for ${robotId}`);
     
     // Notify IK that animation was stopped
     EventBus.emit('ik:animation-complete', {
@@ -61,12 +62,12 @@ export const JointProvider = ({ children }) => {
   const findRobotWithFallbacks = useCallback((robotId) => {
     if (!robotId) return null;
 
-    console.log(`[JointContext] Looking for robot: ${robotId}`);
+    debugJoint(`Looking for robot: ${robotId}`);
 
     // Method 1: Check local registry first (most reliable)
     if (robotRegistryRef.current.has(robotId)) {
       const robot = robotRegistryRef.current.get(robotId);
-      console.log(`[JointContext] Found robot in local registry: ${robotId}`);
+      debugJoint(`Found robot in local registry: ${robotId}`);
       return robot;
     }
 
@@ -75,13 +76,13 @@ export const JointProvider = ({ children }) => {
       try {
         const robot = robotManagerRef.current.getRobot(robotId);
         if (robot) {
-          console.log(`[JointContext] Found robot via robot manager: ${robotId}`);
+          debugJoint(`Found robot via robot manager: ${robotId}`);
           // Cache in local registry for future use
           robotRegistryRef.current.set(robotId, robot);
           return robot;
         }
       } catch (error) {
-        console.warn(`[JointContext] Robot manager getRobot failed:`, error);
+        debugJoint('Robot manager getRobot failed:', error);
       }
     }
 
@@ -90,13 +91,13 @@ export const JointProvider = ({ children }) => {
       try {
         const robotData = robotManagerRef.current.robots.get(robotId);
         if (robotData && robotData.robot) {
-          console.log(`[JointContext] Found robot in manager robots Map: ${robotId}`);
+          debugJoint(`Found robot in manager robots Map: ${robotId}`);
           // Cache in local registry
           robotRegistryRef.current.set(robotId, robotData.robot);
           return robotData.robot;
         }
       } catch (error) {
-        console.warn(`[JointContext] Robot manager robots Map failed:`, error);
+        debugJoint('Robot manager robots Map failed:', error);
       }
     }
 
@@ -105,16 +106,16 @@ export const JointProvider = ({ children }) => {
       try {
         const robot = window.robotManagerContext.getRobot(robotId);
         if (robot) {
-          console.log(`[JointContext] Found robot via window.robotManagerContext: ${robotId}`);
+          debugJoint(`Found robot via window.robotManagerContext: ${robotId}`);
           robotRegistryRef.current.set(robotId, robot);
           return robot;
         }
       } catch (error) {
-        console.warn(`[JointContext] Window robot manager failed:`, error);
+        debugJoint('Window robot manager failed:', error);
       }
     }
 
-    console.warn(`[JointContext] Robot ${robotId} not found in any registry`);
+    debugJoint(`Robot ${robotId} not found in any registry`);
     return null;
   }, []);
 
@@ -122,28 +123,28 @@ export const JointProvider = ({ children }) => {
   const getRobotJointValues = useCallback((robotId) => {
     const robot = findRobotWithFallbacks(robotId);
     if (!robot) {
-      console.warn(`[JointContext] Cannot get joint values - robot ${robotId} not found`);
+      debugJoint(`Cannot get joint values - robot ${robotId} not found`);
       return {};
     }
 
     const values = {};
     
     try {
-      console.log(`[JointContext] Getting joint values for ${robotId}`);
+      debugJoint(`Getting joint values for ${robotId}`);
       
       // Method 1: Direct robot.joints access (most reliable)
       if (robot.joints) {
-        console.log(`[JointContext] Found robot.joints:`, Object.keys(robot.joints));
+        debugJoint(`Found robot.joints:`, Object.keys(robot.joints));
         
         Object.values(robot.joints).forEach(joint => {
           if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
             values[joint.name] = joint.angle;
-            console.log(`[JointContext] Read joint ${joint.name} = ${joint.angle}`);
+            debugJoint(`Read joint ${joint.name} = ${joint.angle}`);
           }
         });
         
         if (Object.keys(values).length > 0) {
-          console.log(`[JointContext] ✅ Got ${Object.keys(values).length} joint values via direct access:`, values);
+          debugJoint(`✅ Got ${Object.keys(values).length} joint values via direct access:`, values);
           return values;
         }
       }
@@ -152,7 +153,7 @@ export const JointProvider = ({ children }) => {
       if (robot.getJointValues && typeof robot.getJointValues === 'function') {
         const robotValues = robot.getJointValues();
         Object.assign(values, robotValues);
-        console.log(`[JointContext] Got joint values via robot.getJointValues(): ${Object.keys(values).length} joints`);
+        debugJoint(`Got joint values via robot.getJointValues(): ${Object.keys(values).length} joints`);
         
         if (Object.keys(values).length > 0) {
           return values;
@@ -164,37 +165,37 @@ export const JointProvider = ({ children }) => {
         try {
           const managerValues = robotManagerRef.current.getJointValues(robotId);
           Object.assign(values, managerValues);
-          console.log(`[JointContext] Got joint values via manager.getJointValues(): ${Object.keys(values).length} joints`);
+          debugJoint(`Got joint values via manager.getJointValues(): ${Object.keys(values).length} joints`);
           
           if (Object.keys(values).length > 0) {
             return values;
           }
         } catch (error) {
-          console.warn(`[JointContext] Manager getJointValues failed:`, error);
+          debugJoint('Manager getJointValues failed:', error);
         }
       }
 
       // Method 4: Try traversing robot object to find joints
-      console.log(`[JointContext] Fallback: traversing robot object to find joints`);
+      debugJoint('Fallback: traversing robot object to find joints');
       const foundJoints = {};
       
       robot.traverse((child) => {
         if (child.isURDFJoint && child.jointType !== 'fixed' && typeof child.angle !== 'undefined') {
           foundJoints[child.name] = child.angle;
-          console.log(`[JointContext] Found joint via traverse: ${child.name} = ${child.angle}`);
+          debugJoint(`Found joint via traverse: ${child.name} = ${child.angle}`);
         }
       });
       
       if (Object.keys(foundJoints).length > 0) {
-        console.log(`[JointContext] ✅ Got ${Object.keys(foundJoints).length} joints via traverse:`, foundJoints);
+        debugJoint(`✅ Got ${Object.keys(foundJoints).length} joints via traverse:`, foundJoints);
         return foundJoints;
       }
 
-      console.warn(`[JointContext] ❌ Could not retrieve any joint values for ${robotId}`);
+      debugJoint(`❌ Could not retrieve any joint values for ${robotId}`);
       return {};
 
     } catch (error) {
-      console.error(`[JointContext] Error getting joint values for ${robotId}:`, error);
+      debugJoint(`Error getting joint values for ${robotId}:`, error);
       return {};
     }
   }, [findRobotWithFallbacks]);
@@ -206,14 +207,14 @@ export const JointProvider = ({ children }) => {
     // Method 1: Use robot's setJointValue if available
     if (robot.setJointValue && typeof robot.setJointValue === 'function') {
       success = robot.setJointValue(jointName, value);
-      console.log(`[JointContext] robot.setJointValue(${jointName}, ${value}) = ${success}`);
+      debugJoint(`robot.setJointValue(${jointName}, ${value}) = ${success}`);
     }
 
     // Method 2: Try direct joint setJointValue if robot method failed
     if (!success && robot.joints && robot.joints[jointName]) {
       if (robot.joints[jointName].setJointValue) {
         success = robot.joints[jointName].setJointValue(value);
-        console.log(`[JointContext] joint.setJointValue(${value}) = ${success}`);
+        debugJoint(`joint.setJointValue(${value}) = ${success}`);
       }
       
       // If the joint has a setPosition method, call it too
@@ -227,7 +228,7 @@ export const JointProvider = ({ children }) => {
       robot.updateMatrixWorld(true);
     }
 
-    console.log(`[JointContext] ✅ Joint sync for ${jointName} = ${value}, success: ${success}`);
+    debugJoint(`✅ Joint sync for ${jointName} = ${value}, success: ${success}`);
     return success;
   }, []);
 
@@ -235,13 +236,13 @@ export const JointProvider = ({ children }) => {
   const setRobotJointValues_Internal = useCallback((robotId, values) => {
     // First check if robot is ready
     if (!isRobotReady(robotId)) {
-      console.warn(`[JointContext] Robot ${robotId} not ready for joint updates`);
+      debugJoint(`Robot ${robotId} not ready for joint updates`);
       return false;
     }
 
     const robot = findRobotWithFallbacks(robotId);
     if (!robot) {
-      console.warn(`[JointContext] Robot ${robotId} not found`);
+      debugJoint(`Robot ${robotId} not found`);
       return false;
     }
 
@@ -251,16 +252,16 @@ export const JointProvider = ({ children }) => {
       // Method 1: Use robot's setJointValues method
       if (robot.setJointValues && typeof robot.setJointValues === 'function') {
         success = robot.setJointValues(values);
-        console.log(`[JointContext] Robot setJointValues result: ${success}`);
+        debugJoint(`Robot setJointValues result: ${success}`);
       }
 
       // Method 2: Use robot manager's setJointValues (if robot method failed)
       if (!success && robotManagerRef.current && robotManagerRef.current.setJointValues) {
         try {
           success = robotManagerRef.current.setJointValues(robotId, values);
-          console.log(`[JointContext] Robot manager setJointValues result: ${success}`);
+          debugJoint(`Robot manager setJointValues result: ${success}`);
         } catch (error) {
-          console.warn(`[JointContext] Robot manager setJointValues failed:`, error);
+          debugJoint('Robot manager setJointValues failed:', error);
         }
       }
 
@@ -270,7 +271,7 @@ export const JointProvider = ({ children }) => {
         Object.entries(values).forEach(([jointName, value]) => {
           const joint = robot.joints[jointName];
           if (!joint) {
-            console.warn(`[JointContext] Joint ${jointName} not found in robot ${robotId}`);
+            debugJoint(`Joint ${jointName} not found in robot ${robotId}`);
             success = false;
             return;
           }
@@ -278,7 +279,7 @@ export const JointProvider = ({ children }) => {
           // Set joint value and check result
           const jointSuccess = robot.setJointValue(jointName, value);
           if (!jointSuccess) {
-            console.warn(`[JointContext] Failed to set joint ${jointName} to ${value}`);
+            debugJoint(`Failed to set joint ${jointName} to ${value}`);
             success = false;
           }
         });
@@ -300,7 +301,7 @@ export const JointProvider = ({ children }) => {
 
       return success;
     } catch (error) {
-      console.error(`[JointContext] Error setting joint values for ${robotId}:`, error);
+      debugJoint(`Error setting joint values for ${robotId}:`, error);
       return false;
     }
   }, [findRobotWithFallbacks, isRobotReady]);
@@ -313,7 +314,7 @@ export const JointProvider = ({ children }) => {
       
       if (!robot || !targetRobotId) return;
       
-      console.log(`[JointContext] Robot loaded: ${targetRobotId}, extracting joint info`);
+      debugJoint(`Robot loaded: ${targetRobotId}, extracting joint info`);
       
       // 🚨 CRITICAL FIX: Register robot in local registry immediately
       robotRegistryRef.current.set(targetRobotId, robot);
@@ -339,8 +340,8 @@ export const JointProvider = ({ children }) => {
       setRobotJointValues(prev => new Map(prev).set(targetRobotId, values));
       setIsAnimating(prev => new Map(prev).set(targetRobotId, false));
       
-      console.log(`[JointContext] Extracted ${joints.length} joints for ${targetRobotId}`);
-      console.log(`[JointContext] Joint values:`, values);
+      debugJoint(`Extracted ${joints.length} joints for ${targetRobotId}`);
+      debugJoint(`Joint values:`, values);
     };
 
     // 🚨 NEW: Handle robot registration events (from useRobotControl)
@@ -350,7 +351,7 @@ export const JointProvider = ({ children }) => {
       
       if (!robot || !targetRobotId) return;
       
-      console.log(`[JointContext] Robot registered: ${targetRobotId}`);
+      debugJoint(`Robot registered: ${targetRobotId}`);
       
       // Register in local registry
       robotRegistryRef.current.set(targetRobotId, robot);
@@ -365,7 +366,7 @@ export const JointProvider = ({ children }) => {
       const { robotName, robotId } = data;
       const targetRobotId = robotId || robotName;
       
-      console.log(`[JointContext] Robot removed: ${targetRobotId}`);
+      debugJoint(`Robot removed: ${targetRobotId}`);
       
       // Stop any ongoing animation
       stopAnimation(targetRobotId);
@@ -420,23 +421,23 @@ export const JointProvider = ({ children }) => {
     
     // Skip if robot is not ready
     if (!isRobotReady(robotId)) {
-      console.warn(`[JointContext] Skipping animation for robot ${robotId} - not ready`);
+      debugJoint(`Skipping animation for robot ${robotId} - not ready`);
       return Promise.resolve({ success: false, error: 'Robot not ready' });
     }
 
     return new Promise((resolve) => {
-      console.log(`[JointContext] Starting motion profile animation for ${robotId}`);
+      debugJoint(`Starting motion profile animation for ${robotId}`);
       
       // Cancel any existing animation for this robot
       const existingFrameId = animationFrameRef.current.get(robotId);
       if (existingFrameId) {
         cancelAnimationFrame(existingFrameId);
-        console.log(`[JointContext] Cancelled existing animation for ${robotId}`);
+        debugJoint(`Cancelled existing animation for ${robotId}`);
       }
       
       // Get current joint values
       const currentValues = getRobotJointValues(robotId);
-      console.log(`[JointContext] Current joint values:`, currentValues);
+      debugJoint(`Current joint values:`, currentValues);
       
       const startTime = Date.now();
       const robot = findRobotWithFallbacks(robotId);
@@ -457,7 +458,7 @@ export const JointProvider = ({ children }) => {
         jointLimits
       );
       
-      console.log(`[JointContext] Motion profile calculated:`, {
+      debugJoint(`Motion profile calculated:`, {
         type: motionProfile,
         totalTime: profileData.totalTime,
         joints: Object.keys(profileData.profiles)
@@ -475,14 +476,14 @@ export const JointProvider = ({ children }) => {
       
       // Set animation state
       setIsAnimating(prev => new Map(prev).set(robotId, true));
-      console.log(`[JointContext] Set isAnimating=true for ${robotId}`);
+      debugJoint(`Set isAnimating=true for ${robotId}`);
       
       // Animation loop using motion profiles
       const animate = () => {
         const robot = findRobotWithFallbacks(robotId);
         
         if (!robot || !robot.setJointValues) {
-          console.warn(`[JointContext] Robot ${robotId} not ready for animation`);
+          debugJoint(`Robot ${robotId} not ready for animation`);
           stopAnimation(robotId);
           resolve({
             success: false,
@@ -572,7 +573,7 @@ export const JointProvider = ({ children }) => {
         if (shouldStop) {
           // If profile is complete, apply exact target values
           if (profileComplete || withinTolerance) {
-            console.log(`[JointContext] Motion profile complete, applying exact values`);
+            debugJoint(`Motion profile complete, applying exact values`);
             setRobotJointValues_Internal(robotId, targetValues);
             setRobotJointValues(prev => {
               const newMap = new Map(prev);
@@ -591,7 +592,7 @@ export const JointProvider = ({ children }) => {
           }
           
           // Animation complete
-          console.log(`[JointContext] Animation complete for ${robotId}. Profile time: ${profileData.totalTime}s`);
+          debugJoint(`Animation complete for ${robotId}. Profile time: ${profileData.totalTime}s`);
           
           // Clean up animation state
           setIsAnimating(prev => new Map(prev).set(robotId, false));
@@ -635,7 +636,7 @@ export const JointProvider = ({ children }) => {
     const handleIKJointValues = async (data) => {
       const { robotId, jointValues, animate, duration = 1000 } = data;
       
-      console.log(`[JointContext] Received IK joint values for ${robotId}:`, jointValues);
+      debugJoint(`Received IK joint values for ${robotId}:`, jointValues);
       
       // CRITICAL: Emit joint change event BEFORE animation for trajectory recording
       EventBus.emit('robot:joints-changed', {
@@ -706,7 +707,7 @@ export const JointProvider = ({ children }) => {
           
           // Skip if robot is not ready
           if (!isRobotReady(robotId)) {
-            console.warn(`[JointContext] Skipping animation frame for robot ${robotId} - not ready`);
+            debugJoint(`Skipping animation frame for robot ${robotId} - not ready`);
             return;
           }
           
@@ -749,11 +750,11 @@ export const JointProvider = ({ children }) => {
 
   // Update the setJointValue method (around line 200)
   const setJointValue = useCallback((robotId, jointName, value) => {
-    console.log(`[JointContext] Setting joint ${jointName} = ${value} for robot ${robotId}`);
+    debugJoint(`Setting joint ${jointName} = ${value} for robot ${robotId}`);
     
     const robot = findRobotWithFallbacks(robotId);
     if (!robot) {
-      console.error(`[JointContext] Robot ${robotId} not found for setJointValue`);
+      debugJoint(`Robot ${robotId} not found for setJointValue`);
       return false;
     }
 
@@ -770,7 +771,7 @@ export const JointProvider = ({ children }) => {
         // Still need to sync joint.angle even if manager succeeded
         if (success && robot.joints && robot.joints[jointName]) {
           robot.joints[jointName].angle = value;
-          console.log(`[JointContext] ✅ Synced joint.angle via manager fallback for ${jointName} = ${value}`);
+          debugJoint(`✅ Synced joint.angle via manager fallback for ${jointName} = ${value}`);
         }
       }
 
@@ -787,8 +788,8 @@ export const JointProvider = ({ children }) => {
         // CRITICAL: Get ALL joint values for the event
         const allJointValues = getRobotJointValues(robotId);
         
-        console.log(`[JointContext] Successfully set joint ${jointName} = ${value} for robot ${robotId}`);
-        console.log(`[JointContext] All joint values:`, allJointValues);
+        debugJoint(`Successfully set joint ${jointName} = ${value} for robot ${robotId}`);
+        debugJoint(`All joint values:`, allJointValues);
         
         // Emit comprehensive joint change event
         EventBus.emit('robot:joint-changed', {
@@ -813,7 +814,7 @@ export const JointProvider = ({ children }) => {
 
       return success;
     } catch (error) {
-      console.error(`[JointContext] Error setting joint value:`, error);
+      debugJoint(`Error setting joint value:`, error);
       return false;
     }
   }, [findRobotWithFallbacks, getRobotJointValues, ensureJointAngleSync]);
@@ -846,11 +847,11 @@ export const JointProvider = ({ children }) => {
 
   // Reset joints to zero
   const resetJoints = useCallback((robotId) => {
-    console.log(`[JointContext] Resetting joints for robot ${robotId}`);
+    debugJoint(`Resetting joints for robot ${robotId}`);
     
     const robot = findRobotWithFallbacks(robotId);
     if (!robot) {
-      console.error(`[JointContext] Robot ${robotId} not found for reset`);
+      debugJoint(`Robot ${robotId} not found for reset`);
       return;
     }
     
@@ -861,7 +862,7 @@ export const JointProvider = ({ children }) => {
         cancelAnimationFrame(frameId);
         animationFrameRef.current.delete(robotId);
         setIsAnimating(prev => new Map(prev).set(robotId, false));
-        console.log(`[JointContext] Stopped animation before reset for ${robotId}`);
+        debugJoint(`Stopped animation before reset for ${robotId}`);
       }
       
       // Get all joints and reset to 0
@@ -877,11 +878,11 @@ export const JointProvider = ({ children }) => {
       if (success) {
         // Update local state
         setRobotJointValues(prev => new Map(prev).set(robotId, resetValues));
-        console.log(`[JointContext] Reset joints for ${robotId}:`, resetValues);
+        debugJoint(`Reset joints for ${robotId}:`, resetValues);
       }
       
     } catch (error) {
-      console.error(`[JointContext] Error resetting joints:`, error);
+      debugJoint(`Error resetting joints:`, error);
     }
   }, [robotJoints, findRobotWithFallbacks, setRobotJointValues_Internal]);
 
@@ -925,14 +926,15 @@ export const JointProvider = ({ children }) => {
       // Cancel all animations on unmount
       animationFrameRef.current.forEach((frameId, robotId) => {
         cancelAnimationFrame(frameId);
-        console.log(`[JointContext] Cleanup: cancelled animation for ${robotId}`);
+        debugJoint(`Cleanup: cancelled animation for ${robotId}`);
       });
       animationFrameRef.current.clear();
       robotRegistryRef.current.clear();
     };
   }, []);
 
-  const value = {
+  // Memoize context value to prevent unnecessary re-renders
+  const value = useMemo(() => ({
     // State
     robotJoints,
     robotJointValues,
@@ -950,7 +952,22 @@ export const JointProvider = ({ children }) => {
     getAnimationProgress,
     stopAnimation,
     animateToJointValues
-  };
+  }), [
+    robotJoints,
+    robotJointValues,
+    isAnimating,
+    animationProgress,
+    setJointValue,
+    setJointValues,
+    resetJoints,
+    getJointInfo,
+    getJointValues,
+    getJointLimits,
+    isRobotAnimating,
+    getAnimationProgress,
+    stopAnimation,
+    animateToJointValues
+  ]);
 
   return (
     <JointContext.Provider value={value}>
