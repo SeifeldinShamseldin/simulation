@@ -5,6 +5,7 @@ import { useTCP } from './useTCP';
 import { useRobotManager } from './useRobotManager';
 import { useJointContext } from '../JointContext';
 import EventBus from '../../utils/EventBus';
+import useAnimate from './useAnimate';
 
 // Debug utility to reduce console pollution
 const DEBUG = process.env.NODE_ENV === 'development';
@@ -14,6 +15,7 @@ export const useTrajectory = (robotId = null) => {
   const { setJointValues, isAnimating, jointValues } = useJoints(robotId);
   const { currentEndEffectorPoint, currentEndEffectorOrientation } = useTCP(robotId);
   const { getRobotById, categories } = useRobotManager();
+  const { animateToValues } = useAnimate();
   
   // Get getJointValues directly from JointContext
   const { animateToJointValues, getJointValues: getJointValuesFromContext } = useJointContext();
@@ -388,7 +390,7 @@ export const useTrajectory = (robotId = null) => {
         });
         
         try {
-          const animationResult = await animateToJointValues(robotId, targetJointValues, {
+          const animationResult = await animateToValues(robotId, targetJointValues, {
             duration: animationDuration,
             motionProfile: animationProfile,
             tolerance: 0.001,
@@ -561,7 +563,7 @@ export const useTrajectory = (robotId = null) => {
     
     animationFrameRef.current = requestAnimationFrame(playFrame);
     return true;
-  }, [robotId, isPlaying, isAnimating, setJointValues, loadTrajectory, jointValues, animateToJointValues, getJointValuesFromContext]);
+  }, [robotId, isPlaying, isAnimating, setJointValues, loadTrajectory, jointValues, animateToValues, getJointValuesFromContext]);
   
   const stopPlayback = useCallback(() => {
     if (animationFrameRef.current) {

@@ -19,8 +19,11 @@ const DEFAULT_WORLD_CONFIG = {
   groundMetalness: 0.1,
   showGrid: true,
   showGround: true,
-  gridHeight: 0.02
+  gridHeight: 0.002
 };
+
+// WorldContext is now the source of truth for scene background, fog, and lighting.
+// Do not set these in SceneSetup.js; all world appearance is managed here.
 
 export const WorldProvider = ({ children }) => {
   const viewerContext = useViewer();
@@ -41,53 +44,61 @@ export const WorldProvider = ({ children }) => {
     if (!sceneSetup || !sceneSetup.scene || worldInitializedRef.current) {
       return false;
     }
-    
-    console.log('[WorldContext] Initializing world visualization...');
-    
-    try {
-      // Use DEFAULT_WORLD_CONFIG for initial creation
-      const planeGeometry = new THREE.PlaneGeometry(
-        DEFAULT_WORLD_CONFIG.groundSize,
-        DEFAULT_WORLD_CONFIG.groundSize
-      );
-      const planeMaterial = new THREE.MeshStandardMaterial({
-        color: DEFAULT_WORLD_CONFIG.groundColor,
-        roughness: DEFAULT_WORLD_CONFIG.groundRoughness,
-        metalness: DEFAULT_WORLD_CONFIG.groundMetalness,
-        transparent: true,
-        opacity: DEFAULT_WORLD_CONFIG.groundOpacity
-      });
-      const ground = new THREE.Mesh(planeGeometry, planeMaterial);
-      ground.rotation.x = -Math.PI / 2;
-      ground.position.y = 0;
-      ground.receiveShadow = true;
-      ground.castShadow = false;
-      ground.name = 'world-ground';
-      ground.userData.defaultOpacity = DEFAULT_WORLD_CONFIG.groundOpacity;
-      sceneSetup.scene.add(ground);
-      groundRef.current = ground;
-      
-      // Create grid helper
-      const gridHelper = new THREE.GridHelper(
-        DEFAULT_WORLD_CONFIG.gridSize,
-        DEFAULT_WORLD_CONFIG.gridDivisions,
-        DEFAULT_WORLD_CONFIG.gridCenterColor,
-        DEFAULT_WORLD_CONFIG.gridColor
-      );
-      gridHelper.position.y = DEFAULT_WORLD_CONFIG.gridHeight;
-      gridHelper.name = 'world-grid';
-      gridHelper.visible = DEFAULT_WORLD_CONFIG.showGrid;
-      sceneSetup.scene.add(gridHelper);
-      gridHelperRef.current = gridHelper;
-      
-      worldInitializedRef.current = true;
-      setIsWorldReady(true);
-      EventBus.emit('world:ready', { ground, gridHelper });
-      return true;
-    } catch (error) {
-      console.error('[WorldContext] Failed to initialize world:', error);
-      return false;
-    }
+    const scene = sceneSetup.scene;
+
+    // 1. Background & Fog
+    scene.background = new THREE.Color('#eaf4fb');
+    scene.fog = new THREE.FogExp2('#eaf4fb', 0.02);
+
+    // 2. Lighting
+    scene.children.filter(obj => obj.isLight).forEach(light => scene.remove(light));
+    const hemiLight = new THREE.HemisphereLight('#eaf4fb', '#000000', 0.5);
+    hemiLight.groundColor.lerp(hemiLight.color, 0.3);
+    hemiLight.position.set(0, 1, 0);
+    scene.add(hemiLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(3, 8, 3);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    scene.add(dirLight);
+
+    // 3. Ground
+    const groundSize = 40;
+    const planeGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
+    const planeMaterial = new THREE.MeshStandardMaterial({
+      color: 0xeeeeee,
+      roughness: 0.7,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.8
+    });
+    const ground = new THREE.Mesh(planeGeometry, planeMaterial);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = 0;
+    ground.receiveShadow = true;
+    ground.castShadow = false;
+    ground.name = 'world-ground';
+    scene.add(ground);
+    groundRef.current = ground;
+
+    // 4. Grid
+    const gridHelper = new THREE.GridHelper(
+      groundSize,
+      groundSize,
+      0x888888,
+      0xdddddd
+    );
+    gridHelper.position.y = 0.002;
+    gridHelper.name = 'world-grid';
+    gridHelper.visible = DEFAULT_WORLD_CONFIG.showGrid;
+    scene.add(gridHelper);
+    gridHelperRef.current = gridHelper;
+
+    worldInitializedRef.current = true;
+    setIsWorldReady(true);
+    EventBus.emit('world:ready', { ground, gridHelper });
+    return true;
   }, [viewerContext]);
   
   // ========== WORLD UPDATES ==========

@@ -4,7 +4,8 @@ import * as THREE from 'three';
 import SceneSetup from '../core/Scene/SceneSetup';
 import { PointerURDFDragControls } from '../core/Loader/URDFControls';
 import EventBus from '../utils/EventBus';
-import { createCameraController } from '../utils/cameraUtils';
+import { useCameraContext } from './CameraContext';
+import useCamera from './hooks/useCamera';
 
 const ViewerContext = createContext(null);
 
@@ -114,6 +115,13 @@ export const ViewerProvider = ({ children }) => {
   }, []);
   
   // ========== ENHANCED SCENE INITIALIZATION ==========
+  const {
+    camera,
+    setCameraPosition,
+    setCameraTarget,
+    resetCamera,
+    focusOn
+  } = useCamera();
   const initializeViewer = useCallback((container, config = {}) => {
     if (!container || sceneSetupRef.current) return;
     
@@ -122,12 +130,12 @@ export const ViewerProvider = ({ children }) => {
     
     const mergedConfig = { ...DEFAULT_CONFIG, ...viewerConfig, ...config };
     
-    // Create scene setup - Fix: pass container as first parameter, options as second
+    // Create scene setup - pass camera from CameraContext
     const sceneSetup = new SceneSetup(container, {
       backgroundColor: mergedConfig.backgroundColor,
       enableShadows: mergedConfig.enableShadows,
       ambientColor: mergedConfig.ambientColor
-    });
+    }, camera);
     
     // Configure camera
     if (sceneSetup.camera) {
@@ -155,7 +163,7 @@ export const ViewerProvider = ({ children }) => {
     EventBus.emit('viewer:initialized', { sceneSetup });
     
     return sceneSetup;
-  }, [viewerConfig]);
+  }, [viewerConfig, camera]);
   
   // ========== SCENE MANAGEMENT ==========
   const updateViewerConfig = useCallback((updates) => {
@@ -306,26 +314,6 @@ export const ViewerProvider = ({ children }) => {
     EventBus.emit('viewer:table-toggled', { visible });
   }, [tableState.loaded]);
   
-  // ========== CAMERA CONTROLS ==========
-  const cameraController = useMemo(() => {
-    if (!sceneSetupRef.current) {
-      return null;
-    }
-    return createCameraController(sceneSetupRef.current);
-  }, [sceneSetupRef.current]);
-
-  const focusOnObject = useCallback((object, paddingMultiplier = 1.0) => {
-    cameraController?.focusOn(object, paddingMultiplier);
-  }, [cameraController]);
-
-  const setCameraPosition = useCallback((position) => {
-    cameraController?.setPosition(position);
-  }, [cameraController]);
-
-  const setCameraTarget = useCallback((target) => {
-    cameraController?.setTarget(target);
-  }, [cameraController]);
-  
   // ========== RESIZE HANDLING ==========
   const handleResize = useCallback(() => {
     if (!containerRef.current || !sceneSetupRef.current) return;
@@ -447,10 +435,10 @@ export const ViewerProvider = ({ children }) => {
     isTableVisible: tableState.visible,
     
     // ========== CAMERA CONTROLS ==========
-    focusOnObject,
+    focusOn,
     setCameraPosition,
     setCameraTarget,
-    cameraController,
+    resetCamera,
     
     // ========== GETTERS ==========
     getScene,
@@ -485,10 +473,10 @@ export const ViewerProvider = ({ children }) => {
     disposeDragControls,
     loadTable,
     toggleTable,
-    focusOnObject,
+    focusOn,
     setCameraPosition,
     setCameraTarget,
-    cameraController,
+    resetCamera,
     getScene,
     getCamera,
     getRenderer,

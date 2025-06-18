@@ -8,20 +8,14 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader';
 import EventBus from '../../utils/EventBus';
 
-const DEFAULT_CONFIG = {
-  backgroundColor: '#f5f5f5',
-  enableShadows: true,
-  ambientColor: '#8ea0a8',
-  upAxis: '+Z'
-};
-
 /**
  * SceneSetup class - Handles core 3D scene with minimal physics for humans only
  * Physics is limited to human movement and interaction
  */
 class SceneSetup {
-  constructor(container, options = {}) {
+  constructor(container, options = {}, camera) {
     this.container = container;
+    this.camera = camera;
     
     // Validate container
     if (!container || !container.appendChild) {
@@ -29,10 +23,10 @@ class SceneSetup {
     }
     
     // Merge options with defaults
-    this.backgroundColor = options.backgroundColor || DEFAULT_CONFIG.backgroundColor;
-    this.enableShadows = options.enableShadows !== undefined ? options.enableShadows : DEFAULT_CONFIG.enableShadows;
-    this.ambientColor = options.ambientColor || DEFAULT_CONFIG.ambientColor;
-    this.upAxis = options.upAxis || DEFAULT_CONFIG.upAxis;
+    this.backgroundColor = options.backgroundColor || '#f5f5f5';
+    this.enableShadows = options.enableShadows !== undefined ? options.enableShadows : true;
+    this.ambientColor = options.ambientColor || '#8ea0a8';
+    this.upAxis = options.upAxis || '+Z';
     
     // Dynamic environment system
     this.environmentObjects = new Map();
@@ -45,7 +39,6 @@ class SceneSetup {
     
     // Initialize scene components
     this.initScene();
-    this.initCamera();
     this.initRenderer();
     this.initLights();
     this.initControls();
@@ -67,29 +60,9 @@ class SceneSetup {
    */
   initScene() {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(this.backgroundColor || '#f0f0f0');
-    this.scene.fog = new THREE.FogExp2(this.backgroundColor || '#f0f0f0', 0.02);
-    
-    // Create robot root for proper orientation handling
+    // Only create robot root here; background/fog/lights are handled by WorldContext
     this.robotRoot = new THREE.Object3D();
     this.scene.add(this.robotRoot);
-  }
-  
-  /**
-   * Initialize the camera
-   */
-  initCamera() {
-    // Use wider FOV to see more of the robot
-    this.camera = new THREE.PerspectiveCamera(
-      60,                 // Wider field of view
-      1,                  // Aspect ratio (will be updated)
-      0.01,               // Near clipping plane
-      1000                // Far clipping plane
-    );
-    
-    // Position camera to see robot well
-    this.camera.position.set(3, 2, 3);
-    this.camera.lookAt(0, 0.5, 0);
   }
   
   /**
@@ -102,10 +75,16 @@ class SceneSetup {
       preserveDrawingBuffer: true
     });
     
+    this.renderer.setClearColor(0xffffff, 0);
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.setSize(1, 1); // Will be resized
-    this.renderer.shadowMap.enabled = this.enableShadows;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    
+    // Configure shadows if enabled
+    if (this.enableShadows) {
+      this.renderer.shadowMap.enabled = true;
+      this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    }
+    
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     
     // High quality settings
@@ -117,46 +96,7 @@ class SceneSetup {
    * Initialize lights
    */
   initLights() {
-    // Bright ambient light for even illumination
-    this.ambientLight = new THREE.AmbientLight(this.ambientColor, 0.6);
-    this.scene.add(this.ambientLight);
-
-    // Main directional light (sun-like)
-    this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    this.directionalLight.position.set(5, 8, 5);
-    this.directionalLight.castShadow = this.enableShadows;
-    
-    // Shadow settings
-    this.directionalLight.shadow.camera.left = -5;
-    this.directionalLight.shadow.camera.right = 5;
-    this.directionalLight.shadow.camera.top = 5;
-    this.directionalLight.shadow.camera.bottom = -5;
-    this.directionalLight.shadow.camera.near = 0.1;
-    this.directionalLight.shadow.camera.far = 50;
-    this.directionalLight.shadow.mapSize.width = 2048;
-    this.directionalLight.shadow.mapSize.height = 2048;
-    this.directionalLight.shadow.bias = -0.0005;
-    
-    this.scene.add(this.directionalLight);
-    
-    // Create a target for the directional light
-    this.directionalLight.target = new THREE.Object3D();
-    this.scene.add(this.directionalLight.target);
-
-    // Add a fill light from the opposite direction
-    this.fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
-    this.fillLight.position.set(-3, 4, -3);
-    this.scene.add(this.fillLight);
-
-    // Add a rim light for edge highlighting
-    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.3);
-    this.rimLight.position.set(0, 4, -5);
-    this.scene.add(this.rimLight);
-
-    // Add a bottom fill light for under-illumination
-    this.bottomLight = new THREE.DirectionalLight(0xffffff, 0.2);
-    this.bottomLight.position.set(0, -4, 0);
-    this.scene.add(this.bottomLight);
+    // No-op: lights are now handled by WorldContext
   }
   
   /**
@@ -241,11 +181,15 @@ class SceneSetup {
       // Update human physics
       this.updateHumanPhysics();
       
-      // Update controls
-      this.controls.update();
+      // Update controls BEFORE rendering
+      if (this.controls && (this.controls.enabled === undefined || this.controls.enabled)) {
+        this.controls.update();
+      }
       
-      // Render scene
-      this.renderer.render(this.scene, this.camera);
+      // Single render call
+      if (this.renderer && this.scene && this.camera) {
+        this.renderer.render(this.scene, this.camera);
+      }
     };
     
     animate();
@@ -298,9 +242,6 @@ class SceneSetup {
   setBackgroundColor(color) {
     if (this.scene) {
       this.scene.background = new THREE.Color(color);
-      if (this.scene.fog) {
-        this.scene.fog.color = new THREE.Color(color);
-      }
     }
   }
   
@@ -311,9 +252,6 @@ class SceneSetup {
     this.enableShadows = enabled;
     if (this.renderer) {
       this.renderer.shadowMap.enabled = enabled;
-    }
-    if (this.directionalLight) {
-      this.directionalLight.castShadow = enabled;
     }
   }
   

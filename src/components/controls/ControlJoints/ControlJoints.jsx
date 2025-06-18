@@ -3,6 +3,7 @@ import React, { useCallback } from 'react';
 import { useJoints } from '../../../contexts/hooks/useJoints';
 import { useRobotContext } from '../../../contexts/RobotContext'; // Updated import
 import { debugJoint } from '../../../utils/DebugSystem'; // Updated debug import
+import useAnimate from '../../../contexts/hooks/useAnimate';
 
 const ControlJoints = () => {
   const {
@@ -21,6 +22,7 @@ const ControlJoints = () => {
   } = useJoints();
 
   const { isRobotReady } = useRobotContext(); // Updated to use unified context
+  const { isAnimating: useAnimateIsAnimating, animationProgress: useAnimateAnimationProgress } = useAnimate();
 
   const handleJointChange = useCallback((jointName, value) => {
     if (!isRobotReady(robotId)) {
@@ -77,9 +79,9 @@ const ControlJoints = () => {
     <div className="controls-section">
       <h3 className="controls-section-title">
         Joint Control - {robotId}
-        {isAnimating && (
+        {useAnimateIsAnimating.get(robotId) && (
           <span className="controls-badge controls-badge-info controls-ml-2">
-            IK Moving... {Math.round(animationProgress * 100)}%
+            IK Moving... {Math.round(useAnimateAnimationProgress.get(robotId) * 100)}%
           </span>
         )}
         {!isRobotReadyForControl && (
@@ -114,7 +116,7 @@ const ControlJoints = () => {
                   step={step}
                   value={value}
                   onChange={(e) => handleJointChange(joint.name, e.target.value)}
-                  disabled={isAnimating || !isRobotReadyForControl}
+                  disabled={useAnimateIsAnimating.get(robotId) || !isRobotReadyForControl}
                 />
                 <span className="joint-value-display">
                   {value.toFixed(2)} rad
@@ -133,7 +135,7 @@ const ControlJoints = () => {
       <button 
         onClick={handleReset} 
         className="controls-btn controls-btn-warning controls-btn-block controls-mt-3"
-        disabled={isAnimating || !isRobotReadyForControl}
+        disabled={useAnimateIsAnimating.get(robotId) || !isRobotReadyForControl}
       >
         Reset All Joints
       </button>
@@ -141,12 +143,12 @@ const ControlJoints = () => {
       {/* Joint summary */}
       <div className="controls-mt-3 controls-small controls-text-muted">
         {movableJoints.length} movable joints • Robot: {robotId}
-        {isAnimating && (
+        {useAnimateIsAnimating.get(robotId) && (
           <div className="controls-mt-2">
             <div className="controls-progress">
               <div 
                 className="controls-progress-bar" 
-                style={{ width: `${animationProgress * 100}%` }}
+                style={{ width: `${useAnimateAnimationProgress.get(robotId) * 100}%` }}
               />
             </div>
           </div>

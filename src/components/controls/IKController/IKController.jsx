@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import { useIK } from '../../../contexts/hooks/useIK';
 import { debugIK } from '../../../utils/DebugSystem';
+import useAnimate from '../../../contexts/hooks/useAnimate';
 
 /**
  * Utility function to convert quaternion to Euler angles
@@ -46,17 +47,17 @@ const IKController = () => {
     currentOrientation,
     currentEulerAngles,
     targetPosition,
-    isAnimating,
+    isAnimating: useIKIsAnimating,
     solverStatus,
     currentSolver,
     availableSolvers,
     setTargetPosition,
     setCurrentSolver,
     executeIK,
-    stopAnimation,
     configureSolver,
     getSolverSettings
   } = useIK();
+  const { isAnimating: useAnimateIsAnimating, stopAnimation: useAnimateStopAnimation } = useAnimate();
 
   const [showSettings, setShowSettings] = useState(false);
   const [solverSettings, setSolverSettings] = useState({});
@@ -131,7 +132,7 @@ const IKController = () => {
   };
 
   const moveToTarget = async (animate = true) => {
-    if (!robot || !isReady || isAnimating) return;
+    if (!robot || !isReady || useAnimateIsAnimating.get(activeRobotId)) return;
     
     try {
       debugIK(`Moving to target position:`, targetPosition);
@@ -226,7 +227,7 @@ const IKController = () => {
 
   const handleStopMovement = () => {
     debugIK(`Stop button clicked`);
-    stopAnimation();
+    useAnimateStopAnimation(activeRobotId);
   };
 
   if (!isReady) {
@@ -249,7 +250,7 @@ const IKController = () => {
           className="controls-form-select"
           value={currentSolver}
           onChange={(e) => handleSolverChange(e.target.value)}
-          disabled={isAnimating}
+          disabled={useAnimateIsAnimating.get(activeRobotId)}
         >
           {availableSolvers.map(solver => (
             <option key={solver} value={solver}>{solver}</option>
@@ -259,7 +260,7 @@ const IKController = () => {
         <button
           className="controls-btn controls-btn-sm controls-btn-secondary controls-mt-2"
           onClick={() => setShowSettings(!showSettings)}
-          disabled={isAnimating}
+          disabled={useAnimateIsAnimating.get(activeRobotId)}
         >
           {showSettings ? 'Hide' : 'Show'} Settings
         </button>
@@ -278,7 +279,7 @@ const IKController = () => {
                   className="controls-form-select"
                   value={solverSettings.orientationMode || ''}
                   onChange={(e) => handleSettingChange('orientationMode', e.target.value || null)}
-                  disabled={isAnimating}
+                  disabled={useAnimateIsAnimating.get(activeRobotId)}
                 >
                   <option value="">None (Position Only)</option>
                   <option value="X">Target X Axis</option>
@@ -295,7 +296,7 @@ const IKController = () => {
                     checked={solverSettings.noPosition || false}
                     onChange={(e) => handleSettingChange('noPosition', e.target.checked)}
                     style={{ marginRight: '0.5rem' }}
-                    disabled={isAnimating || !solverSettings.orientationMode}
+                    disabled={useAnimateIsAnimating.get(activeRobotId) || !solverSettings.orientationMode}
                   />
                   Orientation Only (No Position)
                 </label>
@@ -343,7 +344,7 @@ const IKController = () => {
                   step={key.includes('Factor') || key.includes('Limit') || key.includes('Coeff') || key.includes('Rate') ? 0.1 : 1}
                   min={0}
                   max={key === 'learningRate' ? 1 : undefined}
-                  disabled={isAnimating}
+                  disabled={useAnimateIsAnimating.get(activeRobotId)}
                 />
                 {key === 'learningRate' && (
                   <small className="controls-text-muted">
@@ -419,7 +420,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('x', -0.01)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 -
               </button>
@@ -429,7 +430,7 @@ const IKController = () => {
                 value={targetPosition.x}
                 onChange={(e) => handlePositionChange('x', e.target.value)}
                 step="0.001"
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -438,7 +439,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('x', 0.01)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 +
               </button>
@@ -451,7 +452,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('y', -0.01)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 -
               </button>
@@ -461,7 +462,7 @@ const IKController = () => {
                 value={targetPosition.y}
                 onChange={(e) => handlePositionChange('y', e.target.value)}
                 step="0.001"
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -470,7 +471,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('y', 0.01)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 +
               </button>
@@ -483,7 +484,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('z', -0.01)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 -
               </button>
@@ -493,7 +494,7 @@ const IKController = () => {
                 value={targetPosition.z}
                 onChange={(e) => handlePositionChange('z', e.target.value)}
                 step="0.001"
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -502,7 +503,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('z', 0.01)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 +
               </button>
@@ -519,7 +520,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('roll', -5)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 -
               </button>
@@ -529,7 +530,7 @@ const IKController = () => {
                 value={targetOrientation.roll}
                 onChange={(e) => handleOrientationChange('roll', e.target.value)}
                 step="1"
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -538,7 +539,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('roll', 5)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 +
               </button>
@@ -551,7 +552,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('pitch', -5)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 -
               </button>
@@ -561,7 +562,7 @@ const IKController = () => {
                 value={targetOrientation.pitch}
                 onChange={(e) => handleOrientationChange('pitch', e.target.value)}
                 step="1"
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -570,7 +571,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('pitch', 5)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 +
               </button>
@@ -583,7 +584,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('yaw', -5)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 -
               </button>
@@ -593,7 +594,7 @@ const IKController = () => {
                 value={targetOrientation.yaw}
                 onChange={(e) => handleOrientationChange('yaw', e.target.value)}
                 step="1"
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -602,7 +603,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('yaw', 5)}
-                disabled={isAnimating}
+                disabled={useAnimateIsAnimating.get(activeRobotId)}
               >
                 +
               </button>
@@ -613,7 +614,7 @@ const IKController = () => {
         <button
           className="controls-btn controls-btn-sm controls-btn-info controls-w-100 controls-mt-3"
           onClick={syncTargetToCurrent}
-          disabled={isAnimating}
+          disabled={useAnimateIsAnimating.get(activeRobotId)}
         >
           Use Current Position & Orientation
         </button>
@@ -663,11 +664,11 @@ const IKController = () => {
 
         {/* Move/Stop buttons */}
         <div className="controls-btn-group controls-w-100 controls-mt-2">
-          {!isAnimating ? (
+          {!useAnimateIsAnimating.get(activeRobotId) ? (
             <button
               className="controls-btn controls-btn-primary controls-w-100"
               onClick={() => moveToTarget(true)}
-              disabled={isAnimating}
+              disabled={useAnimateIsAnimating.get(activeRobotId)}
             >
               Move Robot to Target
             </button>
@@ -693,7 +694,7 @@ const IKController = () => {
           {' ' + solverStatus}
         </span>
         
-        {isAnimating && (
+        {useAnimateIsAnimating.get(activeRobotId) && (
           <div className="controls-mt-2">
             <small className="controls-text-muted">
               Animation in progress... Click "Stop Movement" to cancel.

@@ -1,6 +1,7 @@
 // src/contexts/hooks/useWorld.js - WORLD VISUALIZATION HOOK
 import { useCallback, useMemo } from 'react';
 import { useWorldContext } from '../WorldContext';
+import useAnimate from './useAnimate';
 
 /**
  * Hook for world visualization management
@@ -8,6 +9,7 @@ import { useWorldContext } from '../WorldContext';
  */
 export const useWorld = () => {
   const context = useWorldContext();
+  const { isAnimating, animationProgress } = useAnimate();
   
   // ========== MEMOIZED VALUES ==========
   
@@ -168,7 +170,11 @@ export const useWorld = () => {
     // Direct updates
     updateGroundColor: context.updateGroundColor,
     updateGroundOpacity: context.updateGroundOpacity,
-    updateGridAppearance: context.updateGridAppearance
+    updateGridAppearance: context.updateGridAppearance,
+    
+    // Animation state
+    isAnimating,
+    animationProgress
   };
 };
 

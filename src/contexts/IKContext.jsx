@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { useRobotSelection, useRobotManagement } from './hooks/useRobotManager';
 import { useTCPContext } from './TCPContext';
 import EventBus from '../utils/EventBus';
+import { useAnimateContext } from './AnimateContext';
 
 const IKContext = createContext(null);
 
@@ -17,6 +18,7 @@ export const IKProvider = ({ children }) => {
     hasToolAttached,
     recalculateEndEffector
   } = useTCPContext();
+  const { isAnimating, stopAnimation } = useAnimateContext();
 
   // State
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
@@ -25,7 +27,6 @@ export const IKProvider = ({ children }) => {
     position: { x: 0, y: 0, z: 0 },
     orientation: { x: 0, y: 0, z: 0, w: 1 }
   });
-  const [isAnimating, setIsAnimating] = useState(false);
   const [solverStatus, setSolverStatus] = useState('Initializing...');
   const [currentSolver, setCurrentSolver] = useState('CCD');
   const [availableSolvers, setAvailableSolvers] = useState([]);
@@ -175,7 +176,6 @@ export const IKProvider = ({ children }) => {
     const handleAnimationComplete = (data) => {
       if (data.robotId === activeRobotId) {
         console.log(`[IK] Animation complete for ${activeRobotId}`);
-        setIsAnimating(false);
         setSolverStatus(data.success ? 'Movement Complete' : 'Movement Stopped');
         
         // Update end effector position after movement
@@ -235,8 +235,8 @@ export const IKProvider = ({ children }) => {
 
   // ========== EXECUTE IK ==========
   const executeIK = useCallback(async (target, options = {}) => {
-    if (!activeRobotId || isAnimating || !isReady.current) {
-      console.warn('[IK] Cannot execute IK:', { activeRobotId, isAnimating, isReady: isReady.current });
+    if (!activeRobotId || isAnimating.get(activeRobotId) || !isReady.current) {
+      console.warn('[IK] Cannot execute IK:', { activeRobotId, isAnimating: isAnimating.get(activeRobotId), isReady: isReady.current });
       return false;
     }
 
@@ -246,96 +246,43 @@ export const IKProvider = ({ children }) => {
       return false;
     }
 
-    setIsAnimating(true);
     setSolverStatus('Solving...');
 
     try {
       // Prepare target orientation if provided
       const targetOri = options.targetOrientation || targetOrientation;
-      
       // Solve IK
       const jointValues = await solve(robot, target, targetOri);
-      
+
       if (jointValues && Object.keys(jointValues).length > 0) {
         console.log('[IK] Solution found:', jointValues);
-        setSolverStatus(options.animate !== false ? 'Moving...' : 'Applying...');
-        
-        // Default joint constraints for 6-axis robot
-        const defaultJointConstraints = {
-          'joint_1': { 
-            maxVelocity: 2.1,      // rad/s (~120 deg/s)
-            maxAcceleration: 5.0,   // rad/s²
-            maxJerk: 25.0          // rad/s³
-          },
-          'joint_2': { 
-            maxVelocity: 1.9,      // rad/s (~110 deg/s)
-            maxAcceleration: 4.0,
-            maxJerk: 20.0
-          },
-          'joint_3': { 
-            maxVelocity: 2.3,      // rad/s (~130 deg/s)
-            maxAcceleration: 5.0,
-            maxJerk: 25.0
-          },
-          'joint_4': { 
-            maxVelocity: 3.5,      // rad/s (~200 deg/s)
-            maxAcceleration: 8.0,
-            maxJerk: 40.0
-          },
-          'joint_5': { 
-            maxVelocity: 3.5,      // rad/s
-            maxAcceleration: 8.0,
-            maxJerk: 40.0
-          },
-          'joint_6': { 
-            maxVelocity: 5.2,      // rad/s (~300 deg/s)
-            maxAcceleration: 12.0,
-            maxJerk: 60.0
-          }
-        };
-        
-        // Send to Joint Context with motion profile options
+        setSolverStatus('Solution Found');
+
+        // Emit event for Joint Context to handle animation
         EventBus.emit('ik:joint-values-calculated', {
           robotId: activeRobotId,
           jointValues,
           animate: options.animate !== false,
           duration: options.duration || 1000,
-          // NEW: Pass motion profile options
+          // Pass motion profile options
           motionProfile: options.motionProfile || 'trapezoidal',
-          jointConstraints: options.jointConstraints || defaultJointConstraints,
+          jointConstraints: options.jointConstraints,
           animationSpeed: options.animationSpeed || 1.0,
-          onProgress: (progressData) => {
-            // Optional: emit progress for UI updates
-            EventBus.emit('ik:animation-progress', {
-              robotId: activeRobotId,
-              ...progressData
-            });
-          }
+          onProgress: options.onProgress
         });
-        
+
         return true;
       } else {
         console.warn('[IK] No solution found');
         setSolverStatus('No solution');
-        setIsAnimating(false);
         return false;
       }
     } catch (error) {
       console.error('[IK] Error executing IK:', error);
       setSolverStatus('Error');
-      setIsAnimating(false);
       return false;
     }
   }, [activeRobotId, getRobot, solve, targetOrientation, isAnimating]);
-
-  // ========== STOP ANIMATION ==========
-  const stopAnimation = useCallback(() => {
-    if (activeRobotId) {
-      EventBus.emit('joint:stop-animation', { robotId: activeRobotId });
-      setIsAnimating(false);
-      setSolverStatus('Stopped');
-    }
-  }, [activeRobotId]);
 
   // ========== SOLVER CONFIGURATION ==========
   const configureSolver = useCallback((solverName, config) => {

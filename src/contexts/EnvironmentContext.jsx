@@ -5,7 +5,7 @@ import * as CANNON from 'cannon-es';
 import { useViewer } from './ViewerContext';
 import humanManager from '../components/Environment/Human/HumanController';
 import EventBus from '../utils/EventBus';
-import { createCameraController } from '../utils/cameraUtils';
+import useCamera from './hooks/useCamera';
 
 const EnvironmentContext = createContext(null);
 
@@ -427,33 +427,7 @@ export const EnvironmentProvider = ({ children }) => {
   }, [loadedObjects]);
 
   // Camera controls (from useCameraControls)
-  const cameraController = useMemo(() => {
-    if (!sceneSetupRef.current) {
-      return null;
-    }
-    return createCameraController(sceneSetupRef.current);
-  }, [sceneSetupRef.current]);
-
-  const setCameraPosition = useCallback((position) => {
-    cameraController?.setPosition(position);
-  }, [cameraController]);
-
-  const setCameraTarget = useCallback((target) => {
-    cameraController?.setTarget(target);
-  }, [cameraController]);
-
-  const resetCamera = useCallback(() => {
-    cameraController?.reset();
-  }, [cameraController]);
-
-  const focusOnObject = useCallback((objectId) => {
-    if (!sceneSetupRef.current) return;
-    
-    const obj = sceneObjects.get(objectId);
-    if (!obj) return;
-    
-    cameraController?.focusOn(obj);
-  }, [sceneObjects, cameraController]);
+  const { setCameraPosition, setCameraTarget, resetCamera, focusOn } = useCamera();
 
   // Check if object is in scene
   const isInScene = useCallback((objectId) => {
@@ -873,8 +847,7 @@ export const EnvironmentProvider = ({ children }) => {
     setCameraPosition,
     setCameraTarget,
     resetCamera,
-    focusOnObject,
-    cameraController,
+    focusOn,
     
     // ========== HUMAN PHYSICS ==========
     world: sceneSetupRef.current?.world,
@@ -926,8 +899,7 @@ export const EnvironmentProvider = ({ children }) => {
     setCameraPosition,
     setCameraTarget,
     resetCamera,
-    focusOnObject,
-    cameraController,
+    focusOn,
     sceneSetupRef,
     setCategories,
     setLoadedObjects,

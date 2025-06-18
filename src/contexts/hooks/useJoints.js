@@ -2,25 +2,21 @@
 import { useCallback, useMemo } from 'react';
 import { useJointContext } from '../JointContext';
 import { useRobotSelection } from './useRobotManager';
+import useAnimate from './useAnimate';
 import EventBus from '../../utils/EventBus';
 
 export const useJoints = (robotId = null) => {
   const {
     robotJoints,
     robotJointValues,
-    isAnimating,
-    animationProgress,
     setJointValue,
     setJointValues: contextSetJointValues,
     resetJoints,
     getJointInfo,
     getJointValues,
-    getJointLimits,
-    isRobotAnimating,
-    getAnimationProgress,
-    stopAnimation
+    getJointLimits
   } = useJointContext();
-  
+  const { isAnimating, animationProgress } = useAnimate();
   const { activeId: activeRobotId } = useRobotSelection();
   
   // Use provided robotId or fall back to active robot
@@ -40,10 +36,10 @@ export const useJoints = (robotId = null) => {
     return {
       jointInfo: getJointInfo(targetRobotId),
       jointValues: getJointValues(targetRobotId),
-      isAnimating: isRobotAnimating(targetRobotId),
-      animationProgress: getAnimationProgress(targetRobotId)
+      isAnimating: isAnimating.get(targetRobotId) || false,
+      animationProgress: animationProgress.get(targetRobotId) || 0
     };
-  }, [targetRobotId, getJointInfo, getJointValues, isRobotAnimating, getAnimationProgress]);
+  }, [targetRobotId, getJointInfo, getJointValues, isAnimating, animationProgress]);
   
   const { jointInfo, jointValues, isAnimating: isRobotAnimating_current, animationProgress: animationProgress_current } = robotData;
   
@@ -113,16 +109,6 @@ export const useJoints = (robotId = null) => {
     return getJointLimits(targetRobotId, jointName);
   }, [targetRobotId, getJointLimits]);
   
-  const stopRobotAnimation = useCallback(() => {
-    if (!targetRobotId) {
-      console.warn('[useJoints] No target robot for animation stop');
-      return;
-    }
-    
-    console.log(`[useJoints] Stopping animation for robot ${targetRobotId}`);
-    stopAnimation(targetRobotId);
-  }, [targetRobotId, stopAnimation]);
-  
   // Memoized convenience methods
   const getJointValue = useCallback((jointName) => {
     return jointValues[jointName] || 0;
@@ -164,7 +150,6 @@ export const useJoints = (robotId = null) => {
     setJointValues: setRobotJointValues,
     resetJoints: resetRobotJoints,
     getJointLimits: getRobotJointLimits,
-    stopAnimation: stopRobotAnimation,
     
     // Add getJointValues from context
     getJointValues,
@@ -187,7 +172,6 @@ export const useJoints = (robotId = null) => {
     setRobotJointValues,
     resetRobotJoints,
     getRobotJointLimits,
-    stopRobotAnimation,
     getJointValues,
     getJointValue,
     hasJoint,

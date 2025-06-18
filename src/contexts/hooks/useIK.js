@@ -1,6 +1,7 @@
 // src/contexts/hooks/useIK.js - Clean IK API
 import { useCallback } from 'react';
 import { useIKContext } from '../IKContext';
+import useAnimate from './useAnimate';
 
 export const useIK = () => {
   const context = useIKContext();
@@ -13,7 +14,6 @@ export const useIK = () => {
     targetPosition,
     targetOrientation,
     currentEndEffector,
-    isAnimating,
     solverStatus,
     currentSolver,
     availableSolvers,
@@ -21,12 +21,12 @@ export const useIK = () => {
     setTargetOrientation,
     setCurrentSolver,
     executeIK: contextExecuteIK,
-    stopAnimation,
     configureSolver,
     getSolverSettings,
     isReady,
     hasValidEndEffector
   } = context;
+  const { isAnimating, stopAnimation } = useAnimate();
 
   // Simplified execute function
   const executeIK = useCallback(async (position, orientation = null, options = {}) => {
