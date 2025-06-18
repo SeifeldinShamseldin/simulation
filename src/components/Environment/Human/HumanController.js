@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as CANNON from 'cannon-es';
 import EventBus from '../../../utils/EventBus';
+import { useHumanAnimation } from '../../../contexts/hooks/useAnimation';
 
 class HumanController {
   constructor(id) {
@@ -600,3 +601,23 @@ class HumanManager {
 const humanManager = new HumanManager();
 export default humanManager;
 export { HumanController };
+
+// Example React functional component to control a HumanController instance with animation
+// (You can adapt this pattern in your UI layer)
+export const HumanControllerUI = ({ humanController }) => {
+  const { animateHuman, stopHumanAnimation, isAnimating } = useHumanAnimation();
+
+  const walk = () => {
+    animateHuman('walk', {
+      duration: 2000,
+      loop: true,
+      onUpdate: (animationName, frame, progress) => {
+        // Update humanController model animation frame here
+        // Example: humanController.setAnimationFrame(frame);
+      }
+    });
+  };
+
+  // ...rest of your UI logic (buttons, controls, etc.)
+  return null; // Replace with your UI
+};

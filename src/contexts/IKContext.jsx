@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { useRobotSelection, useRobotManagement } from './hooks/useRobotManager';
 import { useTCPContext } from './TCPContext';
 import EventBus from '../utils/EventBus';
+import { useAnimationContext } from './AnimationContext';
 
 const IKContext = createContext(null);
 
@@ -17,6 +18,7 @@ export const IKProvider = ({ children }) => {
     hasToolAttached,
     recalculateEndEffector
   } = useTCPContext();
+  const animation = useAnimationContext();
 
   // State
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
@@ -371,6 +373,15 @@ export const IKProvider = ({ children }) => {
     return {};
   }, []);
 
+  // ========== ANIMATE IK SOLUTION ==========
+  const applySolution = (ikSolution, options = {}) => {
+    return animation.animateIK(ikSolution, {
+      duration: 500,
+      profile: 's-curve',
+      ...options
+    });
+  };
+
   // ========== CONTEXT VALUE ==========
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(() => ({
@@ -382,7 +393,9 @@ export const IKProvider = ({ children }) => {
     solverStatus,
     currentSolver,
     availableSolvers,
-    
+    // Animation-based state
+    animationIsAnimating: animation.isAnimating,
+    animationProgressValue: animation.animationProgress,
     // Methods
     setTargetPosition,
     setTargetOrientation,
@@ -391,9 +404,10 @@ export const IKProvider = ({ children }) => {
     stopAnimation,
     configureSolver,
     getSolverSettings,
-    
+    // Animation-based API
+    applySolution
     // Info
-    isReady: isReady.current,
+    ,isReady: isReady.current,
     hasValidEndEffector: currentEndEffector.position.x !== 0 || 
                         currentEndEffector.position.y !== 0 || 
                         currentEndEffector.position.z !== 0
@@ -411,7 +425,9 @@ export const IKProvider = ({ children }) => {
     executeIK,
     stopAnimation,
     configureSolver,
-    getSolverSettings
+    getSolverSettings,
+    applySolution,
+    animation
   ]);
 
   return (

@@ -6,6 +6,7 @@ import EventBus from '../utils/EventBus';
 import { useRobotContext } from './RobotContext'; // Updated import
 import { MultiAxisProfiler, TrapezoidalProfile } from '../utils/motionProfiles'; // Add motion profiles import
 import { debug, debugJoint, debugRobot, debugAnimation, debugEvent } from '../utils/DebugSystem'; // Updated debug import
+import { useAnimationContext } from './AnimationContext';
 
 export const JointContext = createContext();
 
@@ -28,6 +29,8 @@ export const JointProvider = ({ children }) => {
   const animationTargetValuesRef = useRef(null);
   const animationOptionsRef = useRef(null);
   const animationResolveRef = useRef(null);
+
+  const animation = useAnimationContext();
 
   // Initialize robot manager reference
   useEffect(() => {
@@ -938,6 +941,11 @@ export const JointProvider = ({ children }) => {
     return animationProgress.get(robotId) || 0;
   }, [animationProgress]);
 
+  // New: Animate joints using animation context
+  const moveToJoints = (targetJoints, duration, options = {}) => {
+    return animation.animateJoints(targetJoints, duration, options);
+  };
+
   // Cleanup
   useEffect(() => {
     return () => {
@@ -958,7 +966,9 @@ export const JointProvider = ({ children }) => {
     robotJointValues,
     isAnimating,
     animationProgress,
-    
+    // Animation-based state
+    animationIsAnimating: animation.isAnimating,
+    animationProgressValue: animation.animationProgress,
     // Methods
     setJointValue,
     setJointValues,
@@ -969,7 +979,9 @@ export const JointProvider = ({ children }) => {
     isRobotAnimating,
     getAnimationProgress,
     stopAnimation,
-    animateToJointValues
+    animateToJointValues,
+    // Animation-based API
+    moveToJoints
   }), [
     robotJoints,
     robotJointValues,
@@ -984,7 +996,9 @@ export const JointProvider = ({ children }) => {
     isRobotAnimating,
     getAnimationProgress,
     stopAnimation,
-    animateToJointValues
+    animateToJointValues,
+    moveToJoints,
+    animation
   ]);
 
   return (

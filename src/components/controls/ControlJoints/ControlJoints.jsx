@@ -3,6 +3,7 @@ import React, { useCallback } from 'react';
 import { useJoints } from '../../../contexts/hooks/useJoints';
 import { useRobotContext } from '../../../contexts/RobotContext'; // Updated import
 import { debugJoint } from '../../../utils/DebugSystem'; // Updated debug import
+import { useAnimationContext } from '../../../contexts/AnimationContext';
 
 const ControlJoints = () => {
   const {
@@ -21,6 +22,7 @@ const ControlJoints = () => {
   } = useJoints();
 
   const { isRobotReady } = useRobotContext(); // Updated to use unified context
+  const { progress } = useAnimationContext();
 
   const handleJointChange = useCallback((jointName, value) => {
     if (!isRobotReady(robotId)) {
@@ -79,7 +81,7 @@ const ControlJoints = () => {
         Joint Control - {robotId}
         {isAnimating && (
           <span className="controls-badge controls-badge-info controls-ml-2">
-            IK Moving... {Math.round(animationProgress * 100)}%
+            Moving... {Math.round(progress * 100)}%
           </span>
         )}
         {!isRobotReadyForControl && (
@@ -146,7 +148,7 @@ const ControlJoints = () => {
             <div className="controls-progress">
               <div 
                 className="controls-progress-bar" 
-                style={{ width: `${animationProgress * 100}%` }}
+                style={{ width: `${progress * 100}%` }}
               />
             </div>
           </div>

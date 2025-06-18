@@ -17,6 +17,7 @@ import { TrajectoryProvider } from './contexts/TrajectoryContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobotManager';
 import { CameraProvider } from './contexts/CameraContext';
+import { AnimationProvider } from './contexts/AnimationContext';
 import './App.css';
 
 const RobotPanel = ({ onClose, viewerRef }) => {
@@ -204,25 +205,27 @@ const AppContent = () => {
 // Clean Provider Chain - REMOVED RobotManagerProvider
 const App = () => {
   return (
-    <CameraProvider>
-      <ViewerProvider>
-        <RobotProvider>
-          <EnvironmentProvider>
-            <TCPProvider>
-              <JointProvider>
-                <TrajectoryProvider>
-                  <IKProvider>
-                    <WorldProvider>
-                      <AppContent />
-                    </WorldProvider>
-                  </IKProvider>
-                </TrajectoryProvider>
-              </JointProvider>
-            </TCPProvider>
-          </EnvironmentProvider>
-        </RobotProvider>
-      </ViewerProvider>
-    </CameraProvider>
+    <AnimationProvider>
+      <CameraProvider>
+        <ViewerProvider>
+          <RobotProvider>
+            <EnvironmentProvider>
+              <TCPProvider>
+                <JointProvider>
+                  <TrajectoryProvider>
+                    <IKProvider>
+                      <WorldProvider>
+                        <AppContent />
+                      </WorldProvider>
+                    </IKProvider>
+                  </TrajectoryProvider>
+                </JointProvider>
+              </TCPProvider>
+            </EnvironmentProvider>
+          </RobotProvider>
+        </ViewerProvider>
+      </CameraProvider>
+    </AnimationProvider>
   );
 };
 
