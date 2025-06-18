@@ -46,10 +46,6 @@ export const useEnvironment = () => {
     return Array.from(context.sceneObjects.values());
   }, [context.sceneObjects]);
   
-  const hasPhysicsBody = useCallback((objectId) => {
-    return context.world && context.sceneObjects.has(objectId);
-  }, [context.world, context.sceneObjects]);
-  
   // ========== MEMOIZED RETURN OBJECT (Only for expensive operations) ==========
   return useMemo(() => ({
     // ========== ENVIRONMENT STATE ==========
@@ -104,10 +100,7 @@ export const useEnvironment = () => {
     resetCamera: context.resetCamera,
     focusOnObject: context.focusOnObject,
     
-    // ========== PHYSICS ==========
-    createPhysicsBody: context.createPhysicsBody,
-    removePhysicsBody: context.removePhysicsBody,
-    syncWithObject: context.syncWithObject,
+    // ========== HUMAN PHYSICS ==========
     world: context.world,
     isPhysicsEnabled: context.isPhysicsEnabled,
     
@@ -140,8 +133,7 @@ export const useEnvironment = () => {
     getActiveHuman,
     isObjectLoaded,
     isHumanSpawned,
-    getAllSceneObjects,
-    hasPhysicsBody
+    getAllSceneObjects
   }), [
     // Context state dependencies
     context.categories,
@@ -182,9 +174,6 @@ export const useEnvironment = () => {
     context.setCameraTarget,
     context.resetCamera,
     context.focusOnObject,
-    context.createPhysicsBody,
-    context.removePhysicsBody,
-    context.syncWithObject,
     context.setCategories,
     context.setLoadedObjects,
     context.setSpawnedHumans,
@@ -203,8 +192,7 @@ export const useEnvironment = () => {
     getActiveHuman,
     isObjectLoaded,
     isHumanSpawned,
-    getAllSceneObjects,
-    hasPhysicsBody
+    getAllSceneObjects
   ]);
 };
 
@@ -383,27 +371,16 @@ export const useEnvironmentScene = () => {
 export const useEnvironmentPhysics = () => {
   const {
     world,
-    isPhysicsEnabled,
-    createPhysicsBody,
-    removePhysicsBody,
-    syncWithObject,
-    hasPhysicsBody
+    isPhysicsEnabled
   } = useEnvironment();
   
   return useMemo(() => ({
     world,
     isEnabled: isPhysicsEnabled,
-    createBody: createPhysicsBody,
-    removeBody: removePhysicsBody,
-    syncWith: syncWithObject,
-    hasBody: hasPhysicsBody
+    // Human physics only - no general physics body management
   }), [
     world,
-    isPhysicsEnabled,
-    createPhysicsBody,
-    removePhysicsBody,
-    syncWithObject,
-    hasPhysicsBody
+    isPhysicsEnabled
   ]);
 };
 

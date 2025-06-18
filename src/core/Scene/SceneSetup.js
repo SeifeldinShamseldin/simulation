@@ -1,4 +1,4 @@
-// src/core/Scene/SceneSetup.js - SCENE SETUP WITHOUT WORLD FUNCTIONS
+// src/core/Scene/SceneSetup.js - SCENE SETUP WITH MINIMAL PHYSICS (human only)
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
@@ -16,8 +16,8 @@ const DEFAULT_CONFIG = {
 };
 
 /**
- * SceneSetup class - Handles core 3D scene without world visualization
- * World visualization (grid, ground) is now handled by WorldContext
+ * SceneSetup class - Handles core 3D scene with minimal physics for humans only
+ * Physics is limited to human movement and interaction
  */
 class SceneSetup {
   constructor(container, options = {}) {
@@ -49,7 +49,7 @@ class SceneSetup {
     this.initRenderer();
     this.initLights();
     this.initControls();
-    this.initPhysics();
+    this.initHumanPhysics();
     
     // Add the renderer to the container
     this.container.appendChild(this.renderer.domElement);
@@ -182,36 +182,21 @@ class SceneSetup {
   }
   
   /**
-   * Initialize physics world
+   * Initialize minimal physics world for humans only
    */
-  initPhysics() {
-    // Create physics world
+  initHumanPhysics() {
+    // Create minimal physics world for human movement
     this.world = new CANNON.World();
     this.world.gravity.set(0, -9.82, 0);
     this.world.broadphase = new CANNON.NaiveBroadphase();
     this.world.solver.iterations = 10;
     
-    // Physics materials
+    // Create ground material for human interaction
     this.groundMaterial = new CANNON.Material('ground');
-    this.objectMaterial = new CANNON.Material('object');
     
-    // Contact material - how materials interact
-    const contactMaterial = new CANNON.ContactMaterial(
-      this.groundMaterial,
-      this.objectMaterial,
-      {
-        friction: 0.4,
-        restitution: 0.1
-      }
-    );
-    this.world.addContactMaterial(contactMaterial);
-    
-    // Store physics bodies
-    this.physicsBodies = new Map();
-    
-    // Create physics ground body
+    // Create physics ground body for humans to walk on
     const groundShape = new CANNON.Box(
-      new CANNON.Vec3(50, 0.1, 50)
+      new CANNON.Vec3(500, 0.1, 500) // 1000x1000 units
     );
     
     this.groundBody = new CANNON.Body({
@@ -237,22 +222,13 @@ class SceneSetup {
   }
   
   /**
-   * Update physics simulation
+   * Update human physics simulation
    */
-  updatePhysics(deltaTime = 1/60) {
+  updateHumanPhysics(deltaTime = 1/60) {
     if (!this.world) return;
     
-    // Step physics world
+    // Step physics world for human movement
     this.world.step(deltaTime);
-    
-    // Update visual objects to match physics bodies
-    this.physicsBodies.forEach((body, objectId) => {
-      const object = this.environmentObjects.get(objectId);
-      if (object && body.type === CANNON.Body.DYNAMIC) {
-        object.position.copy(body.position);
-        object.quaternion.copy(body.quaternion);
-      }
-    });
   }
   
   /**
@@ -262,8 +238,8 @@ class SceneSetup {
     const animate = () => {
       requestAnimationFrame(animate);
       
-      // Update physics
-      this.updatePhysics();
+      // Update human physics
+      this.updateHumanPhysics();
       
       // Update controls
       this.controls.update();
@@ -389,8 +365,6 @@ class SceneSetup {
       position = { x: 0, y: 0, z: 0 },
       rotation = { x: 0, y: 0, z: 0 },
       scale = { x: 1, y: 1, z: 1 },
-      physics = true,
-      mass = 1,
       material = null
     } = config;
     
@@ -442,26 +416,6 @@ class SceneSetup {
       // Add to scene
       this.scene.add(object);
       this.environmentObjects.set(id, object);
-      
-      // Add physics if enabled
-      if (physics && this.world) {
-        const box = new THREE.Box3().setFromObject(object);
-        const size = box.getSize(new THREE.Vector3());
-        
-        const shape = new CANNON.Box(
-          new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)
-        );
-        
-        const body = new CANNON.Body({
-          mass: mass,
-          shape: shape,
-          position: new CANNON.Vec3(position.x, position.y, position.z),
-          material: this.objectMaterial
-        });
-        
-        this.world.addBody(body);
-        this.physicsBodies.set(id, body);
-      }
       
       EventBus.emit('scene:object-loaded', { id, object, config });
       
@@ -533,13 +487,6 @@ class SceneSetup {
   removeEnvironmentObject(id) {
     const object = this.environmentObjects.get(id);
     if (object) {
-      // Remove physics body
-      const body = this.physicsBodies.get(id);
-      if (body) {
-        this.world.removeBody(body);
-        this.physicsBodies.delete(id);
-      }
-      
       // Remove from scene
       this.scene.remove(object);
       
@@ -617,16 +564,6 @@ class SceneSetup {
       );
     }
     
-    // Update physics body if exists
-    const body = this.physicsBodies.get(id);
-    if (body && updates.position) {
-      body.position.set(
-        updates.position.x ?? body.position.x,
-        updates.position.y ?? body.position.y,
-        updates.position.z ?? body.position.z
-      );
-    }
-    
     EventBus.emit('scene:object-updated', { id, updates });
   }
   
@@ -648,7 +585,7 @@ class SceneSetup {
     // Remove event listeners
     window.removeEventListener('resize', this.handleResize);
     
-    // Clear physics
+    // Clear human physics
     if (this.world) {
       while (this.world.bodies.length > 0) {
         this.world.removeBody(this.world.bodies[0]);

@@ -37,7 +37,6 @@ export const EnvironmentProvider = ({ children }) => {
   // Refs
   const sceneSetupRef = useRef(null);
   const robotManagerRef = useRef(null);
-  const physicsBodyMapRef = useRef(new Map());
 
   // Initialize scene setup and robot manager references
   useEffect(() => {
@@ -456,45 +455,6 @@ export const EnvironmentProvider = ({ children }) => {
     cameraController?.focusOn(obj);
   }, [sceneObjects, cameraController]);
 
-  // Physics functions (from usePhysics)
-  const createPhysicsBody = useCallback((id, shape, options = {}) => {
-    if (!sceneSetupRef.current?.world) return null;
-    
-    const body = new CANNON.Body({
-      mass: options.mass ?? 1,
-      shape,
-      position: new CANNON.Vec3(
-        options.position?.x ?? 0,
-        options.position?.y ?? 0,
-        options.position?.z ?? 0
-      ),
-      ...options
-    });
-    
-    sceneSetupRef.current.world.addBody(body);
-    physicsBodyMapRef.current.set(id, body);
-    
-    return body;
-  }, []);
-
-  const removePhysicsBody = useCallback((id) => {
-    if (!sceneSetupRef.current?.world) return;
-    
-    const body = physicsBodyMapRef.current.get(id);
-    if (body) {
-      sceneSetupRef.current.world.removeBody(body);
-      physicsBodyMapRef.current.delete(id);
-    }
-  }, []);
-
-  const syncWithObject = useCallback((id, object) => {
-    const body = physicsBodyMapRef.current.get(id);
-    if (!body || !object) return;
-    
-    object.position.copy(body.position);
-    object.quaternion.copy(body.quaternion);
-  }, []);
-
   // Check if object is in scene
   const isInScene = useCallback((objectId) => {
     return sceneObjects.has(objectId) && 
@@ -861,13 +821,6 @@ export const EnvironmentProvider = ({ children }) => {
     }
   }, [isViewerReady, scanEnvironment]);
 
-  // Cleanup physics bodies on unmount
-  useEffect(() => {
-    return () => {
-      physicsBodyMapRef.current.forEach((body, id) => removePhysicsBody(id));
-    };
-  }, [removePhysicsBody]);
-
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(() => ({
     // ========== ENVIRONMENT STATE ==========
@@ -923,10 +876,7 @@ export const EnvironmentProvider = ({ children }) => {
     focusOnObject,
     cameraController,
     
-    // ========== PHYSICS (from usePhysics) ==========
-    createPhysicsBody,
-    removePhysicsBody,
-    syncWithObject,
+    // ========== HUMAN PHYSICS ==========
     world: sceneSetupRef.current?.world,
     isPhysicsEnabled: !!sceneSetupRef.current?.world,
     
@@ -978,9 +928,6 @@ export const EnvironmentProvider = ({ children }) => {
     resetCamera,
     focusOnObject,
     cameraController,
-    createPhysicsBody,
-    removePhysicsBody,
-    syncWithObject,
     sceneSetupRef,
     setCategories,
     setLoadedObjects,
