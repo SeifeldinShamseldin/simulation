@@ -18,6 +18,12 @@ class OptimizedTCPManager {
     this.robotRegistry = new Map(); // Enhanced robot registry
     this._notFoundWarnings = new Set();
     
+    // Performance optimizations
+    this._dimensionCache = new Map(); // Cache tool dimensions
+    this._endEffectorCache = new Map(); // Cache end effector calculations
+    this._lastUpdateTime = new Map(); // Track last update time per robot
+    this._updateDebounceTime = 16; // ~60fps debounce
+    
     // Centralized end effector configuration
     this.endEffectorPatterns = [
       'tool0', 'ee_link', 'end_effector', 'gripper_link', 
@@ -95,7 +101,7 @@ class OptimizedTCPManager {
   }
 
   /**
-   * Calculate robot end effector position and orientation
+   * Calculate robot end effector position (OPTIMIZED)
    */
   calculateRobotEndEffector(robotId) {
     const robot = this.findRobot(robotId);
@@ -108,67 +114,84 @@ class OptimizedTCPManager {
 
     this._notFoundWarnings.delete(robotId);
 
-    // Find end effector link
-    const endEffectorNames = [
-      'tool0', 'ee_link', 'end_effector', 'gripper_link', 
-      'link_6', 'link_7', 'wrist_3_link', 'tool_link',
-      'flange', 'tool_flange', 'tcp'
-    ];
+    // Check cache first
+    const cacheKey = `${robotId}_${robot.uuid}`;
+    const now = Date.now();
+    const lastUpdate = this._lastUpdateTime.get(robotId) || 0;
     
-    let endEffectorLink = null;
+    // Use cached result if recent enough
+    if (this._endEffectorCache.has(cacheKey) && (now - lastUpdate) < this._updateDebounceTime) {
+      return this._endEffectorCache.get(cacheKey);
+    }
+
+    // Find end effector link (use cached if available)
+    let endEffectorLink = robot.userData?.endEffectorLink;
     
-    // Try to find by name first
-    if (robot.links) {
-      for (const name of endEffectorNames) {
-        if (robot.links[name]) {
-          endEffectorLink = robot.links[name];
-          break;
+    if (!endEffectorLink) {
+      // Try to find by name first
+      if (robot.links) {
+        for (const name of this.endEffectorPatterns) {
+          if (robot.links[name]) {
+            endEffectorLink = robot.links[name];
+            break;
+          }
         }
       }
-    }
-    
-    // Fallback: find deepest link
-    if (!endEffectorLink) {
-      let deepestLink = null;
-      let maxDepth = 0;
       
-      const findDeepest = (obj, depth = 0) => {
-        if (obj.isURDFLink && depth > maxDepth) {
-          maxDepth = depth;
-          deepestLink = obj;
-        }
-        obj.children?.forEach(child => findDeepest(child, depth + 1));
-      };
-      
-      findDeepest(robot);
-      endEffectorLink = deepestLink;
+      // Fallback: find deepest link
+      if (!endEffectorLink) {
+        let deepestLink = null;
+        let maxDepth = 0;
+        
+        const findDeepest = (obj, depth = 0) => {
+          if (obj.isURDFJoint && depth > maxDepth) {
+            maxDepth = depth;
+            deepestLink = obj;
+          }
+          obj.children?.forEach(child => findDeepest(child, depth + 1));
+        };
+        
+        findDeepest(robot);
+        endEffectorLink = deepestLink;
+      }
+
+      // Cache the end effector link
+      if (endEffectorLink && robot.userData) {
+        robot.userData.endEffectorLink = endEffectorLink;
+      }
     }
 
     if (!endEffectorLink) {
-      return { 
+      const result = { 
         position: { x: 0, y: 0, z: 0 },
         orientation: { x: 0, y: 0, z: 0, w: 1 }
       };
+      this._endEffectorCache.set(cacheKey, result);
+      return result;
     }
 
-    // Store reference for CCD solver
-    robot.userData = robot.userData || {};
-    robot.userData.endEffectorLink = endEffectorLink;
-
-    // Get world position and orientation
+    // Get world position and orientation (optimized)
     const worldPos = new THREE.Vector3();
     const worldQuat = new THREE.Quaternion();
+    
+    // Use getWorldPosition/getWorldQuaternion for better performance
     endEffectorLink.getWorldPosition(worldPos);
     endEffectorLink.getWorldQuaternion(worldQuat);
     
-    return {
+    const result = {
       position: { x: worldPos.x, y: worldPos.y, z: worldPos.z },
       orientation: { x: worldQuat.x, y: worldQuat.y, z: worldQuat.z, w: worldQuat.w }
     };
+
+    // Cache the result
+    this._endEffectorCache.set(cacheKey, result);
+    this._lastUpdateTime.set(robotId, now);
+    
+    return result;
   }
 
   /**
-   * Calculate TCP tool tip offset
+   * Calculate TCP tool tip offset based on actual tool geometry
    */
   calculateToolTipOffset(toolContainer) {
     if (!toolContainer) return { x: 0, y: 0, z: 0 };
@@ -176,18 +199,78 @@ class OptimizedTCPManager {
     const { position, rotation, scale } = toolContainer;
     let tipOffset = { x: position.x, y: position.y, z: position.z };
 
+    // Calculate actual tool dimensions from geometry
+    const toolDimensions = this.calculateToolDimensions(toolContainer);
+    
+    // Use the actual tool length (z-dimension) for tip offset
+    const toolLength = toolDimensions.z * scale.z;
+    
     // Apply rotation if present
     if (rotation.x !== 0 || rotation.y !== 0 || rotation.z !== 0) {
-      const baseTip = new THREE.Vector3(0, 0, 0.05 * scale.z);
+      const baseTip = new THREE.Vector3(0, 0, toolLength);
       baseTip.applyEuler(rotation);
       tipOffset.x += baseTip.x;
       tipOffset.y += baseTip.y;
       tipOffset.z += baseTip.z;
     } else {
-      tipOffset.z += 0.05 * scale.z;
+      tipOffset.z += toolLength;
     }
     
     return tipOffset;
+  }
+
+  /**
+   * Calculate actual tool dimensions from geometry (OPTIMIZED)
+   */
+  calculateToolDimensions(toolContainer) {
+    if (!toolContainer) return { x: 0, y: 0, z: 0 };
+
+    // Check cache first
+    const cacheKey = toolContainer.uuid;
+    if (this._dimensionCache.has(cacheKey)) {
+      return this._dimensionCache.get(cacheKey);
+    }
+
+    const boundingBox = new THREE.Box3();
+    let hasGeometry = false;
+    let meshCount = 0;
+
+    // Optimized traversal - only process meshes with geometry
+    toolContainer.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        // Only compute bounding box if not already computed
+        if (!child.geometry.boundingBox) {
+          child.geometry.computeBoundingBox();
+        }
+        
+        if (child.geometry.boundingBox) {
+          // Use expandByObject which is the standard method available in all Three.js versions
+          boundingBox.expandByObject(child);
+          hasGeometry = true;
+          meshCount++;
+        }
+      }
+    });
+
+    let dimensions;
+    if (!hasGeometry || meshCount === 0) {
+      // Fallback to default dimensions
+      dimensions = { x: 0.01, y: 0.01, z: 0.05 };
+    } else {
+      const size = new THREE.Vector3();
+      boundingBox.getSize(size);
+
+      dimensions = {
+        x: Math.max(size.x, 0.001), // Minimum 1mm
+        y: Math.max(size.y, 0.001),
+        z: Math.max(size.z, 0.001)
+      };
+    }
+
+    // Cache the result
+    this._dimensionCache.set(cacheKey, dimensions);
+    
+    return dimensions;
   }
 
   /**
@@ -448,18 +531,24 @@ class OptimizedTCPManager {
     const toolObject = await this.loadTool(tool);
     if (!toolObject) throw new Error('Failed to load tool object');
 
+    // 🚨 CRITICAL FIX: Always name the tool container "tcp"
     const toolContainer = new THREE.Group();
-    toolContainer.name = 'tcp_tool_container';
+    toolContainer.name = 'tcp'; // Always name it "tcp" regardless of original tool name
     toolContainer.add(toolObject);
     endEffector.add(toolContainer);
 
-    // Store tool data
+    // Calculate initial tool dimensions for proper positioning
+    const toolDimensions = this.calculateToolDimensions(toolContainer);
+    console.log(`[TCP] Tool ${tool.name} dimensions:`, toolDimensions);
+
+    // Store tool data with enhanced information
     this.attachedTools.set(robotId, {
       toolId,
       tool,
       toolObject,
       toolContainer,
       endEffector,
+      dimensions: toolDimensions, // Store calculated dimensions
       transforms: {
         position: { x: 0, y: 0, z: 0 },
         rotation: { x: 0, y: 0, z: 0 },
@@ -467,29 +556,35 @@ class OptimizedTCPManager {
       }
     });
 
-    // Emit events
+    // Emit events with enhanced information
     const finalPosition = this.getFinalEndEffectorPosition(robotId);
     const finalOrientation = this.getFinalEndEffectorOrientation(robotId);
     
     EventBus.emit('tcp:tool-attached', {
       robotId,
       toolId,
-      toolName: tool.name,
-      endEffectorPoint: finalPosition
+      toolName: 'tcp', // Always emit "tcp" as the name
+      originalToolName: tool.name, // Keep original name for reference
+      endEffectorPoint: finalPosition,
+      toolDimensions: toolDimensions
     });
 
     EventBus.emit('tcp:endeffector-updated', {
       robotId,
       endEffectorPoint: finalPosition,
       endEffectorOrientation: finalOrientation,
-      hasTCP: true
+      hasTCP: true,
+      toolDimensions: toolDimensions
     });
+
+    console.log(`[TCP] Tool "${tool.name}" attached to ${robotId} as "tcp"`);
+    console.log(`[TCP] Final end effector position:`, finalPosition);
 
     return true;
   }
 
   /**
-   * Set tool transform and recalculate
+   * Set tool transform and recalculate (OPTIMIZED)
    */
   setToolTransform(robotId, transforms) {
     const toolData = this.attachedTools.get(robotId);
@@ -522,28 +617,49 @@ class OptimizedTCPManager {
       );
     }
 
-    // Update matrices
+    // Update matrices (optimized)
     toolContainer.updateMatrix();
     toolContainer.updateMatrixWorld(true);
 
-    // Store transforms
-    toolData.transforms = { ...transforms };
-
-    // Emit events
-    const finalPosition = this.getFinalEndEffectorPosition(robotId);
+    // Clear dimension cache for this tool since transforms changed
+    this._dimensionCache.delete(toolContainer.uuid);
     
-    EventBus.emit('tcp:tool-transformed', {
-      robotId,
-      toolId: toolData.toolId,
-      transforms,
-      endEffectorPoint: finalPosition
-    });
+    // Recalculate tool dimensions after transform changes (debounced)
+    const now = Date.now();
+    const lastUpdate = this._lastUpdateTime.get(robotId) || 0;
+    
+    if ((now - lastUpdate) >= this._updateDebounceTime) {
+      const updatedDimensions = this.calculateToolDimensions(toolContainer);
+      toolData.dimensions = updatedDimensions;
 
-    EventBus.emit('tcp:endeffector-updated', {
-      robotId,
-      endEffectorPoint: finalPosition,
-      hasTCP: true
-    });
+      // Store transforms
+      toolData.transforms = { ...transforms };
+
+      // Emit events with updated information (debounced)
+      const finalPosition = this.getFinalEndEffectorPosition(robotId);
+      const finalOrientation = this.getFinalEndEffectorOrientation(robotId);
+      
+      EventBus.emit('tcp:tool-transformed', {
+        robotId,
+        toolId: toolData.toolId,
+        transforms,
+        endEffectorPoint: finalPosition,
+        toolDimensions: updatedDimensions
+      });
+
+      EventBus.emit('tcp:endeffector-updated', {
+        robotId,
+        endEffectorPoint: finalPosition,
+        endEffectorOrientation: finalOrientation,
+        hasTCP: true,
+        toolDimensions: updatedDimensions
+      });
+
+      this._lastUpdateTime.set(robotId, now);
+    } else {
+      // Just store transforms without emitting events (will be handled by debounce)
+      toolData.transforms = { ...transforms };
+    }
   }
 
   /**
@@ -601,33 +717,90 @@ class OptimizedTCPManager {
   }
 
   /**
-   * Force recalculate end effector
+   * Force recalculate end effector (OPTIMIZED)
    */
   recalculateEndEffector(robotId) {
+    // Check if we need to recalculate (debouncing)
+    const now = Date.now();
+    const lastUpdate = this._lastUpdateTime.get(robotId) || 0;
+    
+    if ((now - lastUpdate) < this._updateDebounceTime) {
+      // Return cached result if recent enough
+      const cacheKey = `${robotId}_${this.findRobot(robotId)?.uuid || 'unknown'}`;
+      if (this._endEffectorCache.has(cacheKey)) {
+        return this._endEffectorCache.get(cacheKey);
+      }
+    }
+
     const finalPosition = this.getFinalEndEffectorPosition(robotId);
     const finalOrientation = this.getFinalEndEffectorOrientation(robotId);
     const hasTCP = this.attachedTools.has(robotId);
+    
+    // Get tool dimensions if TCP is attached (cached)
+    let toolDimensions = null;
+    if (hasTCP) {
+      const toolData = this.attachedTools.get(robotId);
+      if (toolData && toolData.toolContainer) {
+        toolDimensions = toolData.dimensions || this.calculateToolDimensions(toolData.toolContainer);
+      }
+    }
+    
+    const result = { position: finalPosition, orientation: finalOrientation };
+    
+    // Cache the result
+    const cacheKey = `${robotId}_${this.findRobot(robotId)?.uuid || 'unknown'}`;
+    this._endEffectorCache.set(cacheKey, result);
+    this._lastUpdateTime.set(robotId, now);
     
     EventBus.emit('tcp:endeffector-updated', {
       robotId,
       endEffectorPoint: finalPosition,
       endEffectorOrientation: finalOrientation,
-      hasTCP
+      hasTCP,
+      toolDimensions
     });
     
-    return { position: finalPosition, orientation: finalOrientation };
+    return result;
   }
 
   /**
-   * Dispose resources
+   * Clear caches for a specific robot
+   */
+  clearRobotCache(robotId) {
+    const robot = this.findRobot(robotId);
+    if (robot) {
+      const cacheKey = `${robotId}_${robot.uuid}`;
+      this._endEffectorCache.delete(cacheKey);
+    }
+    this._lastUpdateTime.delete(robotId);
+  }
+
+  /**
+   * Clear all caches
+   */
+  clearAllCaches() {
+    this._dimensionCache.clear();
+    this._endEffectorCache.clear();
+    this._lastUpdateTime.clear();
+  }
+
+  /**
+   * Dispose resources (OPTIMIZED)
    */
   dispose() {
+    // Remove all tools
     for (const [robotId] of this.attachedTools) {
       this.removeTool(robotId);
     }
+    
+    // Clear all caches
+    this.clearAllCaches();
+    
+    // Clear other data
     this.attachedTools.clear();
     this.availableTools = [];
     this.robotRegistry.clear();
+    this._notFoundWarnings.clear();
   }
 }
 

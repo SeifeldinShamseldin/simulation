@@ -677,8 +677,26 @@ export const JointProvider = ({ children }) => {
       }
     };
 
+    // Handle TCP tool attachment events
+    const handleTCPToolAttached = (data) => {
+      const { robotId, toolName, originalToolName, toolDimensions } = data;
+      debugJoint(`TCP tool attached to ${robotId}:`, {
+        toolName,
+        originalToolName,
+        toolDimensions
+      });
+      
+      // Force TCP recalculation after tool attachment
+      EventBus.emit('tcp:force-recalculate', { robotId });
+    };
+
     const unsubscribeJoints = EventBus.on('ik:joint-values-calculated', handleIKJointValues);
-    return () => unsubscribeJoints();
+    const unsubscribeTCP = EventBus.on('tcp:tool-attached', handleTCPToolAttached);
+    
+    return () => {
+      unsubscribeJoints();
+      unsubscribeTCP();
+    };
   }, [animateToJointValues, setRobotJointValues_Internal]);
 
   // Handle high-frequency animation frame updates

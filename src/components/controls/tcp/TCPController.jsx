@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import { useTCP } from '../../../contexts/hooks/useTCP';
 import EventBus from '../../../utils/EventBus';
 
-const TCPController = ({ viewerRef }) => {
+const TCPController = React.memo(({ viewerRef }) => {
   const { activeRobotId, isReady } = useRobotControl();
   const {
     robotId,
@@ -37,6 +37,18 @@ const TCPController = ({ viewerRef }) => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [lastUpdateTime, setLastUpdateTime] = useState(null);
   const updateTimeoutRef = useRef(null);
+  const transformTimeoutRef = useRef(null);
+
+  // Memoized values for performance
+  const currentToolInfo = useMemo(() => 
+    currentTool ? getToolById(currentTool.toolId) : null, 
+    [currentTool, getToolById]
+  );
+
+  const isDisabled = useMemo(() => 
+    isLoading || !isInitialized || isUpdating, 
+    [isLoading, isInitialized, isUpdating]
+  );
 
   // Sync local transforms with actual tool transforms
   useEffect(() => {
@@ -80,11 +92,14 @@ const TCPController = ({ viewerRef }) => {
       if (updateTimeoutRef.current) {
         clearTimeout(updateTimeoutRef.current);
       }
+      if (transformTimeoutRef.current) {
+        clearTimeout(transformTimeoutRef.current);
+      }
     };
   }, [activeRobotId]);
 
-  // Handle tool selection
-  const handleToolSelect = async (toolId) => {
+  // Optimized event handlers with useCallback
+  const handleToolSelect = useCallback(async (toolId) => {
     try {
       setIsUpdating(true);
       await attachTool(toolId);
@@ -93,10 +108,9 @@ const TCPController = ({ viewerRef }) => {
     } finally {
       setTimeout(() => setIsUpdating(false), 500);
     }
-  };
+  }, [attachTool]);
 
-  // Handle tool removal
-  const handleRemoveTool = async () => {
+  const handleRemoveTool = useCallback(async () => {
     try {
       setIsUpdating(true);
       await removeTool();
@@ -105,17 +119,16 @@ const TCPController = ({ viewerRef }) => {
     } finally {
       setTimeout(() => setIsUpdating(false), 500);
     }
-  };
+  }, [removeTool]);
 
-  // Handle toggle visibility
-  const handleToggleVisibility = () => {
+  const handleToggleVisibility = useCallback(() => {
     setIsUpdating(true);
     setToolVisibility(!isToolVisible);
     setTimeout(() => setIsUpdating(false), 200);
-  };
+  }, [setToolVisibility, isToolVisible]);
 
-  // Handle transform changes
-  const handleTransformChange = (type, axis, value) => {
+  // Debounced transform change handler
+  const handleTransformChange = useCallback((type, axis, value) => {
     const newTransforms = {
       ...localTransforms,
       [type]: {
@@ -126,26 +139,27 @@ const TCPController = ({ viewerRef }) => {
     
     setLocalTransforms(newTransforms);
     
-    // Apply immediately
-    setToolTransform(newTransforms);
-  };
+    // Debounce the actual transform application
+    if (transformTimeoutRef.current) {
+      clearTimeout(transformTimeoutRef.current);
+    }
+    
+    transformTimeoutRef.current = setTimeout(() => {
+      setToolTransform(newTransforms);
+    }, 100); // 100ms debounce for transform changes
+  }, [localTransforms, setToolTransform]);
 
-  // Handle reset transforms
-  const handleResetTransforms = () => {
+  const handleResetTransforms = useCallback(() => {
     setIsUpdating(true);
     resetTransforms();
     setTimeout(() => setIsUpdating(false), 200);
-  };
+  }, [resetTransforms]);
 
-  // Handle quick scale
-  const handleQuickScale = (scale) => {
+  const handleQuickScale = useCallback((scale) => {
     setIsUpdating(true);
     scaleUniform(scale);
     setTimeout(() => setIsUpdating(false), 200);
-  };
-
-  // Get current tool info
-  const currentToolInfo = currentTool ? getToolById(currentTool.toolId) : null;
+  }, [scaleUniform]);
 
   if (!isReady) {
     return (
@@ -194,30 +208,42 @@ const TCPController = ({ viewerRef }) => {
       )}
 
       {/* Current Tool Status */}
-      {hasTool && (
+      {hasTool && currentTool && (
         <div className={`controls-card controls-mb-3 ${isUpdating ? 'controls-updating' : ''}`}>
           <div className="controls-card-body">
             <h5 className="controls-h5">Current Tool</h5>
             <div className="controls-d-flex controls-justify-content-between controls-align-items-center">
               <div>
-                <strong>{currentToolInfo?.name || currentTool.toolId}</strong>
+                <strong>tcp</strong>
+                {currentToolInfo && (
+                  <small className="controls-text-muted controls-ml-2">
+                    (Original: {currentToolInfo.name})
+                  </small>
+                )}
                 <br />
                 <small className="controls-text-muted">
                   Type: {currentToolInfo?.type || 'Unknown'}
+                  {currentTool.dimensions && (
+                    <span className="controls-ml-2">
+                      • X: {(currentTool.dimensions.x * 1000).toFixed(1)}mm, 
+                      Y: {(currentTool.dimensions.y * 1000).toFixed(1)}mm, 
+                      Z: {(currentTool.dimensions.z * 1000).toFixed(1)}mm
+                    </span>
+                  )}
                 </small>
               </div>
               <div className="controls-btn-group">
                 <button
                   className={`controls-btn controls-btn-sm ${isToolVisible ? 'controls-btn-success' : 'controls-btn-secondary'}`}
                   onClick={handleToggleVisibility}
-                  disabled={isLoading || !isInitialized}
+                  disabled={isDisabled}
                 >
                   {isToolVisible ? 'Hide' : 'Show'}
                 </button>
                 <button
                   className="controls-btn controls-btn-sm controls-btn-danger"
                   onClick={handleRemoveTool}
-                  disabled={isLoading || !isInitialized}
+                  disabled={isDisabled}
                 >
                   Remove
                 </button>
@@ -236,7 +262,7 @@ const TCPController = ({ viewerRef }) => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={handleResetTransforms}
-                disabled={isLoading || !isInitialized}
+                disabled={isDisabled}
               >
                 Reset
               </button>
@@ -254,7 +280,7 @@ const TCPController = ({ viewerRef }) => {
                     value={localTransforms.position.x}
                     onChange={(e) => handleTransformChange('position', 'x', e.target.value)}
                     step="0.001"
-                    disabled={isLoading || !isInitialized}
+                    disabled={isDisabled}
                   />
                 </div>
                 <div>
@@ -265,7 +291,7 @@ const TCPController = ({ viewerRef }) => {
                     value={localTransforms.position.y}
                     onChange={(e) => handleTransformChange('position', 'y', e.target.value)}
                     step="0.001"
-                    disabled={isLoading || !isInitialized}
+                    disabled={isDisabled}
                   />
                 </div>
                 <div>
@@ -276,7 +302,7 @@ const TCPController = ({ viewerRef }) => {
                     value={localTransforms.position.z}
                     onChange={(e) => handleTransformChange('position', 'z', e.target.value)}
                     step="0.001"
-                    disabled={isLoading || !isInitialized}
+                    disabled={isDisabled}
                   />
                 </div>
               </div>
@@ -294,7 +320,7 @@ const TCPController = ({ viewerRef }) => {
                     value={(localTransforms.rotation.x * 180 / Math.PI).toFixed(1)}
                     onChange={(e) => handleTransformChange('rotation', 'x', parseFloat(e.target.value) * Math.PI / 180)}
                     step="1"
-                    disabled={isLoading || !isInitialized}
+                    disabled={isDisabled}
                   />
                 </div>
                 <div>
@@ -305,7 +331,7 @@ const TCPController = ({ viewerRef }) => {
                     value={(localTransforms.rotation.y * 180 / Math.PI).toFixed(1)}
                     onChange={(e) => handleTransformChange('rotation', 'y', parseFloat(e.target.value) * Math.PI / 180)}
                     step="1"
-                    disabled={isLoading || !isInitialized}
+                    disabled={isDisabled}
                   />
                 </div>
                 <div>
@@ -316,7 +342,7 @@ const TCPController = ({ viewerRef }) => {
                     value={(localTransforms.rotation.z * 180 / Math.PI).toFixed(1)}
                     onChange={(e) => handleTransformChange('rotation', 'z', parseFloat(e.target.value) * Math.PI / 180)}
                     step="1"
-                    disabled={isLoading || !isInitialized}
+                    disabled={isDisabled}
                   />
                 </div>
               </div>
@@ -335,7 +361,7 @@ const TCPController = ({ viewerRef }) => {
                     onChange={(e) => handleTransformChange('scale', 'x', e.target.value)}
                     step="0.1"
                     min="0.1"
-                    disabled={isLoading || !isInitialized}
+                    disabled={isDisabled}
                   />
                 </div>
                 <div>
@@ -347,7 +373,7 @@ const TCPController = ({ viewerRef }) => {
                     onChange={(e) => handleTransformChange('scale', 'y', e.target.value)}
                     step="0.1"
                     min="0.1"
-                    disabled={isLoading || !isInitialized}
+                    disabled={isDisabled}
                   />
                 </div>
                 <div>
@@ -359,7 +385,7 @@ const TCPController = ({ viewerRef }) => {
                     onChange={(e) => handleTransformChange('scale', 'z', e.target.value)}
                     step="0.1"
                     min="0.1"
-                    disabled={isLoading || !isInitialized}
+                    disabled={isDisabled}
                   />
                 </div>
               </div>
@@ -371,21 +397,21 @@ const TCPController = ({ viewerRef }) => {
                 <button
                   className="controls-btn controls-btn-sm controls-btn-outline-secondary"
                   onClick={() => handleQuickScale(0.5)}
-                  disabled={isLoading || !isInitialized}
+                  disabled={isDisabled}
                 >
                   0.5x
                 </button>
                 <button
                   className="controls-btn controls-btn-sm controls-btn-outline-secondary"
                   onClick={() => handleQuickScale(1)}
-                  disabled={isLoading || !isInitialized}
+                  disabled={isDisabled}
                 >
                   1x
                 </button>
                 <button
                   className="controls-btn controls-btn-sm controls-btn-outline-secondary"
                   onClick={() => handleQuickScale(2)}
-                  disabled={isLoading || !isInitialized}
+                  disabled={isDisabled}
                 >
                   2x
                 </button>
@@ -423,6 +449,8 @@ const TCPController = ({ viewerRef }) => {
                   <h6 className="controls-list-item-title">{tool.name}</h6>
                   <div className="controls-text-muted controls-small">
                     Type: {tool.type} | Files: {tool.fileCount}
+                    <br />
+                    Will be named "tcp" when attached
                   </div>
                   {tool.description && (
                     <div className="controls-text-muted controls-small">
@@ -434,7 +462,7 @@ const TCPController = ({ viewerRef }) => {
                   <button
                     className={`controls-btn controls-btn-sm ${currentTool?.toolId === tool.id ? 'controls-btn-success' : 'controls-btn-primary'}`}
                     onClick={() => currentTool?.toolId === tool.id ? null : handleToolSelect(tool.id)}
-                    disabled={isLoading || currentTool?.toolId === tool.id || !isInitialized}
+                    disabled={isDisabled || currentTool?.toolId === tool.id}
                   >
                     {currentTool?.toolId === tool.id ? 'Active' : 'Attach'}
                   </button>
@@ -449,7 +477,7 @@ const TCPController = ({ viewerRef }) => {
       <button
         className="controls-btn controls-btn-secondary controls-btn-block"
         onClick={refreshTools}
-        disabled={isLoading || !isInitialized}
+        disabled={isDisabled}
       >
         Refresh Tools
       </button>
@@ -457,16 +485,17 @@ const TCPController = ({ viewerRef }) => {
       {/* Tool Info */}
       <div className="controls-mt-3">
         <small className="controls-text-muted">
-          TCP tools are automatically attached to the robot's end effector.
+          TCP tools are automatically attached to the robot's end effector and named "tcp".
+          Tool dimensions are calculated from actual geometry for accurate positioning.
           Place tool files in <code>/public/tcp/</code> directory.
           {!isInitialized && <br />}
           {!isInitialized && <strong>Waiting for TCP Manager initialization...</strong>}
           {hasTool && <br />}
-          {hasTool && <strong>Tool transforms update IK and end effector tracking in real-time.</strong>}
+          {hasTool && <strong>Tool transforms update IK and end effector tracking in real-time with accurate dimensions.</strong>}
         </small>
       </div>
     </div>
   );
-};
+});
 
 export default TCPController; 
