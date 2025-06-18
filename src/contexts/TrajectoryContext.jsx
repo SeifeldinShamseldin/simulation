@@ -4,7 +4,6 @@ import { useJointContext } from './JointContext';
 import EventBus from '../utils/EventBus';
 import { useRobotManager } from './hooks/useRobotManager';
 import { TrapezoidalProfile } from '../utils/motionProfiles'; // Add motion profiles import
-import useAnimate from './hooks/useAnimate';
 
 const TrajectoryContext = createContext(null);
 
@@ -12,7 +11,6 @@ export const TrajectoryProvider = ({ children }) => {
   // Only need JointContext for playback
   const { setJointValues, isRobotAnimating } = useJointContext();
   const { getRobotById, categories } = useRobotManager();
-  const { isAnimating, animationProgress, stopAnimation, animateToValues } = useAnimate();
   
   // ========== STATE ==========
   const [recordingStates, setRecordingStates] = useState(new Map()); // Map<robotId, recordingState>

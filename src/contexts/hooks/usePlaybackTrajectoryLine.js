@@ -3,7 +3,6 @@ import * as THREE from 'three';
 import { useViewer } from '../ViewerContext';
 import { useTrajectory } from './useTrajectory';
 import EventBus from '../../utils/EventBus';
-import useAnimate from './useAnimate';
 
 export const usePlaybackTrajectoryLine = (robotId = null) => {
   const { isViewerReady, getScene } = useViewer();
@@ -15,7 +14,6 @@ export const usePlaybackTrajectoryLine = (robotId = null) => {
   const activePlaybackRef = useRef(null);
   const storedTrajectoryRef = useRef(null);
   const activeRobotIdRef = useRef(null);
-  const { isAnimating, animationProgress } = useAnimate();
 
   useEffect(() => {
     if (!isViewerReady) return;

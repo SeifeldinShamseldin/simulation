@@ -17,8 +17,17 @@ export const JointProvider = ({ children }) => {
   // State for all robots' joint data
   const [robotJoints, setRobotJoints] = useState(new Map());
   const [robotJointValues, setRobotJointValues] = useState(new Map());
+  const [isAnimating, setIsAnimating] = useState(new Map());
+  const [animationProgress, setAnimationProgress] = useState(new Map());
+  
+  // Refs for animation and robot management
   const robotRegistryRef = useRef(new Map());
+  const animationFrameRef = useRef(new Map());
   const robotManagerRef = useRef(null);
+  const animationStartTimeRef = useRef(null);
+  const animationTargetValuesRef = useRef(null);
+  const animationOptionsRef = useRef(null);
+  const animationResolveRef = useRef(null);
 
   // Initialize robot manager reference
   useEffect(() => {
@@ -27,6 +36,27 @@ export const JointProvider = ({ children }) => {
       debugJoint('Robot manager initialized:', !!robotManagerRef.current);
     }
   }, [isViewerReady, getRobotManager]);
+
+  // Stop animation for robot (defined early to avoid hoisting issues)
+  const stopAnimation = useCallback((robotId) => {
+    const frameId = animationFrameRef.current.get(robotId);
+    if (frameId) {
+      cancelAnimationFrame(frameId);
+      animationFrameRef.current.delete(robotId);
+      debugAnimation(`Cancelled animation frame for ${robotId}`);
+    }
+    
+    setIsAnimating(prev => new Map(prev).set(robotId, false));
+    setAnimationProgress(prev => new Map(prev).set(robotId, 0));
+    
+    debugAnimation(`Stopped animation for ${robotId}`);
+    
+    // Notify IK that animation was stopped
+    EventBus.emit('ik:animation-complete', {
+      robotId,
+      success: false // Stopped, not completed
+    });
+  }, []);
 
   // 🚨 CRITICAL FIX: Enhanced robot finder with multiple fallback methods
   const findRobotWithFallbacks = useCallback((robotId) => {
@@ -308,6 +338,7 @@ export const JointProvider = ({ children }) => {
       // Store joint info and values
       setRobotJoints(prev => new Map(prev).set(targetRobotId, joints));
       setRobotJointValues(prev => new Map(prev).set(targetRobotId, values));
+      setIsAnimating(prev => new Map(prev).set(targetRobotId, false));
       
       debugJoint(`Extracted ${joints.length} joints for ${targetRobotId}`);
       debugJoint(`Joint values:`, values);
@@ -337,6 +368,9 @@ export const JointProvider = ({ children }) => {
       
       debugJoint(`Robot removed: ${targetRobotId}`);
       
+      // Stop any ongoing animation
+      stopAnimation(targetRobotId);
+      
       // Clean up robot data
       robotRegistryRef.current.delete(targetRobotId);
       setRobotJoints(prev => {
@@ -345,6 +379,11 @@ export const JointProvider = ({ children }) => {
         return newMap;
       });
       setRobotJointValues(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(targetRobotId);
+        return newMap;
+      });
+      setIsAnimating(prev => {
         const newMap = new Map(prev);
         newMap.delete(targetRobotId);
         return newMap;
@@ -360,7 +399,372 @@ export const JointProvider = ({ children }) => {
       unsubscribeRegistered();
       unsubscribeRemoved();
     };
-  }, []);
+  }, [stopAnimation, robotJoints]);
+
+  // Animate to target joint values with FIXED current value detection
+  const animateToJointValues = useCallback(async (robotId, targetValues, options = {}) => {
+    const {
+      duration = 1000,
+      tolerance = 0.001,
+      maxDuration = 10000,
+      animationSpeed = 1.0,
+      onProgress = null,
+      motionProfile = 'trapezoidal', // New: 'trapezoidal' or 's-curve'
+      jointConstraints = {}, // New: per-joint velocity/acceleration limits
+      // Default constraints for all joints if not specified
+      defaultConstraints = {
+        maxVelocity: 2.0,        // rad/s or deg/s depending on your units
+        maxAcceleration: 4.0,    // rad/s² or deg/s²
+        maxJerk: 20.0           // rad/s³ (for s-curve only)
+      }
+    } = options;
+    
+    // Skip if robot is not ready
+    if (!isRobotReady(robotId)) {
+      debugJoint(`Skipping animation for robot ${robotId} - not ready`);
+      return Promise.resolve({ success: false, error: 'Robot not ready' });
+    }
+
+    return new Promise((resolve) => {
+      debugJoint(`Starting motion profile animation for ${robotId}`);
+      
+      // Cancel any existing animation for this robot
+      const existingFrameId = animationFrameRef.current.get(robotId);
+      if (existingFrameId) {
+        cancelAnimationFrame(existingFrameId);
+        debugJoint(`Cancelled existing animation for ${robotId}`);
+      }
+      
+      // Get current joint values
+      const currentValues = getRobotJointValues(robotId);
+      debugJoint(`Current joint values:`, currentValues);
+      
+      const startTime = Date.now();
+      const robot = findRobotWithFallbacks(robotId);
+      
+      // Build joint constraints map
+      const jointLimits = {};
+      Object.keys(targetValues).forEach(jointName => {
+        jointLimits[jointName] = jointConstraints[jointName] || defaultConstraints;
+      });
+      
+      // Create multi-axis profiler
+      const profiler = new MultiAxisProfiler({ profileType: motionProfile });
+      
+      // Calculate synchronized motion profiles for all joints
+      const profileData = profiler.calculateSynchronizedProfiles(
+        currentValues,
+        targetValues,
+        jointLimits
+      );
+      
+      debugJoint(`Motion profile calculated:`, {
+        type: motionProfile,
+        totalTime: profileData.totalTime,
+        joints: Object.keys(profileData.profiles)
+      });
+      
+      // Calculate total error at start
+      let initialError = 0;
+      Object.keys(targetValues).forEach(jointName => {
+        const start = currentValues[jointName] || 0;
+        const end = targetValues[jointName];
+        const diff = end - start;
+        initialError += diff * diff;
+      });
+      initialError = Math.sqrt(initialError);
+      
+      // Set animation state
+      setIsAnimating(prev => new Map(prev).set(robotId, true));
+      debugJoint(`Set isAnimating=true for ${robotId}`);
+      
+      // Animation loop using motion profiles
+      const animate = () => {
+        const robot = findRobotWithFallbacks(robotId);
+        
+        if (!robot || !robot.setJointValues) {
+          debugJoint(`Robot ${robotId} not ready for animation`);
+          stopAnimation(robotId);
+          resolve({
+            success: false,
+            error: 'Robot not ready for animation'
+          });
+          return;
+        }
+        
+        const elapsed = (Date.now() - startTime) / 1000; // Convert to seconds
+        const scaledElapsed = elapsed * animationSpeed; // Apply animation speed
+        
+        // Get interpolated joint values from motion profile
+        const interpolatedValues = profiler.getJointValues(scaledElapsed, profileData);
+        const progress = profiler.getProgress(scaledElapsed, profileData);
+        
+        // Calculate current error
+        let currentError = 0;
+        let maxJointError = 0;
+        
+        Object.keys(targetValues).forEach(jointName => {
+          const current = interpolatedValues[jointName];
+          const target = targetValues[jointName];
+          const diff = target - current;
+          currentError += diff * diff;
+          maxJointError = Math.max(maxJointError, Math.abs(diff));
+        });
+        currentError = Math.sqrt(currentError);
+        
+        // Apply to robot
+        const success = setRobotJointValues_Internal(robotId, interpolatedValues);
+        
+        if (success) {
+          // Update local state
+          setRobotJointValues(prev => {
+            const newMap = new Map(prev);
+            const robotValues = newMap.get(robotId) || {};
+            newMap.set(robotId, { ...robotValues, ...interpolatedValues });
+            return newMap;
+          });
+          
+          // Emit joint change event for trajectory recording
+          EventBus.emit('robot:joints-changed', {
+            robotId,
+            robotName: robotId,
+            values: interpolatedValues,
+            source: 'motion-profile-animation',
+            progress,
+            profileType: motionProfile
+          });
+        }
+        
+        // Update animation progress
+        setAnimationProgress(prev => new Map(prev).set(robotId, progress));
+        
+        // Call progress callback if provided
+        if (onProgress) {
+          // Get current velocities for each joint
+          const velocities = {};
+          Object.keys(profileData.profiles).forEach(jointName => {
+            const profile = profileData.profiles[jointName];
+            if (profile.profiler) {
+              velocities[jointName] = profile.profiler.getVelocity(
+                scaledElapsed, 
+                profile, 
+                profile.distance
+              );
+            }
+          });
+          
+          onProgress({
+            progress,
+            currentError,
+            maxJointError,
+            tolerance,
+            elapsed: elapsed * 1000, // Back to milliseconds
+            velocities,
+            profileType: motionProfile
+          });
+        }
+        
+        // Check completion conditions
+        const profileComplete = progress >= 1;
+        const withinTolerance = currentError <= tolerance;
+        const timeExpired = elapsed * 1000 >= maxDuration;
+        const shouldStop = profileComplete || withinTolerance || timeExpired;
+        
+        if (shouldStop) {
+          // If profile is complete, apply exact target values
+          if (profileComplete || withinTolerance) {
+            debugJoint(`Motion profile complete, applying exact values`);
+            setRobotJointValues_Internal(robotId, targetValues);
+            setRobotJointValues(prev => {
+              const newMap = new Map(prev);
+              newMap.set(robotId, targetValues);
+              return newMap;
+            });
+            
+            // Final joint change event with exact values
+            EventBus.emit('robot:joints-changed', {
+              robotId,
+              robotName: robotId,
+              values: targetValues,
+              source: 'motion-profile-complete',
+              progress: 1
+            });
+          }
+          
+          // Animation complete
+          debugJoint(`Animation complete for ${robotId}. Profile time: ${profileData.totalTime}s`);
+          
+          // Clean up animation state
+          setIsAnimating(prev => new Map(prev).set(robotId, false));
+          setAnimationProgress(prev => new Map(prev).set(robotId, 0));
+          animationFrameRef.current.delete(robotId);
+          
+          // Notify IK that animation is complete
+          EventBus.emit('ik:animation-complete', {
+            robotId,
+            success: true,
+            withinTolerance,
+            finalError: currentError,
+            maxJointError,
+            duration: elapsed * 1000,
+            profileType: motionProfile
+          });
+          
+          resolve({
+            success: true,
+            withinTolerance,
+            finalError: currentError,
+            maxJointError,
+            duration: elapsed * 1000,
+            profileType: motionProfile
+          });
+        } else {
+          // Schedule next frame
+          const frameId = requestAnimationFrame(animate);
+          animationFrameRef.current.set(robotId, frameId);
+        }
+      };
+      
+      // Start animation
+      const frameId = requestAnimationFrame(animate);
+      animationFrameRef.current.set(robotId, frameId);
+    });
+  }, [findRobotWithFallbacks, getRobotJointValues, setRobotJointValues_Internal, isRobotReady, stopAnimation]);
+
+  // Listen for IK calculated joint values and handle animation
+  useEffect(() => {
+    const handleIKJointValues = async (data) => {
+      const { robotId, jointValues, animate, duration = 1000 } = data;
+      
+      debugJoint(`Received IK joint values for ${robotId}:`, jointValues);
+      
+      // CRITICAL: Emit joint change event BEFORE animation for trajectory recording
+      EventBus.emit('robot:joints-changed', {
+        robotId,
+        robotName: robotId,
+        values: jointValues,
+        source: 'ik' // Mark source for debugging
+      });
+      
+      if (animate) {
+        await animateToJointValues(robotId, jointValues, duration);
+      } else {
+        // Apply immediately
+        const success = setRobotJointValues_Internal(robotId, jointValues);
+        if (success) {
+          // Update local state
+          setRobotJointValues(prev => {
+            const newMap = new Map(prev);
+            const currentValues = newMap.get(robotId) || {};
+            newMap.set(robotId, { ...currentValues, ...jointValues });
+            return newMap;
+          });
+          
+          // Emit again after successful application
+          EventBus.emit('robot:joints-changed', {
+            robotId,
+            robotName: robotId,
+            values: jointValues,
+            source: 'ik-applied'
+          });
+        }
+        
+        // Notify IK immediately for non-animated moves
+        EventBus.emit('ik:animation-complete', {
+          robotId,
+          success: true
+        });
+      }
+    };
+
+    // Handle TCP tool attachment events
+    const handleTCPToolAttached = (data) => {
+      const { robotId, toolName, originalToolName, toolDimensions } = data;
+      debugJoint(`TCP tool attached to ${robotId}:`, {
+        toolName,
+        originalToolName,
+        toolDimensions
+      });
+      
+      // Force TCP recalculation after tool attachment
+      EventBus.emit('tcp:force-recalculate', { robotId });
+    };
+
+    const unsubscribeJoints = EventBus.on('ik:joint-values-calculated', handleIKJointValues);
+    const unsubscribeTCP = EventBus.on('tcp:tool-attached', handleTCPToolAttached);
+    
+    return () => {
+      unsubscribeJoints();
+      unsubscribeTCP();
+    };
+  }, [animateToJointValues, setRobotJointValues_Internal]);
+
+  // Handle high-frequency animation frame updates
+  useEffect(() => {
+    let animationFrameId = null;
+    let lastFrameTime = 0;
+    const targetFPS = 60;
+    const frameInterval = 1000 / targetFPS;
+    const pendingFrames = new Map(); // Store pending frames per robot
+
+    const handleAnimationFrame = (data) => {
+      const { robotId, jointValues } = data;
+      // Store the frame data
+      pendingFrames.set(robotId, { robotId, jointValues });
+    };
+
+    const processFrame = (timestamp) => {
+      if (!lastFrameTime) lastFrameTime = timestamp;
+      
+      const elapsed = timestamp - lastFrameTime;
+      
+      if (elapsed >= frameInterval) {
+        // Process all pending frames
+        pendingFrames.forEach((frameData) => {
+          const { robotId, jointValues } = frameData;
+          
+          // Skip if robot is not ready
+          if (!isRobotReady(robotId)) {
+            debugJoint(`Skipping animation frame for robot ${robotId} - not ready`);
+            return;
+          }
+          
+          // Apply joint values directly without animation
+          const success = setRobotJointValues_Internal(robotId, jointValues);
+          
+          if (success) {
+            // Update local state
+            setRobotJointValues(prev => {
+              const newMap = new Map(prev);
+              const robotValues = newMap.get(robotId) || {};
+              newMap.set(robotId, { ...robotValues, ...jointValues });
+              return newMap;
+            });
+          }
+        });
+        
+        // Clear processed frames
+        pendingFrames.clear();
+        lastFrameTime = timestamp;
+      }
+      
+      animationFrameId = requestAnimationFrame(processFrame);
+    };
+
+    // Start the animation loop
+    animationFrameId = requestAnimationFrame(processFrame);
+
+    // Subscribe to animation frame events
+    const unsubscribe = EventBus.on('animation-frame', handleAnimationFrame);
+
+    // Cleanup
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+      unsubscribe();
+    };
+  }, [isRobotReady, setRobotJointValues_Internal]);
 
   // Update the setJointValue method (around line 200)
   const setJointValue = useCallback((robotId, jointName, value) => {
@@ -470,6 +874,15 @@ export const JointProvider = ({ children }) => {
     }
     
     try {
+      // Stop any ongoing animation first
+      const frameId = animationFrameRef.current.get(robotId);
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+        animationFrameRef.current.delete(robotId);
+        setIsAnimating(prev => new Map(prev).set(robotId, false));
+        debugJoint(`Stopped animation before reset for ${robotId}`);
+      }
+      
       // Get all joints and reset to 0
       const joints = robotJoints.get(robotId) || [];
       const resetValues = {};
@@ -515,10 +928,25 @@ export const JointProvider = ({ children }) => {
     return joint ? joint.limits : {};
   }, [robotJoints]);
 
+  // Check if robot is animating
+  const isRobotAnimating = useCallback((robotId) => {
+    return isAnimating.get(robotId) || false;
+  }, [isAnimating]);
+
+  // Get animation progress for robot
+  const getAnimationProgress = useCallback((robotId) => {
+    return animationProgress.get(robotId) || 0;
+  }, [animationProgress]);
+
   // Cleanup
   useEffect(() => {
     return () => {
       // Cancel all animations on unmount
+      animationFrameRef.current.forEach((frameId, robotId) => {
+        cancelAnimationFrame(frameId);
+        debugJoint(`Cleanup: cancelled animation for ${robotId}`);
+      });
+      animationFrameRef.current.clear();
       robotRegistryRef.current.clear();
     };
   }, []);
@@ -528,32 +956,36 @@ export const JointProvider = ({ children }) => {
     // State
     robotJoints,
     robotJointValues,
+    isAnimating,
+    animationProgress,
+    
     // Methods
     setJointValue,
     setJointValues,
     resetJoints,
     getJointInfo,
     getJointValues,
-    getJointLimits
+    getJointLimits,
+    isRobotAnimating,
+    getAnimationProgress,
+    stopAnimation,
+    animateToJointValues
   }), [
     robotJoints,
     robotJointValues,
+    isAnimating,
+    animationProgress,
     setJointValue,
     setJointValues,
     resetJoints,
     getJointInfo,
     getJointValues,
-    getJointLimits
+    getJointLimits,
+    isRobotAnimating,
+    getAnimationProgress,
+    stopAnimation,
+    animateToJointValues
   ]);
-
-  useEffect(() => {
-    const handleIKJointValues = (data) => {
-      const { robotId, jointValues } = data;
-      setJointValues(robotId, jointValues);
-    };
-    const unsubscribe = EventBus.on('ik:joint-values-calculated', handleIKJointValues);
-    return () => unsubscribe();
-  }, [setJointValues]);
 
   return (
     <JointContext.Provider value={value}>

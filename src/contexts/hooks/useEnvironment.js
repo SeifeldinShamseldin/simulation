@@ -1,7 +1,6 @@
 // src/contexts/hooks/useEnvironment.js
 import { useCallback, useMemo } from 'react';
 import { useEnvironmentContext } from '../EnvironmentContext';
-import useAnimate from './useAnimate';
 
 // Debug utility to reduce console pollution
 const DEBUG = process.env.NODE_ENV === 'development';
@@ -9,7 +8,6 @@ const log = DEBUG ? console.log : () => {};
 
 export const useEnvironment = () => {
   const context = useEnvironmentContext();
-  const { isAnimating, animationProgress } = useAnimate();
   
   // ========== MEMOIZED COMPUTED PROPERTIES (Only expensive computations) ==========
   const computedProperties = useMemo(() => ({

@@ -5,7 +5,6 @@ import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import { useRobotManager } from '../../../contexts/hooks/useRobotManager';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
 import EventBus from '../../../utils/EventBus';
-import useAnimate from '../../../contexts/hooks/useAnimate';
 
 /**
  * TrajectoryViewer component - UI for trajectory recording, playback, and management
@@ -50,8 +49,6 @@ const TrajectoryViewer = ({ viewerRef }) => {
     isLoading,
     clearError,
   } = useTrajectory(activeRobotId);
-
-  const { isAnimating, animationProgress } = useAnimate();
 
   // ========== UI-ONLY STATE ==========
   const [selectedTrajectory, setSelectedTrajectory] = useState(null);

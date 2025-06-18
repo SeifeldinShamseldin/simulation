@@ -5,7 +5,6 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useTrajectoryVisualization } from '../../../contexts/hooks/useTrajectory';
 import { useTCP } from '../../../contexts/hooks/useTCP';
-import useAnimate from '../../../contexts/hooks/useAnimate';
 
 const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
   // Use hooks for data
@@ -26,7 +25,6 @@ const LiveTrajectoryGraph = ({ isOpen, onClose, activeRobotId }) => {
   } = useTrajectoryVisualization(activeRobotId);
   
   const { currentEndEffectorPoint, hasValidEndEffector, isUsingTCP } = useTCP(activeRobotId);
-  const { isAnimating, animationProgress } = useAnimate();
 
   // 3D Scene refs
   const containerRef = useRef(null);

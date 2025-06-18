@@ -3,11 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useViewer as useViewerBase } from '../ViewerContext'; // Import useViewer, not useViewerContext
 import { useRobotManager } from './useRobotManager';
 import EventBus from '../../utils/EventBus';
-import useAnimate from './useAnimate';
 
 // ========== MAIN HOOK (re-export the base hook) ==========
 export const useViewer = () => {
-  const { isAnimating, animationProgress } = useAnimate();
   return useViewerBase();
 };
 
