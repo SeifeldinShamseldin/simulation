@@ -1,19 +1,19 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useViewer } from '../ViewerContext';
-import { useTrajectoryContext } from '../TrajectoryContext';
+import { useTrajectory } from './useTrajectory';
 import EventBus from '../../utils/EventBus';
 
-export const usePlaybackTrajectoryLine = () => {
+export const usePlaybackTrajectoryLine = (robotId = null) => {
   const { isViewerReady, getScene } = useViewer();
-  const { loadTrajectoryFromFile, createTrajectoryVisualization } = useTrajectoryContext();
+  const { loadTrajectory, createTrajectoryVisualization, getRobotInfo } = useTrajectory(robotId);
   const lineRef = useRef(null);
   const waypointsRef = useRef([]);
-  const orientationFramesRef = useRef([]); // NEW: Store orientation frames
+  const orientationFramesRef = useRef([]);
   const currentMarkerRef = useRef(null);
   const activePlaybackRef = useRef(null);
-  const storedTrajectoryRef = useRef(null); // Store the full trajectory data
-  const activeRobotIdRef = useRef(null); // NEW: Store the robotId of the currently active trajectory
+  const storedTrajectoryRef = useRef(null);
+  const activeRobotIdRef = useRef(null);
 
   useEffect(() => {
     if (!isViewerReady) return;
@@ -21,26 +21,17 @@ export const usePlaybackTrajectoryLine = () => {
     const scene = getScene();
     if (!scene) return;
 
-    // Listen for playback start and load full trajectory - SIMPLIFIED
+    // Listen for playback start and load full trajectory
     const handlePlaybackStarted = async (data) => {
-      const { trajectoryName } = data; // robotId is handled in handleTrajectoryDataAvailable
-      console.log('[usePlaybackTrajectoryLine] Playback started:', trajectoryName);
-      // No longer setting active refs or cleaning up here
-      // This event primarily indicates playback has begun, visualization is handled when data is loaded
-    };
-
-    // Listen for the trajectory data when it's loaded for playback
-    const handleTrajectoryDataAvailable = async (data) => {
-      const { trajectory, robotId } = data;
-      console.log(`[usePlaybackTrajectoryLine] handleTrajectoryDataAvailable - received robotId: ${robotId}`);
-
-      // NEW: Set active robot ID and playback ref immediately
+      const { robotId, trajectoryName, hadPreAnimation, frameCount } = data;
+      console.log('[usePlaybackTrajectoryLine] Playback started - Full event data:', data);
+      console.log('[usePlaybackTrajectoryLine] Extracted values:', { robotId, trajectoryName, hadPreAnimation, frameCount });
+      
+      // Set active robot ID and playback ref
       const prevActiveRobotId = activeRobotIdRef.current;
       if (prevActiveRobotId && prevActiveRobotId !== robotId) {
-        console.log(`[usePlaybackTrajectoryLine] Cleaning up previous robot (${prevActiveRobotId}) visualization for new robot (${robotId})`);
         cleanup(prevActiveRobotId);
       } else if (!prevActiveRobotId && getScene()) {
-        console.log(`[usePlaybackTrajectoryLine] No previous active robot, performing general cleanup.`);
         const scene = getScene();
         const allVisObjects = scene.children.filter(child =>
           child.name.startsWith('playback_trajectory_line_') ||
@@ -52,7 +43,7 @@ export const usePlaybackTrajectoryLine = () => {
           scene.remove(obj);
           if (obj.geometry) obj.geometry.dispose();
           if (obj.material) obj.material.dispose();
-           if (obj.isGroup) {
+          if (obj.isGroup) {
             obj.children.forEach(child => {
               if (child.geometry) child.geometry.dispose();
               if (child.material) child.material.dispose();
@@ -61,38 +52,60 @@ export const usePlaybackTrajectoryLine = () => {
         });
       }
       activeRobotIdRef.current = robotId;
-      activePlaybackRef.current = { robotId, trajectoryName: trajectory.name }; // Ensure trajectoryName is available
+      activePlaybackRef.current = { robotId, trajectoryName };
+      
+      // Try to load trajectory data for visualization
+      if (robotId && trajectoryName) {
+        try {
+          // Get proper manufacturer and model from robot info
+          const { manufacturer, model } = getRobotInfo(robotId);
+          
+          console.log('[usePlaybackTrajectoryLine] Loading trajectory:', {
+            robotId,
+            trajectoryName,
+            manufacturer,
+            model
+          });
+          
+          // Try to load trajectory data
+          const trajectory = await loadTrajectory(manufacturer, model, trajectoryName);
+          if (trajectory) {
+            handleTrajectoryDataAvailable({ trajectory, robotId });
+          } else {
+            console.warn('[usePlaybackTrajectoryLine] Failed to load trajectory data');
+          }
+        } catch (error) {
+          console.error('[usePlaybackTrajectoryLine] Error loading trajectory for visualization:', error);
+        }
+      } else {
+        console.warn('[usePlaybackTrajectoryLine] Missing robotId or trajectoryName:', { robotId, trajectoryName });
+      }
+    };
 
-      if (!trajectory || !trajectory.endEffectorPath || trajectory.endEffectorPath.length < 2) {
-        console.log('[usePlaybackTrajectoryLine] No valid trajectory data');
+    // Listen for trajectory data when it's loaded for playback
+    const handleTrajectoryDataAvailable = async (data) => {
+      const { trajectory, robotId } = data;
+
+      if (activePlaybackRef.current?.robotId !== robotId) {
         return;
       }
 
-      // The check below will now pass as activePlaybackRef.current is set above
-      console.log(`[usePlaybackTrajectoryLine] handleTrajectoryDataAvailable - activePlaybackRef.current?.robotId: ${activePlaybackRef.current?.robotId}, received robotId: ${robotId}`);
-      if (activePlaybackRef.current?.robotId !== robotId) {
-        console.warn(`[usePlaybackTrajectoryLine] Mismatched robotId. Expected ${activePlaybackRef.current?.robotId}, got ${robotId}. Skipping visualization.`);
+      if (!trajectory || !trajectory.endEffectorPath || trajectory.endEffectorPath.length < 2) {
         return;
       }
 
       // Store trajectory for later use
       storedTrajectoryRef.current = trajectory;
 
-      // Debug log trajectory structure
-      console.log('[usePlaybackTrajectoryLine] Trajectory structure:', {
-        hasEndEffectorPath: !!trajectory.endEffectorPath,
-        pathLength: trajectory.endEffectorPath?.length,
-        firstPoint: trajectory.endEffectorPath?.[0],
-        hasOrientation: trajectory.endEffectorPath?.[0]?.orientation
-      });
-
-      console.log('[usePlaybackTrajectoryLine] Creating full trajectory visualization');
-
-      // Use the trajectory context's visualization method
-      const visualization = createTrajectoryVisualization(trajectory);
+      // Use the trajectory hook's visualization method
+      const visualization = createTrajectoryVisualization(trajectory.endEffectorPath);
       
       if (!visualization || !visualization.smoothPoints) {
-        console.log('[usePlaybackTrajectoryLine] No visualization data');
+        return;
+      }
+
+      const scene = getScene();
+      if (!scene) {
         return;
       }
 
@@ -165,10 +178,9 @@ export const usePlaybackTrajectoryLine = () => {
       console.log('[usePlaybackTrajectoryLine] Full visualization created');
     };
 
-    // NEW: Function to create orientation frames
+    // Function to create orientation frames
     const createOrientationFrames = (trajectory, scene, robotId) => {
       if (!scene) {
-        console.error('[usePlaybackTrajectoryLine] No scene provided for orientation frames');
         return;
       }
       
@@ -176,7 +188,6 @@ export const usePlaybackTrajectoryLine = () => {
       
       // Enhanced validation
       if (!endEffectorPath || !Array.isArray(endEffectorPath) || endEffectorPath.length < 2) {
-        console.warn('[usePlaybackTrajectoryLine] No valid endEffectorPath for orientation frames');
         return;
       }
 
@@ -188,8 +199,6 @@ export const usePlaybackTrajectoryLine = () => {
         typeof point.orientation.z === 'number' &&
         typeof point.orientation.w === 'number'
       );
-
-      console.log('[usePlaybackTrajectoryLine] Orientation data available:', hasOrientationData);
 
       // Calculate frame interval (show frames every N points)
       const totalPoints = endEffectorPath.length;
@@ -255,7 +264,6 @@ export const usePlaybackTrajectoryLine = () => {
             typeof pathPoint.position.x !== 'number' ||
             typeof pathPoint.position.y !== 'number' ||
             typeof pathPoint.position.z !== 'number') {
-          console.warn(`[usePlaybackTrajectoryLine] Invalid position data at index ${i}`);
           continue;
         }
 
@@ -319,45 +327,9 @@ export const usePlaybackTrajectoryLine = () => {
         framesCreated++;
       }
 
-      console.log(`[usePlaybackTrajectoryLine] Created ${framesCreated} orientation frames`);
-      
       // Force a render update
       if (scene.parent && scene.parent.type === 'Scene') {
         scene.updateMatrixWorld(true);
-      }
-    };
-
-    // Alternative: Listen for available trajectories and load when playback starts
-    let cachedTrajectoryInfo = null;
-    
-    const handleTrajectoriesAvailable = (data) => {
-      if (data.trajectories) {
-        cachedTrajectoryInfo = data.trajectories;
-      }
-    };
-
-    const enhancedPlaybackHandler = async (data) => {
-      const { robotId, trajectoryName } = data;
-      
-      // Try to find trajectory info from cached data
-      if (cachedTrajectoryInfo) {
-        const trajectoryInfo = cachedTrajectoryInfo.find(t => t.name === trajectoryName);
-        if (trajectoryInfo) {
-          try {
-            // Load the full trajectory data
-            const trajectory = await loadTrajectoryFromFile(
-              trajectoryInfo.manufacturer,
-              trajectoryInfo.model,
-              trajectoryInfo.name
-            );
-            
-            if (trajectory) {
-              handleTrajectoryDataAvailable({ trajectory, robotId });
-            }
-          } catch (error) {
-            console.error('[usePlaybackTrajectoryLine] Error loading trajectory:', error);
-          }
-        }
       }
     };
 
@@ -367,20 +339,41 @@ export const usePlaybackTrajectoryLine = () => {
       
       const { x, y, z } = data.endEffectorPoint;
       currentMarkerRef.current.position.set(x, y, z);
+    };
 
-      // NEW: Optionally update current frame orientation
-      if (data.endEffectorOrientation && orientationFramesRef.current.length > 0) {
-        // You could add a special "current" orientation frame that follows the marker
-        // This is optional - remove if you only want static frames
+    // Handle playback stop
+    const handlePlaybackStopped = () => {
+      if (activeRobotIdRef.current) {
+        cleanup(activeRobotIdRef.current);
+      } else {
+        // Fallback cleanup if for some reason activeRobotIdRef is null
+        const scene = getScene();
+        if (scene) {
+          const allVisObjects = scene.children.filter(child =>
+            child.name.startsWith('playback_trajectory_line_') ||
+            child.name.startsWith('waypoint_sphere_') ||
+            child.name.startsWith('orientation_frame_') ||
+            child.name.startsWith('trajectory_marker_')
+          );
+          allVisObjects.forEach(obj => {
+            scene.remove(obj);
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
+            if (obj.isGroup) {
+              obj.children.forEach(child => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
+              });
+            }
+          });
+        }
       }
     };
 
     // Clean up function
     const cleanup = (targetRobotId) => {
-      console.log(`[usePlaybackTrajectoryLine] Cleanup initiated for robotId: ${targetRobotId}`); // NEW LOG
       const scene = getScene();
       if (!scene) {
-        console.warn('[usePlaybackTrajectoryLine] Cleanup: No scene available.'); // NEW LOG
         return;
       }
 
@@ -392,13 +385,8 @@ export const usePlaybackTrajectoryLine = () => {
             child.name.startsWith(`orientation_frame_${targetRobotId}`) ||
             child.name.startsWith(`trajectory_marker_${targetRobotId}`)) {
           objectsToRemove.push(child);
-          console.log(`[usePlaybackTrajectoryLine] Cleanup: Found object to remove: ${child.name}`); // NEW LOG
         }
       });
-
-      if (objectsToRemove.length === 0) {
-        console.log(`[usePlaybackTrajectoryLine] Cleanup: No objects found to remove for robotId: ${targetRobotId}`); // NEW LOG
-      }
 
       objectsToRemove.forEach(obj => {
         scene.remove(obj);
@@ -415,63 +403,25 @@ export const usePlaybackTrajectoryLine = () => {
 
       // Clear refs that are no longer managing all objects but specifically for last one
       if (lineRef.current?.name?.startsWith(`playback_trajectory_line_${targetRobotId}`)) {
-        console.log(`[usePlaybackTrajectoryLine] Cleanup: Clearing lineRef for ${targetRobotId}`); // NEW LOG
         lineRef.current = null;
       }
       waypointsRef.current = waypointsRef.current.filter(wp => !wp.name.startsWith(`waypoint_sphere_${targetRobotId}`));
       orientationFramesRef.current = orientationFramesRef.current.filter(of => !of.name.startsWith(`orientation_frame_${targetRobotId}`));
       if (currentMarkerRef.current?.name?.startsWith(`trajectory_marker_${targetRobotId}`)) {
-        console.log(`[usePlaybackTrajectoryLine] Cleanup: Clearing currentMarkerRef for ${targetRobotId}`); // NEW LOG
         currentMarkerRef.current = null;
       }
       
       // Clear references only if the robot that was cleaned up is the active one
       if (activeRobotIdRef.current === targetRobotId) {
-        console.log(`[usePlaybackTrajectoryLine] Cleanup: Resetting active playback references for ${targetRobotId}`); // NEW LOG
         activePlaybackRef.current = null;
         storedTrajectoryRef.current = null;
         activeRobotIdRef.current = null;
       }
     };
 
-    // Handle playback stop
-    const handlePlaybackStopped = () => {
-      console.log('[usePlaybackTrajectoryLine] Playback stopped - cleaning up immediately');
-      if (activeRobotIdRef.current) {
-        console.log(`[usePlaybackTrajectoryLine] handlePlaybackStopped: Initiating cleanup for active robot: ${activeRobotIdRef.current}`); // NEW LOG
-        cleanup(activeRobotIdRef.current);
-      } else {
-        console.log('[usePlaybackTrajectoryLine] handlePlaybackStopped: No active robot, performing general cleanup.'); // NEW LOG
-        // Fallback cleanup if for some reason activeRobotIdRef is null
-        // This would remove ALL visualization elements that fit the pattern
-        const scene = getScene();
-        if (scene) {
-          const allVisObjects = scene.children.filter(child =>
-            child.name.startsWith('playback_trajectory_line_') ||
-            child.name.startsWith('waypoint_sphere_') ||
-            child.name.startsWith('orientation_frame_') ||
-            child.name.startsWith('trajectory_marker_')
-          );
-          allVisObjects.forEach(obj => {
-            scene.remove(obj);
-            if (obj.geometry) obj.geometry.dispose();
-            if (obj.material) obj.material.dispose();
-             if (obj.isGroup) {
-              obj.children.forEach(child => {
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) child.material.dispose();
-              });
-            }
-          });
-        }
-      }
-    };
-
-    // Subscribe to events
+    // Subscribe to events from the optimized useTrajectory hook
     const unsubscribes = [
-      EventBus.on('trajectory:playback-started', enhancedPlaybackHandler),
-      EventBus.on('trajectory:loaded-for-playback', handleTrajectoryDataAvailable),
-      EventBus.on('trajectory:available-trajectories', handleTrajectoriesAvailable),
+      EventBus.on('trajectory:playback-started', handlePlaybackStarted),
       EventBus.on('tcp:endeffector-updated', handleEndEffectorUpdate),
       EventBus.on('trajectory:playback-stopped', handlePlaybackStopped),
       EventBus.on('trajectory:playback-completed', handlePlaybackStopped)
@@ -484,7 +434,7 @@ export const usePlaybackTrajectoryLine = () => {
         cleanup(activeRobotIdRef.current);
       }
     };
-  }, [isViewerReady, getScene, loadTrajectoryFromFile, createTrajectoryVisualization]);
+  }, [isViewerReady, getScene, loadTrajectory, createTrajectoryVisualization, getRobotInfo, robotId]);
 
   return null;
 };

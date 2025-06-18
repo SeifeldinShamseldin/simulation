@@ -166,6 +166,9 @@ export const useJoints = (robotId = null) => {
     getJointLimits: getRobotJointLimits,
     stopAnimation: stopRobotAnimation,
     
+    // Add getJointValues from context
+    getJointValues,
+    
     // Convenience methods
     getJointValue,
     hasJoint,
@@ -185,6 +188,7 @@ export const useJoints = (robotId = null) => {
     resetRobotJoints,
     getRobotJointLimits,
     stopRobotAnimation,
+    getJointValues,
     getJointValue,
     hasJoint,
     getMovableJoints,

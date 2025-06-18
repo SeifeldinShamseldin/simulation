@@ -4,6 +4,7 @@ import { useTrajectory, useTrajectoryRecording, useTrajectoryPlayback, useTrajec
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import { useRobotManager } from '../../../contexts/hooks/useRobotManager';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
+import EventBus from '../../../utils/EventBus';
 
 /**
  * TrajectoryViewer component - UI for trajectory recording, playback, and management
@@ -56,10 +57,18 @@ const TrajectoryViewer = ({ viewerRef }) => {
   const [showLiveGraph, setShowLiveGraph] = useState(false);
   const [playbackOptions, setPlaybackOptions] = useState({
     speed: 0.5,
-    loop: false
+    loop: false,
+    animateToStart: true,        // Enable pre-animation by default
+    animationDuration: 2000,     // 2 seconds for pre-animation
+    animationProfile: 's-curve'  // Smooth motion profile
   });
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [analysisData, setAnalysisData] = useState(null);
+  
+  // Pre-animation state
+  const [isPreAnimating, setIsPreAnimating] = useState(false);
+  const [preAnimationProgress, setPreAnimationProgress] = useState(0);
+  const [preAnimationTrajectory, setPreAnimationTrajectory] = useState(null);
 
   // ========== UI EFFECTS ==========
   
@@ -76,6 +85,44 @@ const TrajectoryViewer = ({ viewerRef }) => {
       scanTrajectories();
     }
   }, [activeRobotId, scanTrajectories]);
+
+  // Listen for pre-animation events
+  useEffect(() => {
+    const handlePreAnimationStarted = (data) => {
+      if (data.robotId === activeRobotId) {
+        setIsPreAnimating(true);
+        setPreAnimationProgress(0);
+        setPreAnimationTrajectory(data.trajectoryName);
+        console.log(`[TrajectoryViewer] Pre-animation started for ${data.trajectoryName}`);
+      }
+    };
+
+    const handlePreAnimationProgress = (data) => {
+      if (data.robotId === activeRobotId) {
+        setPreAnimationProgress(data.progress);
+      }
+    };
+
+    const handlePreAnimationCompleted = (data) => {
+      if (data.robotId === activeRobotId) {
+        setIsPreAnimating(false);
+        setPreAnimationProgress(0);
+        setPreAnimationTrajectory(null);
+        console.log(`[TrajectoryViewer] Pre-animation completed for ${data.trajectoryName}`);
+      }
+    };
+
+    // Subscribe to pre-animation events
+    const unsubscribeStarted = EventBus.on('trajectory:pre-animation-started', handlePreAnimationStarted);
+    const unsubscribeProgress = EventBus.on('trajectory:pre-animation-progress', handlePreAnimationProgress);
+    const unsubscribeCompleted = EventBus.on('trajectory:pre-animation-completed', handlePreAnimationCompleted);
+
+    return () => {
+      unsubscribeStarted();
+      unsubscribeProgress();
+      unsubscribeCompleted();
+    };
+  }, [activeRobotId]);
 
   // ========== UI EVENT HANDLERS ==========
 
@@ -107,22 +154,27 @@ const TrajectoryViewer = ({ viewerRef }) => {
     }
   };
 
-  const handlePlayTrajectory = (trajectoryInfo) => {
+  const handlePlayTrajectory = async (trajectoryInfo) => {
     if (!canPlay) {
       alert('Robot not ready for playback');
       return;
     }
 
-    const success = playTrajectory(trajectoryInfo, activeRobotId, {
-      ...playbackOptions,
-      onComplete: () => {
-        console.log(`[TrajectoryViewer] Playback of "${trajectoryInfo.name}" completed`);
-      }
-    });
+    try {
+      const success = await playTrajectory(trajectoryInfo, {
+        ...playbackOptions,
+        onComplete: () => {
+          console.log(`[TrajectoryViewer] Playback of "${trajectoryInfo.name}" completed`);
+        }
+      });
 
-    if (success) {
-      setSelectedTrajectory(trajectoryInfo);
-    } else {
+      if (success) {
+        setSelectedTrajectory(trajectoryInfo);
+      } else {
+        alert('Failed to start playback. Check console for details.');
+      }
+    } catch (error) {
+      console.error('[TrajectoryViewer] Error starting playback:', error);
       alert('Failed to start playback. Check console for details.');
     }
   };
@@ -238,6 +290,27 @@ const TrajectoryViewer = ({ viewerRef }) => {
     );
   };
 
+  const renderPreAnimationStatus = () => {
+    if (!isPreAnimating) return null;
+    return (
+      <div className="controls-alert controls-alert-warning controls-mb-3">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>Moving to start position for "{preAnimationTrajectory}"</span>
+          <span>{(preAnimationProgress * 100).toFixed(1)}%</span>
+        </div>
+        <div className="controls-progress controls-mt-2">
+          <div 
+            className="controls-progress-bar controls-bg-warning" 
+            style={{ width: `${preAnimationProgress * 100}%` }}
+          />
+        </div>
+        <div className="controls-small controls-text-muted controls-mt-1">
+          Pre-animation in progress...
+        </div>
+      </div>
+    );
+  };
+
   // ========== MAIN RENDER ==========
 
   if (!isReady || !activeRobotId) {
@@ -274,6 +347,9 @@ const TrajectoryViewer = ({ viewerRef }) => {
 
       {/* Playback Status */}
       {renderPlaybackStatus()}
+
+      {/* Pre-animation Status */}
+      {renderPreAnimationStatus()}
 
       {/* Recording Controls */}
       <div className="trajectory-recording controls-mb-4">
@@ -356,6 +432,60 @@ const TrajectoryViewer = ({ viewerRef }) => {
             Loop
           </label>
         </div>
+        
+        {/* Pre-animation Options */}
+        <div style={{ 
+          padding: '0.75rem', 
+          backgroundColor: '#f8f9fa', 
+          borderRadius: '4px', 
+          border: '1px solid #e9ecef',
+          marginTop: '0.5rem'
+        }}>
+          <h6 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}>Pre-animation Settings</h6>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input
+                type="checkbox"
+                checked={playbackOptions.animateToStart}
+                onChange={(e) => handlePlaybackOptionChange('animateToStart', e.target.checked)}
+                disabled={isRecording || isPlaying || isPreAnimating}
+              />
+              Animate to start position
+            </label>
+          </div>
+          
+          {playbackOptions.animateToStart && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <label>
+                Animation Duration (ms):
+                <input
+                  type="number"
+                  min="500"
+                  max="10000"
+                  step="100"
+                  value={playbackOptions.animationDuration}
+                  onChange={(e) => handlePlaybackOptionChange('animationDuration', parseInt(e.target.value, 10))}
+                  disabled={isRecording || isPlaying || isPreAnimating}
+                  style={{ width: '100px', marginLeft: '0.5rem' }}
+                />
+              </label>
+              
+              <label>
+                Motion Profile:
+                <select
+                  value={playbackOptions.animationProfile}
+                  onChange={(e) => handlePlaybackOptionChange('animationProfile', e.target.value)}
+                  disabled={isRecording || isPlaying || isPreAnimating}
+                  style={{ marginLeft: '0.5rem' }}
+                >
+                  <option value="s-curve">S-Curve (Smooth)</option>
+                  <option value="trapezoidal">Trapezoidal (Linear)</option>
+                </select>
+              </label>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 3D Visualization */}
@@ -436,7 +566,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
                     <button 
                       className="controls-btn controls-btn-sm controls-btn-success"
                       onClick={() => handlePlayTrajectory(trajectory)}
-                      disabled={!canPlay || isRecording || isPlaying}
+                      disabled={!canPlay || isRecording || isPlaying || isPreAnimating}
                       title="Play trajectory"
                     >
                       ▶️
@@ -445,7 +575,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
                     <button 
                       className="controls-btn controls-btn-sm controls-btn-info"
                       onClick={() => handleAnalyzeTrajectory(trajectory)}
-                      disabled={isRecording || isPlaying}
+                      disabled={isRecording || isPlaying || isPreAnimating}
                       title="Analyze trajectory"
                     >
                       📊
@@ -454,7 +584,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
                     <button 
                       className="controls-btn controls-btn-sm controls-btn-danger"
                       onClick={() => handleDeleteTrajectory(trajectory)}
-                      disabled={isRecording || isPlaying || isLoading}
+                      disabled={isRecording || isPlaying || isLoading || isPreAnimating}
                       title="Delete trajectory"
                     >
                       🗑️
