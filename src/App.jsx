@@ -16,7 +16,6 @@ import { JointProvider } from './contexts/JointContext';
 import { TrajectoryProvider } from './contexts/TrajectoryContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobotManager';
-import WorldManager from './components/World/WorldManager';
 import './App.css';
 
 const RobotPanel = ({ onClose, viewerRef }) => {
@@ -193,11 +192,7 @@ const AppContent = () => {
         {/* World Panel - Overlay */}
         {activePanel === 'world' && (
           <div className="world-panel-overlay">
-            <WorldManager 
-              viewerRef={viewerRef}
-              isOpen={true}
-              onClose={() => setActivePanel(null)}
-            />
+            {/* World panel removed - WorldManager component deleted */}
           </div>
         )}
       </div>

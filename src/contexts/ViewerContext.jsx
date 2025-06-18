@@ -52,7 +52,6 @@ export const ViewerProvider = ({ children }) => {
       return null;
     }
     return sceneSetupRef.current || 
-           viewerInstanceRef.current?.getSceneSetup?.() || 
            viewerInstanceRef.current?.sceneRef?.current;
   }, []);
   
@@ -123,9 +122,8 @@ export const ViewerProvider = ({ children }) => {
     
     const mergedConfig = { ...DEFAULT_CONFIG, ...viewerConfig, ...config };
     
-    // Create scene setup
-    const sceneSetup = new SceneSetup({
-      container,
+    // Create scene setup - Fix: pass container as first parameter, options as second
+    const sceneSetup = new SceneSetup(container, {
       backgroundColor: mergedConfig.backgroundColor,
       enableShadows: mergedConfig.enableShadows,
       ambientColor: mergedConfig.ambientColor
@@ -309,10 +307,12 @@ export const ViewerProvider = ({ children }) => {
   }, [tableState.loaded]);
   
   // ========== CAMERA CONTROLS ==========
-  const cameraController = useMemo(() => 
-    createCameraController(sceneSetupRef.current), 
-    [sceneSetupRef.current]
-  );
+  const cameraController = useMemo(() => {
+    if (!sceneSetupRef.current) {
+      return null;
+    }
+    return createCameraController(sceneSetupRef.current);
+  }, [sceneSetupRef.current]);
 
   const focusOnObject = useCallback((object, paddingMultiplier = 1.0) => {
     cameraController?.focusOn(object, paddingMultiplier);

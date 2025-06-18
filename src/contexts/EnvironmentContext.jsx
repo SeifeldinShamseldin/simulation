@@ -428,10 +428,12 @@ export const EnvironmentProvider = ({ children }) => {
   }, [loadedObjects]);
 
   // Camera controls (from useCameraControls)
-  const cameraController = useMemo(() => 
-    createCameraController(sceneSetupRef.current), 
-    [sceneSetupRef.current]
-  );
+  const cameraController = useMemo(() => {
+    if (!sceneSetupRef.current) {
+      return null;
+    }
+    return createCameraController(sceneSetupRef.current);
+  }, [sceneSetupRef.current]);
 
   const setCameraPosition = useCallback((position) => {
     cameraController?.setPosition(position);
