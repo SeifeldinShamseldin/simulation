@@ -512,7 +512,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
       {/* Trajectory List */}
       <div className="trajectory-list">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h4 style={{ margin: 0 }}>Saved Trajectories ({trajectoryCount})</h4>
+          <h4 style={{ margin: 0 }}>Saved Trajectories ({trajectories.length})</h4>
           <button
             className="controls-btn controls-btn-sm controls-btn-secondary"
             onClick={scanTrajectories}
