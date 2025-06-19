@@ -248,15 +248,23 @@ const TrajectoryViewer = ({ viewerRef }) => {
     }
   };
 
-  const handleDeleteTrajectory = async (trajectoryInfo) => {
-    if (!window.confirm(`Delete trajectory "${trajectoryInfo.name}"?`)) return;
+  const handleDeleteTrajectory = async (trajectory) => {
+    if (!window.confirm(`Delete trajectory "${trajectory.name}"?`)) return;
 
-    const success = await deleteTrajectory(trajectoryInfo.manufacturer, trajectoryInfo.model, trajectoryInfo.name);
+    const trajectoryInfo = {
+      manufacturer: trajectory.manufacturer,
+      model: trajectory.model,
+      name: trajectory.name
+    };
+
+    console.log('Deleting trajectory:', trajectoryInfo);
+
+    const success = await deleteTrajectory(trajectoryInfo);
     if (success) {
-      if (selectedTrajectory?.id === trajectoryInfo.id) {
+      if (selectedTrajectory?.id === trajectory.id) {
         setSelectedTrajectory(null);
       }
-      console.log(`[TrajectoryViewer] Deleted trajectory: ${trajectoryInfo.name}`);
+      console.log(`[TrajectoryViewer] Deleted trajectory: ${trajectory.name}`);
     } else {
       alert('Failed to delete trajectory');
     }
@@ -631,7 +639,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
                   </h6>
                   
                   <div className="controls-text-muted controls-small">
-                    {trajectory.frameCount || 0} frames • {(trajectory.duration / 1000).toFixed(1)}s
+                    {(trajectory.frames ? trajectory.frames.length : trajectory.frameCount || 0)} frames • {(trajectory.duration / 1000).toFixed(1)}s
                     {trajectory.recordedAt && (
                       <span> • {new Date(trajectory.recordedAt).toLocaleDateString()}</span>
                     )}

@@ -1384,4 +1384,15 @@ function analyzeSingleToolFile(filePath, fileName) {
     console.warn(`Error analyzing tool file ${filePath}:`, error.message);
     return null;
   }
-} 
+}
+
+app.get('/api/trajectory/load/:manufacturer/:model/:name', (req, res) => {
+  const { manufacturer, model, name } = req.params;
+  const filePath = path.join(__dirname, '..', '..', 'public', 'trajectory', manufacturer, model, `${name}.json`);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ success: false, message: 'Trajectory not found' });
+  }
+  const data = fs.readFileSync(filePath, 'utf8');
+  const trajectory = JSON.parse(data);
+  res.json({ success: true, trajectory });
+}); 
