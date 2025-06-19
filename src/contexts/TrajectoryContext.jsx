@@ -713,14 +713,15 @@ export const TrajectoryProvider = ({ children }) => {
 
   // ========== GET ROBOT TRAJECTORIES ==========
   const getRobotTrajectories = useCallback(() => {
-    if (!robotId) return [];
-    
-    const robotInfo = getRobotInfo(robotId);
-    
-    return availableTrajectories.filter(traj => 
-      traj.manufacturer === robotInfo.manufacturer && traj.model === robotInfo.model
-    );
-  }, [robotId, availableTrajectories, getRobotInfo]);
+    // DEBUG: Show all trajectories regardless of robot for troubleshooting
+    return availableTrajectories;
+    // Original filtering logic:
+    // if (!robotId) return [];
+    // const robotInfo = getRobotInfo(robotId);
+    // return availableTrajectories.filter(traj => 
+    //   traj.manufacturer === robotInfo.manufacturer && traj.model === robotInfo.model
+    // );
+  }, [availableTrajectories]);
 
   // Initialize by scanning trajectories
   useEffect(() => {
