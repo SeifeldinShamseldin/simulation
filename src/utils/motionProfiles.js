@@ -267,7 +267,8 @@ export class MultiAxisProfiler {
         profiles[jointName] = { 
           type: 'static', 
           distance: 0, 
-          t_total: 0 
+          t_total: 0, 
+          profiler: null // Ensure profiler is always defined
         };
         return;
       }
@@ -277,7 +278,10 @@ export class MultiAxisProfiler {
         maxAcceleration: 2.0
       };
       
-      const profiler = new TrapezoidalProfile(limits);
+      // Use correct profile type
+      const profiler = this.profileType === 's-curve'
+        ? new SCurveProfile(limits)
+        : new TrapezoidalProfile(limits);
       const profile = profiler.calculateProfile(distance);
       
       profiles[jointName] = {
@@ -304,10 +308,15 @@ export class MultiAxisProfiler {
       profile.t_total = maxTime;
       
       // Recalculate profile with new constraints
-      const scaledProfiler = new TrapezoidalProfile({
-        maxVelocity: profile.v_max,
-        maxAcceleration: profile.a_max
-      });
+      const scaledProfiler = this.profileType === 's-curve'
+        ? new SCurveProfile({
+            maxVelocity: profile.v_max,
+            maxAcceleration: profile.a_max
+          })
+        : new TrapezoidalProfile({
+            maxVelocity: profile.v_max,
+            maxAcceleration: profile.a_max
+          });
       
       profiles[jointName] = {
         ...scaledProfiler.calculateProfile(profile.distance),

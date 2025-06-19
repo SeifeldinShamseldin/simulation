@@ -74,7 +74,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
   
   // Auto-select first trajectory
   useEffect(() => {
-    if (trajectories.length > 0 && !selectedTrajectory) {
+    if (Array.isArray(trajectories) && trajectories.length > 0 && !selectedTrajectory) {
       setSelectedTrajectory(trajectories[0]);
     }
   }, [trajectories, selectedTrajectory]);
@@ -534,7 +534,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
           </div>
         ) : (
           <div className="controls-list">
-            {trajectories.map(trajectory => (
+            {(Array.isArray(trajectories) ? trajectories : []).map(trajectory => (
               <div key={trajectory.id} className="controls-list-item">
                 <div className="controls-list-item-content">
                   <h6 
