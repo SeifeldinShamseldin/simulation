@@ -1,6 +1,11 @@
-// src/components/controls/RecordMap/TrajectoryViewer.jsx - UPDATED FOR FILE SYSTEM ARCHITECTURE
+// src/components/controls/RecordMap/TrajectoryViewer.jsx - UPDATED FOR TRAJECTORY CONTEXT
 import React, { useState, useEffect, useMemo } from 'react';
-import { useTrajectory, useTrajectoryRecording, useTrajectoryPlayback, useTrajectoryManagement } from '../../../contexts/hooks/useTrajectory';
+import { 
+  useTrajectoryContext,
+  useTrajectoryRecording, 
+  useTrajectoryPlayback, 
+  useTrajectoryManagement 
+} from '../../../contexts/TrajectoryContext';
 import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import { useRobotManager } from '../../../contexts/hooks/useRobotManager';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
@@ -8,13 +13,13 @@ import EventBus from '../../../utils/EventBus';
 
 /**
  * TrajectoryViewer component - UI for trajectory recording, playback, and management
- * Now uses file system storage instead of in-memory
+ * Now uses TrajectoryContext instead of the old hooks
  */
 const TrajectoryViewer = ({ viewerRef }) => {
   const { activeRobotId, isReady, hasJoints, hasValidEndEffector, isUsingTCP } = useRobotControl(viewerRef);
   const { categories, getRobotById } = useRobotManager();
   
-  // Use specialized hooks for clean separation
+  // Use specialized hooks from the new TrajectoryContext
   const {
     isRecording,
     startRecording,
@@ -22,7 +27,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
     recordingName,
     frameCount,
     canRecord
-  } = useTrajectoryRecording(activeRobotId);
+  } = useTrajectoryRecording();
   
   const {
     isPlaying,
@@ -32,23 +37,28 @@ const TrajectoryViewer = ({ viewerRef }) => {
     currentTrajectory,
     playbackEndEffectorPoint,
     canPlay
-  } = useTrajectoryPlayback(activeRobotId);
+  } = useTrajectoryPlayback();
   
   const {
     trajectories,
     deleteTrajectory,
-    hasTrajectories,
-    count: trajectoryCount,
     scanTrajectories,
-    isScanning
-  } = useTrajectoryManagement(activeRobotId);
+    analyzeTrajectory,
+    isScanning,
+    error: managementError,
+    count: trajectoryCount
+  } = useTrajectoryManagement();
   
-  // Get main hook for error handling
+  // Get main context for additional functionality
   const {
-    error,
-    isLoading,
+    error: contextError,
     clearError,
-  } = useTrajectory(activeRobotId);
+  } = useTrajectoryContext();
+
+  // Combine errors
+  const error = contextError || managementError;
+  const hasTrajectories = trajectories.length > 0;
+  const isLoading = isScanning;
 
   // ========== UI-ONLY STATE ==========
   const [selectedTrajectory, setSelectedTrajectory] = useState(null);
@@ -201,8 +211,6 @@ const TrajectoryViewer = ({ viewerRef }) => {
   };
 
   const handleAnalyzeTrajectory = async (trajectoryInfo) => {
-    // Since analyzeTrajectory now takes trajectoryInfo directly
-    const { analyzeTrajectory } = useTrajectoryManagement(activeRobotId);
     const analysis = await analyzeTrajectory(trajectoryInfo);
     if (analysis) {
       setAnalysisData(analysis);
