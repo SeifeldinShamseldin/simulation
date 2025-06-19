@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useRobotContext } from './RobotContext';
 import { useJointContext } from './JointContext';
-import { useAnimationContext } from './AnimationContext';
 import { useViewer } from './ViewerContext';
 import EventBus from '../utils/EventBus';
 import * as THREE from 'three';
@@ -22,10 +21,18 @@ export const TrajectoryProvider = ({ children }) => {
   const [playbackEndEffectorPoint, setPlaybackEndEffectorPoint] = useState(null);
   const [playbackEndEffectorOrientation, setPlaybackEndEffectorOrientation] = useState(null);
   
-  // Context hooks
-  const { activeRobotId: robotId, isAnimating, getRobot } = useRobotContext();
+  // Context hooks - GET ALL NEEDED DATA
+  const { 
+    activeRobotId: robotId, 
+    isAnimating, 
+    getRobot,
+    getManufacturer,    // GET THIS
+    categories,         // GET THIS
+    workspaceRobots,    // GET THIS
+    availableRobots     // GET THIS
+  } = useRobotContext();
+  
   const jointContext = useJointContext();
-  const { animate, animateTrajectory: animateTrajectoryBase } = useAnimationContext();
   const { isViewerReady, getScene } = useViewer();
   
   // Refs for recording and visualization
@@ -49,18 +56,69 @@ export const TrajectoryProvider = ({ children }) => {
     }
   };
 
-  // Helper function to get robot info
+  // FIXED getRobotInfo with all fallbacks
   const getRobotInfo = useCallback((robotId) => {
-    const robot = getRobot(robotId);
-    if (!robot) {
-      console.warn(`[TrajectoryContext] Robot ${robotId} not found`);
+    if (!robotId) {
+      console.warn('[TrajectoryContext] No robotId provided to getRobotInfo');
       return { manufacturer: 'unknown', model: 'unknown' };
     }
-    return {
-      manufacturer: robot.manufacturer || 'unknown',
-      model: robot.model || robot.name || 'unknown'
+    
+    // Extract base robot ID
+    const baseRobotId = robotId.split('_')[0];
+    
+    // Method 1: Use getManufacturer if available
+    if (getManufacturer) {
+      const manufacturer = getManufacturer(robotId);
+      if (manufacturer && manufacturer !== 'unknown') {
+        return {
+          manufacturer: manufacturer,
+          model: baseRobotId.toLowerCase()
+        };
+      }
+    }
+    
+    // Method 2: Check categories directly (most reliable)
+    if (categories && categories.length > 0) {
+      for (const category of categories) {
+        const robot = category.robots?.find(r => r.id === baseRobotId);
+        if (robot) {
+          return {
+            manufacturer: category.id,
+            model: baseRobotId.toLowerCase()
+          };
+        }
+      }
+    }
+    
+    // Method 3: Check workspace robots
+    if (workspaceRobots) {
+      const wsRobot = workspaceRobots.find(r => 
+        r.id === robotId || r.robotId === baseRobotId
+      );
+      if (wsRobot?.manufacturer) {
+        return {
+          manufacturer: wsRobot.manufacturer,
+          model: baseRobotId.toLowerCase()
+        };
+      }
+    }
+    
+    // Method 4: Try getRobot
+    const robot = getRobot ? getRobot(robotId) : null;
+    if (robot?.manufacturer) {
+      return {
+        manufacturer: robot.manufacturer,
+        model: robot.model || baseRobotId.toLowerCase()
+      };
+    }
+    
+    // Last resort
+    console.warn(`[TrajectoryContext] Could not find manufacturer for ${robotId}`);
+    return { 
+      manufacturer: 'unknown', 
+      model: baseRobotId.toLowerCase() 
     };
-  }, [getRobot]);
+  }, [getRobot, getManufacturer, categories, workspaceRobots]);
 
   // ========== FILE SYSTEM OPERATIONS ==========
   const scanTrajectories = useCallback(async () => {
@@ -95,23 +153,33 @@ export const TrajectoryProvider = ({ children }) => {
     
     log(`[TrajectoryContext] Starting recording: ${trajectoryName}`);
     
-    // Reset recording state
-    frameBufferRef.current = [];
-    frameCountRef.current = 0;
+    // Get initial joint values
+    const initialJointValues = jointContext.getJointValues ? 
+      jointContext.getJointValues(robotId) : {};
+    
+    // Reset recording state with initial frame
+    frameBufferRef.current = [{
+      timestamp: 0,
+      jointValues: { ...initialJointValues }
+    }];
+    frameCountRef.current = 1; // Start with 1 frame
     recordingStartTimeRef.current = Date.now();
     
     setRecordingName(trajectoryName);
     setIsRecording(true);
-    setFrameCount(0);
+    setFrameCount(1);
     
     // Emit event
     EventBus.emit('trajectory:recording-started', {
       robotId,
-      trajectoryName
+      trajectoryName,
+      initialJointValues
     });
     
+    log(`[TrajectoryContext] Recording started with initial frame`);
+    
     return true;
-  }, [robotId, isRecording]);
+  }, [robotId, isRecording, jointContext]);
   
   const stopRecording = useCallback(async () => {
     if (!isRecording || !recordingName) {
@@ -133,7 +201,12 @@ export const TrajectoryProvider = ({ children }) => {
     // Create trajectory object
     const robotInfo = getRobotInfo(robotId);
     const recordingDuration = Date.now() - recordingStartTimeRef.current;
-    
+    // Log the robot info for debugging
+    console.log('[TrajectoryContext] Recording robot info:', {
+      robotId,
+      manufacturer: robotInfo.manufacturer,
+      model: robotInfo.model
+    });
     const trajectory = {
       name: recordingName,
       manufacturer: robotInfo.manufacturer,
@@ -164,7 +237,7 @@ export const TrajectoryProvider = ({ children }) => {
       
       if (!response.ok) throw new Error('Failed to save');
       
-      log(`[TrajectoryContext] Saved trajectory "${trajectory.name}"`);
+      log(`[TrajectoryContext] Saved trajectory "${trajectory.name}" for ${robotInfo.manufacturer}/${robotInfo.model}`);
       
       // Refresh available trajectories
       await scanTrajectories();
@@ -188,6 +261,34 @@ export const TrajectoryProvider = ({ children }) => {
   }, [isRecording, robotId, getRobotInfo, recordingName, scanTrajectories]);
 
   // ========== PLAYBACK IMPLEMENTATION ==========
+  const stopPlayback = useCallback(() => {
+    if (!isPlaying) return;
+    
+    log(`[TrajectoryContext] Stopping playback`);
+    
+    // Stop frame-based animation if active
+    if (activePlaybackRef.current?.stop) {
+      activePlaybackRef.current.stop();
+      activePlaybackRef.current = null;
+    }
+    
+    setIsPlaying(false);
+    setProgress(0);
+    
+    const trajectoryName = currentTrajectory?.name;
+    setCurrentTrajectory(null);
+    setPlaybackEndEffectorPoint(null);
+    setPlaybackEndEffectorOrientation(null);
+    
+    if (trajectoryName) {
+      EventBus.emit('trajectory:playback-stopped', {
+        robotId,
+        trajectoryName,
+        reason: 'user'
+      });
+    }
+  }, [isPlaying, currentTrajectory, robotId]);
+
   const loadTrajectory = useCallback(async (manufacturer, model, name) => {
     try {
       const response = await fetch(`/api/trajectory/load/${manufacturer}/${model}/${name}`);
@@ -203,7 +304,7 @@ export const TrajectoryProvider = ({ children }) => {
       return null;
     }
   }, []);
-  
+
   const playTrajectory = useCallback(async (trajectoryInfo, options = {}) => {
     if (!robotId) {
       console.warn('[TrajectoryContext] Cannot play trajectory: missing robotId');
@@ -212,19 +313,21 @@ export const TrajectoryProvider = ({ children }) => {
 
     // Handle both trajectory metadata objects and full trajectory objects
     let trajectory;
+    let manufacturer, model;
     
     if (trajectoryInfo.frames && Array.isArray(trajectoryInfo.frames)) {
       // Direct trajectory object provided
       trajectory = trajectoryInfo;
+      manufacturer = trajectoryInfo.manufacturer;
+      model = trajectoryInfo.model;
     } else if (trajectoryInfo.manufacturer && trajectoryInfo.model && trajectoryInfo.name) {
-      // Trajectory metadata provided - load the full trajectory
-      trajectory = await loadTrajectory(
-        trajectoryInfo.manufacturer,
-        trajectoryInfo.model,
-        trajectoryInfo.name
-      );
+      // Trajectory metadata provided - use the provided manufacturer and model
+      manufacturer = trajectoryInfo.manufacturer;
+      model = trajectoryInfo.model;
+      
+      trajectory = await loadTrajectory(manufacturer, model, trajectoryInfo.name);
     } else {
-      console.warn('[TrajectoryContext] Cannot play trajectory: invalid trajectory info provided');
+      console.warn('[TrajectoryContext] Trajectory info incomplete');
       return false;
     }
 
@@ -233,16 +336,54 @@ export const TrajectoryProvider = ({ children }) => {
       return false;
     }
 
-    // Check if we need to do pre-animation first
-    const hasPreAnimation = trajectory.preAnimationJoints && 
-                           Object.keys(trajectory.preAnimationJoints).length > 0;
+    // === CRITICAL CHECK: Ensure active robot matches trajectory robot type ===
+    const activeRobotInfo = getRobotInfo(robotId);
+    if (
+      activeRobotInfo.manufacturer !== manufacturer ||
+      activeRobotInfo.model !== model
+    ) {
+      const errorMsg = `Active robot (${activeRobotInfo.manufacturer}/${activeRobotInfo.model}) does not match trajectory robot (${manufacturer}/${model}). Please select the correct robot before playing this trajectory.`;
+      setError(errorMsg);
+      console.warn('[TrajectoryContext] ' + errorMsg);
+      return false;
+    }
+    // === END CRITICAL CHECK ===
+
+    // === FLEXIBLE JOINT COMPATIBILITY CHECK ===
+    const firstFrame = trajectory.frames[0];
+    const frameJointNames = firstFrame.jointValues ? Object.keys(firstFrame.jointValues) : [];
+    const robotJointNames = jointContext.getJointValues ? Object.keys(jointContext.getJointValues(robotId) || {}) : [];
+    const missingJoints = frameJointNames.filter(joint => !robotJointNames.includes(joint));
+    if (missingJoints.length > 0) {
+      const errorMsg = `Active robot is missing required joints for this trajectory: ${missingJoints.join(', ')}. Please select a compatible robot or check your trajectory.`;
+      setError(errorMsg);
+      console.warn('[TrajectoryContext] ' + errorMsg);
+      return false;
+    }
+    // === END FLEXIBLE CHECK ===
+
+    // Stop any existing playback
+    stopPlayback();
     
-    // Emit playback started event (important for visualization)
+    const {
+      speed = 1.0,
+      loop = false,
+      onComplete = () => {},
+      onFrame = () => {},
+      enablePreAnimation = true,
+      animationDuration = 2000
+    } = options;
+
+    // Emit playback started event with complete info
     EventBus.emit('trajectory:playback-started', {
       robotId,
       trajectoryName: trajectory.name,
-      hadPreAnimation: hasPreAnimation,
-      frameCount: trajectory.frameCount
+      frameCount: trajectory.frameCount,
+      trajectoryInfo: {
+        manufacturer: manufacturer || trajectory.manufacturer,
+        model: model || trajectory.model,
+        name: trajectory.name
+      }
     });
 
     log(`[TrajectoryContext] Playing trajectory: ${trajectory.name} with ${trajectory.frames.length} frames`);
@@ -250,93 +391,165 @@ export const TrajectoryProvider = ({ children }) => {
     setIsPlaying(true);
     setCurrentTrajectory(trajectory);
     setProgress(0);
-    
-    // Calculate actual duration
-    const actualDuration = trajectory.duration || 
-                          trajectory.frames.length * (options.frameInterval || 50);
-    
-    try {
-      // Use AnimationContext for smooth playback
-      await animateTrajectoryBase(trajectory, {
-        ...options,
-        duration: actualDuration,
-        onUpdate: (values, progress, frame) => {
-          setProgress(progress);
-          
-          // Update end effector visualization
-          if (trajectory.endEffectorPath && frame < trajectory.endEffectorPath.length) {
-            const effectorData = trajectory.endEffectorPath[frame];
-            setPlaybackEndEffectorPoint(effectorData.position);
-            setPlaybackEndEffectorOrientation(effectorData.rotation);
-            
-            // Emit update event for visualization
-            EventBus.emit('tcp:endeffector-updated', {
-              robotId,
-              position: effectorData.position,
-              rotation: effectorData.rotation,
-              isPlayback: true,
-              frame,
-              progress
-            });
-          }
-          
-          if (options.onUpdate) {
-            options.onUpdate(values, progress, frame);
-          }
-        },
-        onComplete: () => {
-          log(`[TrajectoryContext] Trajectory playback completed: ${trajectory.name}`);
-          setIsPlaying(false);
-          setProgress(0);
-          setCurrentTrajectory(null);
-          setPlaybackEndEffectorPoint(null);
-          setPlaybackEndEffectorOrientation(null);
-          
-          EventBus.emit('trajectory:playback-completed', {
-            robotId,
-            trajectoryName: trajectory.name
+
+    // Create a ref to track playback state
+    const playbackStateRef = { current: {
+      trajectory,
+      startTime: Date.now(),
+      speed,
+      loop,
+      onComplete,
+      onFrame,
+      frameIndex: 0,
+      isPlaying: true,
+      animationFrameId: null
+    }};
+
+    // Pre-animation to first frame if enabled
+    if (enablePreAnimation && trajectory.frames.length > 0) {
+      const firstFrame = trajectory.frames[0];
+      if (firstFrame.joints && Object.keys(firstFrame.joints).length > 0) {
+        console.log('[TrajectoryContext] Pre-animating to first frame');
+        try {
+          // Use JointContext's animateToJointValues for smooth pre-animation
+          await jointContext.animateToJointValues(robotId, firstFrame.joints, {
+            duration: animationDuration,
+            motionProfile: 'trapezoidal'
           });
-          
-          if (options.onComplete) {
-            options.onComplete();
+          // Small delay before starting playback
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (error) {
+          console.error('[TrajectoryContext] Pre-animation failed:', error);
+        }
+      }
+    }
+
+    // Frame-based playback loop
+    const playFrame = () => {
+      const state = playbackStateRef.current;
+      if (!state || !state.isPlaying) {
+        log('[TrajectoryContext] Playback stopped');
+        return;
+      }
+      
+      const elapsed = (Date.now() - state.startTime) * state.speed;
+      const progress = Math.min(elapsed / state.trajectory.duration, 1);
+      
+      // Find current frame based on timestamp
+      let frameIndex = state.frameIndex;
+      const frames = state.trajectory.frames;
+      
+      // Find the frame that matches current elapsed time
+      for (let i = frameIndex; i < frames.length; i++) {
+        if (frames[i].timestamp <= elapsed) {
+          frameIndex = i;
+        } else {
+          break;
+        }
+      }
+      
+      // Apply frame if changed and has valid joint values
+      if (frameIndex !== state.frameIndex && frameIndex < frames.length) {
+        const frame = frames[frameIndex];
+        
+        if (frame.jointValues && Object.keys(frame.jointValues).length > 0) {
+          // CRITICAL FIX: Use JointContext directly without checking robot info
+          try {
+            // Apply joint values through JointContext
+            const success = jointContext.setJointValues(robotId, frame.jointValues);
+            
+            if (success) {
+              state.frameIndex = frameIndex;
+              
+              // Log progress occasionally to avoid spam
+              if (frameIndex % 10 === 0) {
+                log(`[TrajectoryContext] Playing frame ${frameIndex}/${frames.length}`);
+              }
+              
+              // Update playback end effector state
+              const endEffectorFrame = state.trajectory.endEffectorPath?.[frameIndex];
+              if (endEffectorFrame) {
+                setPlaybackEndEffectorPoint(endEffectorFrame.position);
+                setPlaybackEndEffectorOrientation(endEffectorFrame.orientation || endEffectorFrame.rotation);
+                
+                // Emit update event for visualization
+                EventBus.emit('tcp:endeffector-updated', {
+                  robotId,
+                  position: endEffectorFrame.position,
+                  rotation: endEffectorFrame.orientation || endEffectorFrame.rotation,
+                  isPlayback: true,
+                  frame: frameIndex,
+                  progress
+                });
+              }
+              
+              // Call frame callback
+              state.onFrame(frame, endEffectorFrame, progress);
+              
+              // Emit frame played event
+              EventBus.emit('trajectory:frame-played', {
+                robotId,
+                trajectoryName: state.trajectory.name,
+                frameIndex,
+                progress,
+                hasEndEffector: !!endEffectorFrame
+              });
+            } else if (frameIndex === 0) {
+              // Only warn on first frame failure
+              console.warn('[TrajectoryContext] Failed to apply joint values for first frame');
+            }
+          } catch (error) {
+            if (frameIndex === 0) {
+              console.error('[TrajectoryContext] Error applying joint values:', error);
+            }
           }
         }
-      });
+      }
       
-      return true;
-    } catch (error) {
-      console.error('[TrajectoryContext] Playback error:', error);
-      setIsPlaying(false);
-      setProgress(0);
-      setCurrentTrajectory(null);
-      EventBus.emit('trajectory:playback-stopped', {
-        robotId,
-        trajectoryName: trajectory.name,
-        reason: 'error'
-      });
-      return false;
-    }
-  }, [robotId, loadTrajectory, animateTrajectoryBase]);
-  
-  const stopPlayback = useCallback(() => {
-    if (!isPlaying || !currentTrajectory) return;
-    
-    log(`[TrajectoryContext] Stopping playback: ${currentTrajectory.name}`);
-    
-    setIsPlaying(false);
-    setProgress(0);
-    
-    const trajectoryName = currentTrajectory.name;
-    setCurrentTrajectory(null);
-    setPlaybackEndEffectorPoint(null);
-    setPlaybackEndEffectorOrientation(null);
-    
-    EventBus.emit('trajectory:playback-stopped', {
-      robotId,
-      trajectoryName,
-      reason: 'user'
-    });
-  }, [isPlaying, currentTrajectory, robotId]);
+      // Update progress
+      setProgress(progress);
+      
+      // Check completion
+      if (progress >= 1) {
+        if (state.loop) {
+          // Reset for loop
+          state.startTime = Date.now();
+          state.frameIndex = 0;
+          setProgress(0);
+        } else {
+          // Complete
+          state.isPlaying = false;
+          stopPlayback();
+          state.onComplete();
+          
+          // Emit playback completed event
+          EventBus.emit('trajectory:playback-completed', {
+            robotId,
+            trajectoryName: state.trajectory.name
+          });
+          
+          log(`[TrajectoryContext] Trajectory playback completed: ${state.trajectory.name}`);
+          return;
+        }
+      }
+      
+      // Continue playback
+      state.animationFrameId = requestAnimationFrame(playFrame);
+    };
+    // Store ref for cleanup
+    const animationFrameId = requestAnimationFrame(playFrame);
+    playbackStateRef.current.animationFrameId = animationFrameId;
+    // Store cleanup function
+    activePlaybackRef.current = {
+      stop: () => {
+        if (playbackStateRef.current?.animationFrameId) {
+          cancelAnimationFrame(playbackStateRef.current.animationFrameId);
+        }
+        playbackStateRef.current.isPlaying = false;
+      }
+    };
+    return true;
+  }, [robotId, loadTrajectory, stopPlayback, jointContext]);
 
   // ========== FILE SYSTEM OPERATIONS ==========
   const deleteTrajectory = useCallback(async (manufacturer, model, name) => {
@@ -579,8 +792,10 @@ export const TrajectoryProvider = ({ children }) => {
       if (visualization.waypoints) {
         visualization.waypoints.forEach((waypoint, index) => {
           const sphereGeometry = new THREE.SphereGeometry(0.01, 8, 8);
-          const sphereMaterial = new THREE.MeshBasicMaterial({ 
-            color: new THREE.Color().setHSL(index / visualization.waypoints.length, 0.8, 0.5) 
+          const sphereMaterial = new THREE.MeshPhongMaterial({ 
+            color: new THREE.Color().setHSL(index / visualization.waypoints.length, 0.8, 0.5),
+            emissive: new THREE.Color().setHSL(index / visualization.waypoints.length, 0.8, 0.3),
+            emissiveIntensity: 0.3
           });
           const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
           sphere.position.copy(new THREE.Vector3(
@@ -594,9 +809,10 @@ export const TrajectoryProvider = ({ children }) => {
         });
       }
       
-      // Add current position marker
+      // Add current position marker with proper material
       const markerGeometry = new THREE.SphereGeometry(0.015, 16, 16);
-      const markerMaterial = new THREE.MeshBasicMaterial({ 
+      // Use MeshPhongMaterial for emissive support
+      const markerMaterial = new THREE.MeshPhongMaterial({ 
         color: 0xff0000,
         emissive: 0xff0000,
         emissiveIntensity: 0.5
@@ -609,12 +825,13 @@ export const TrajectoryProvider = ({ children }) => {
     };
 
     const handlePlaybackStarted = async (data) => {
-      const { robotId, trajectoryName } = data;
+      const { robotId, trajectoryName, trajectoryInfo } = data;
       
-      const prevActiveRobotId = activeRobotIdRef.current;
-      if (prevActiveRobotId && prevActiveRobotId !== robotId) {
-        cleanup(prevActiveRobotId);
-      } else if (!prevActiveRobotId && getScene()) {
+      cleanup(activeRobotIdRef.current);
+      
+      if (robotId !== activeRobotIdRef.current && activeRobotIdRef.current) {
+        cleanup(activeRobotIdRef.current);
+      } else if (!activeRobotIdRef.current && getScene()) {
         // Clean up any existing visualization objects
         const scene = getScene();
         const allVisObjects = scene.children.filter(child =>
@@ -635,8 +852,44 @@ export const TrajectoryProvider = ({ children }) => {
       
       if (robotId && trajectoryName) {
         try {
-          const robotInfo = getRobotInfo(robotId);
-          const trajectory = await loadTrajectory(robotInfo.manufacturer, robotInfo.model, trajectoryName);
+          let manufacturer, model;
+          
+          // TEMPORARY WORKAROUND: Always use trajectoryInfo if available
+          if (trajectoryInfo && trajectoryInfo.manufacturer && trajectoryInfo.model) {
+            manufacturer = trajectoryInfo.manufacturer;
+            model = trajectoryInfo.model;
+          } else {
+            // Fallback: Try to extract from available trajectories
+            const matchingTrajectory = availableTrajectories.find(t => 
+              t.name === trajectoryName
+            );
+            
+            if (matchingTrajectory) {
+              manufacturer = matchingTrajectory.manufacturer;
+              model = matchingTrajectory.model;
+            } else {
+              // Last resort: Use base robot ID
+              const baseRobotId = robotId.split('_')[0];
+              
+              // Try to find in categories
+              for (const category of categories || []) {
+                const robot = category.robots?.find(r => r.id === baseRobotId);
+                if (robot) {
+                  manufacturer = category.id;
+                  model = baseRobotId.toLowerCase();
+                  break;
+                }
+              }
+              
+              if (!manufacturer) {
+                console.error('[TrajectoryContext] Cannot determine manufacturer/model for trajectory visualization');
+                manufacturer = 'unknown';
+                model = baseRobotId.toLowerCase();
+              }
+            }
+          }
+          
+          const trajectory = await loadTrajectory(manufacturer, model, trajectoryName);
           if (trajectory) {
             storedTrajectoryRef.current = trajectory;
             const visualization = createTrajectoryVisualization(trajectory.endEffectorPath);
@@ -687,28 +940,82 @@ export const TrajectoryProvider = ({ children }) => {
         cleanup(activeRobotIdRef.current);
       }
     };
-  }, [isViewerReady, getScene, loadTrajectory, createTrajectoryVisualization, getRobotInfo]);
+  }, [isViewerReady, getScene, loadTrajectory, createTrajectoryVisualization, getRobotInfo, availableTrajectories]);
 
   // ========== EVENT LISTENERS FOR RECORDING ==========
   useEffect(() => {
-    if (!isRecording) return;
+    if (!isRecording || !robotId) return;
     
-    const handleJointUpdate = (data) => {
+    let lastFrameTime = 0;
+    const FRAME_THROTTLE_MS = 16; // ~60fps
+    
+    const handleJointChange = (data) => {
       if (data.robotId !== robotId) return;
       
+      const currentTime = Date.now();
+      
+      // Throttle to prevent too many frames
+      if (currentTime - lastFrameTime < FRAME_THROTTLE_MS) return;
+      lastFrameTime = currentTime;
+      
+      const elapsed = currentTime - recordingStartTimeRef.current;
+      
+      // Get joint values from event data
+      const jointValues = data.values || data.joints || {};
+      
+      // Create frame with timestamp and joint values
       const frame = {
-        timestamp: Date.now() - recordingStartTimeRef.current,
-        joints: data.values || data.joints,
-        endEffector: data.endEffector
+        timestamp: elapsed,
+        jointValues: { ...jointValues }
       };
+      
+      // Add end effector data if available (from TCP system)
+      if (data.endEffector) {
+        frame.endEffector = {
+          position: data.endEffector.position,
+          rotation: data.endEffector.rotation || data.endEffector.orientation
+        };
+      }
       
       frameBufferRef.current.push(frame);
       frameCountRef.current++;
       setFrameCount(frameCountRef.current);
+      
+      // Log every 10th frame to avoid spam
+      if (frameCountRef.current % 10 === 0) {
+        log(`[TrajectoryContext] Recorded frame ${frameCountRef.current} at ${elapsed}ms`);
+      }
+      
+      // Emit frame recorded event
+      EventBus.emit('trajectory:frame-recorded', {
+        robotId,
+        frameCount: frameCountRef.current,
+        hasEndEffector: !!frame.endEffector
+      });
     };
     
-    const unsubscribe = EventBus.on('robot:joints-updated', handleJointUpdate);
-    return () => unsubscribe();
+    // Also listen for TCP updates to capture end effector data
+    const handleTCPUpdate = (data) => {
+      if (data.robotId !== robotId || !data.position) return;
+      
+      // Update the last frame with end effector data if it exists
+      if (frameBufferRef.current.length > 0) {
+        const lastFrame = frameBufferRef.current[frameBufferRef.current.length - 1];
+        lastFrame.endEffector = {
+          position: { ...data.position },
+          rotation: data.rotation || data.orientation || { x: 0, y: 0, z: 0, w: 1 }
+        };
+      }
+    };
+    
+    // Listen to joint changes from JointContext
+    const unsubscribeJoints = EventBus.on('robot:joints-changed', handleJointChange);
+    const unsubscribeTCP = EventBus.on('tcp:endeffector-updated', handleTCPUpdate);
+    
+    return () => {
+      unsubscribeJoints();
+      unsubscribeTCP();
+    };
   }, [isRecording, robotId]);
 
   // ========== GET ROBOT TRAJECTORIES ==========
@@ -734,6 +1041,60 @@ export const TrajectoryProvider = ({ children }) => {
     
     return () => clearTimeout(timer);
   }, [scanTrajectories]);
+
+  // Debug function for robot lookup
+  const debugRobotLookup = useCallback((robotId) => {
+    // Access RobotContext internals for debugging
+    const robotManager = useRobotContext();
+    const loadedRobots = robotManager.loadedRobots || new Map();
+    const workspaceRobots = robotManager.workspaceRobots || [];
+    const categories = robotManager.categories || [];
+
+    console.group(`[TrajectoryContext Debug] Robot Lookup for: ${robotId}`);
+    // Step 1: Extract base ID
+    const baseRobotId = robotId.split('_')[0];
+    console.log('Base Robot ID:', baseRobotId);
+    // Step 2: Try getRobot
+    const robot = getRobot(robotId);
+    console.log('getRobot result:', robot);
+    // Step 3: Try getManufacturer
+    const manufacturer = getManufacturer(robotId);
+    console.log('getManufacturer result:', manufacturer);
+    // Step 4: Check loadedRobots directly
+    console.log('All loaded robots:', Array.from(loadedRobots.keys()));
+    // Step 5: Check workspace robots
+    console.log('Workspace robots:', workspaceRobots.map(r => ({
+      id: r.id,
+      robotId: r.robotId,
+      manufacturer: r.manufacturer
+    })));
+    // Step 6: Check categories for base ID
+    let foundInCategories = false;
+    for (const category of categories) {
+      const robot = category.robots?.find(r => r.id === baseRobotId);
+      if (robot) {
+        console.log(`Found in category "${category.id}":`, robot);
+        foundInCategories = true;
+        break;
+      }
+    }
+    if (!foundInCategories) {
+      console.log('Not found in categories');
+    }
+    // Step 7: Final getRobotInfo result
+    const robotInfo = getRobotInfo(robotId);
+    console.log('getRobotInfo result:', robotInfo);
+    console.groupEnd();
+    return {
+      robotId,
+      baseRobotId,
+      robot: !!robot,
+      manufacturer,
+      robotInfo,
+      inLoadedRobots: loadedRobots.has(robotId),
+      inWorkspace: workspaceRobots.some(r => r.id === robotId)
+    };
+  }, [getRobot, getManufacturer, getRobotInfo]);
 
   // ========== CONTEXT VALUE ==========
   const value = useMemo(() => ({
@@ -780,7 +1141,8 @@ export const TrajectoryProvider = ({ children }) => {
     count: getRobotTrajectories().length,
     
     // Error handling
-    clearError: () => setError(null)
+    clearError: () => setError(null),
+    debugRobotLookup, // Expose for debugging
   }), [
     robotId, isRecording, isPlaying, isScanning, recordingName, frameCount,
     progress, currentTrajectory, availableTrajectories, error,
@@ -789,7 +1151,7 @@ export const TrajectoryProvider = ({ children }) => {
     scanTrajectories, loadTrajectory, deleteTrajectory, analyzeTrajectory,
     getRobotTrajectories, createTrajectoryVisualization, calculateBounds,
     calculateCameraPosition, getTrajectoryVisualization,
-    isAnimating, getRobotInfo
+    isAnimating, getRobotInfo, debugRobotLookup
   ]);
 
   return (

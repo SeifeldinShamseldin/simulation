@@ -8,6 +8,7 @@ import EventBus from '../../../utils/EventBus';
 const URDFViewer = React.forwardRef(({
   robotName = '',
   urdfPath = '',
+  manufacturer = '',
   width = '100%',
   height = '100%',
   backgroundColor = '#f5f5f5',
@@ -56,7 +57,9 @@ const URDFViewer = React.forwardRef(({
   // Load robot when props change
   useEffect(() => {
     if (viewer.isViewerReady && robotName && urdfPath) {
-      robotContext.loadRobot(robotName, urdfPath).then(robot => {
+      // Pass manufacturer if available
+      const loadOptions = manufacturer ? { manufacturer } : undefined;
+      robotContext.loadRobot(robotName, urdfPath, loadOptions).then(robot => {
         if (onRobotLoad) onRobotLoad(robot);
         // Focus on loaded robot with a delay to ensure everything is ready
         setTimeout(() => {
@@ -68,7 +71,7 @@ const URDFViewer = React.forwardRef(({
         }, 100);
       });
     }
-  }, [viewer.isViewerReady, robotName, urdfPath, robotContext, onRobotLoad]);
+  }, [viewer.isViewerReady, robotName, urdfPath, manufacturer, robotContext, onRobotLoad]);
   
   // Listen for joint changes if handler provided
   useEffect(() => {

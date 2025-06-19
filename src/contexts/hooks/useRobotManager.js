@@ -134,7 +134,9 @@ export const useRobotManager = () => {
     hasWorkspaceRobot,
     isRobotLoadedCheck,
     isRobotActiveCheck,
-    getRobotData
+    getRobotData,
+    // ========== MANUFACTURER HELPER ==========
+    getManufacturer: context.getManufacturer
   }), [
     // Context dependencies
     context.availableRobots,
@@ -188,7 +190,9 @@ export const useRobotManager = () => {
     hasWorkspaceRobot,
     isRobotLoadedCheck,
     isRobotActiveCheck,
-    getRobotData
+    getRobotData,
+    // ========== MANUFACTURER HELPER ==========
+    context.getManufacturer
   ]);
 };
 

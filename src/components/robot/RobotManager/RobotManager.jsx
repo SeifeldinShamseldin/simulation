@@ -233,6 +233,7 @@ const RobotManager = ({
       // Load robot into the viewer
       await loadRobot(robot.id, robot.urdfPath, {
         position: { x: 0, y: 0, z: 0 },
+        manufacturer: robot.manufacturer
       });
       
       setLocalSuccess(`${robot.name} loaded successfully!`);

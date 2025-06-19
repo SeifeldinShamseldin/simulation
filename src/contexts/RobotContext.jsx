@@ -133,6 +133,25 @@ useEffect(() => {
   }
 }, [isViewerReady, getSceneSetup]);
 
+// Add a ref to track robot ID to manufacturer mappings
+const robotManufacturerMap = useRef(new Map());
+
+// Update the map whenever robots are discovered
+useEffect(() => {
+  // Clear and rebuild the map
+  robotManufacturerMap.current.clear();
+  // Add all known robots to the map
+  categories.forEach(category => {
+    category.robots?.forEach(robot => {
+      // Map base robot ID to manufacturer
+      robotManufacturerMap.current.set(robot.id, category.id);
+    });
+  });
+  console.log('[RobotContext] Manufacturer map updated:', 
+    Array.from(robotManufacturerMap.current.entries())
+  );
+}, [categories]);
+
 // ========== ROBOT DISCOVERY OPERATIONS (from old RobotContext) ==========
 
 const discoverRobots = useCallback(async () => {
@@ -149,7 +168,7 @@ const discoverRobots = useCallback(async () => {
     
     console.log('[RobotContext] Discovering robots...');
     
-    const response = await fetch('/robots/list');
+    const response = await fetch('/api/robots/scan');
     const result = await response.json();
     
     if (result.success) {
@@ -163,6 +182,7 @@ const discoverRobots = useCallback(async () => {
             ...robot,
             category: category.id,
             categoryName: category.name,
+            manufacturer: category.id,
             manufacturerLogoPath: category.manufacturerLogoPath,
           });
         });
@@ -211,18 +231,68 @@ useEffect(() => {
   }
 }, [workspaceRobots]);
 
-// Add robot to workspace
+// Enhanced getManufacturer that checks the map
+const getManufacturer = useCallback((robotOrId) => {
+  if (!robotOrId) return null;
+  // Handle robot objects
+  if (typeof robotOrId === 'object') {
+    return robotOrId.manufacturer || robotOrId.category || robotOrId.categoryName || null;
+  }
+  const robotId = robotOrId;
+  const baseRobotId = robotId.split('_')[0];
+  // Check the manufacturer map first (fastest)
+  const mappedManufacturer = robotManufacturerMap.current.get(baseRobotId);
+  if (mappedManufacturer) {
+    return mappedManufacturer;
+  }
+  // Method 1: Check loaded robots first (might have manufacturer stored)
+  const loadedRobot = loadedRobots.get(robotId);
+  if (loadedRobot?.manufacturer) {
+    console.log(`[RobotContext] Found manufacturer in loaded robot: ${loadedRobot.manufacturer}`);
+    return loadedRobot.manufacturer;
+  }
+  // Method 2: Check workspace robots
+  const workspaceRobot = workspaceRobots.find(r => 
+    r.id === robotId || r.robotId === baseRobotId
+  );
+  if (workspaceRobot?.manufacturer) {
+    console.log(`[RobotContext] Found manufacturer in workspace: ${workspaceRobot.manufacturer}`);
+    return workspaceRobot.manufacturer;
+  }
+  // Method 3: Find in categories by base robot ID
+  for (const category of categories) {
+    const robot = category.robots?.find(r => r.id === baseRobotId);
+    if (robot) {
+      console.log(`[RobotContext] Found manufacturer in categories: ${category.id}`);
+      return category.id; // The category ID is the manufacturer
+    }
+  }
+  // Method 4: Check available robots
+  const availableRobot = availableRobots.find(r => 
+    r.id === baseRobotId || r.robotId === baseRobotId
+  );
+  if (availableRobot) {
+    const manufacturer = availableRobot.manufacturer || availableRobot.category || availableRobot.categoryName;
+    if (manufacturer) {
+      console.log(`[RobotContext] Found manufacturer in available robots: ${manufacturer}`);
+      return manufacturer;
+    }
+  }
+  console.warn(`[RobotContext] Could not find manufacturer for robot ${robotId}`);
+  return null;
+}, [loadedRobots, workspaceRobots, categories, availableRobots]);
+
+// When adding to workspace, store in the map
 const addRobotToWorkspace = useCallback((robotData) => {
   const newRobot = {
     id: `${robotData.id}_${Date.now()}`,
     robotId: robotData.id,
     name: robotData.name,
-    manufacturer: robotData.manufacturer || robotData.categoryName,
+    manufacturer: robotData.manufacturer || robotData.category || robotData.categoryName,
     urdfPath: robotData.urdfPath,
     imagePath: robotData.imagePath,
     addedAt: new Date().toISOString()
   };
-  
   setWorkspaceRobots(prev => {
     // Check if robot already exists
     const exists = prev.some(r => r.robotId === robotData.id);
@@ -230,16 +300,18 @@ const addRobotToWorkspace = useCallback((robotData) => {
       console.log('[RobotContext] Robot already in workspace:', robotData.name);
       return prev;
     }
-    
     console.log('[RobotContext] Adding robot to workspace:', newRobot);
     return [...prev, newRobot];
   });
-  
   setSuccessMessage(`${robotData.name} added to workspace!`);
   setTimeout(() => setSuccessMessage(''), 3000);
-  
+  // Store the mapping
+  if (newRobot.manufacturer && newRobot.robotId) {
+    robotManufacturerMap.current.set(newRobot.robotId, newRobot.manufacturer);
+    robotManufacturerMap.current.set(newRobot.id, newRobot.manufacturer);
+  }
   return newRobot;
-}, []);
+}, [categories]);
 
 // Remove robot from workspace
 const removeRobotFromWorkspace = useCallback((workspaceRobotId) => {
@@ -324,6 +396,7 @@ const setActiveRobotId = useCallback((robotId) => {
 const loadRobot = useCallback(async (robotName, urdfPath, options = {}) => {
   const {
     position = { x: 0, y: 0, z: 0 },
+    manufacturer = null,
   } = options;
 
   if (!sceneSetupRef.current || !urdfLoaderRef.current) {
@@ -334,29 +407,21 @@ const loadRobot = useCallback(async (robotName, urdfPath, options = {}) => {
     setIsLoading(true);
     setError(null);
     
-    // Set loading state for this robot
     setLoadingStates(prev => new Map(prev).set(robotName, LOADING_STATES.LOADING));
     
-    // Extract package path from urdf path
     const packagePath = urdfPath.substring(0, urdfPath.lastIndexOf('/'));
-    
-    // Reset loader state
     urdfLoaderRef.current.resetLoader();
     urdfLoaderRef.current.packages = packagePath;
     urdfLoaderRef.current.currentRobotName = robotName;
-    
-    // Set up loadMeshCb
     urdfLoaderRef.current.loadMeshCb = (path, manager, done, material) => {
       const filename = path.split('/').pop();
       const resolvedPath = `${urdfLoaderRef.current.packages}/${filename}`;
-      
       MeshLoader.load(resolvedPath, manager, (obj, err) => {
         if (err) {
           console.error('Error loading mesh:', err);
           done(null, err);
           return;
         }
-        
         if (obj) {
           obj.traverse(child => {
             if (child instanceof THREE.Mesh) {
@@ -367,57 +432,68 @@ const loadRobot = useCallback(async (robotName, urdfPath, options = {}) => {
               child.receiveShadow = true;
             }
           });
-          
           done(obj);
         } else {
           done(null, new Error('No mesh object returned'));
         }
       }, material);
     };
-    
     console.info(`Loading robot ${robotName} from ${urdfPath}`);
-    
-    // Load the URDF model
     const robot = await new Promise((resolve, reject) => {
       urdfLoaderRef.current.load(urdfPath, resolve, null, reject);
     });
-    
-    // Validate robot structure
     const validation = validateRobotStructure(robot, robotName);
     if (validation.issues.length > 0) {
       console.warn(`[RobotContext] Robot structure issues:`, validation.issues);
     }
-    
-    // Store the robot with metadata
+
+    // Determine the manufacturer if not provided
+    let robotManufacturer = manufacturer;
+    const baseRobotId = robotName.split('_')[0];
+    if (!robotManufacturer) {
+      // Find in categories
+      for (const category of categories) {
+        const robot = category.robots?.find(r => r.id === baseRobotId);
+        if (robot) {
+          robotManufacturer = category.id;
+          break;
+        }
+      }
+      // Fallback to workspace robot info
+      if (!robotManufacturer) {
+        const workspaceRobot = workspaceRobots.find(r => r.id === robotName);
+        robotManufacturer = workspaceRobot?.manufacturer;
+      }
+    }
+    console.log(`[RobotContext] Loading robot ${robotName} with manufacturer: ${robotManufacturer}`);
+
+    // Store in the map
+    if (robotManufacturer) {
+      robotManufacturerMap.current.set(robotName, robotManufacturer);
+      robotManufacturerMap.current.set(baseRobotId, robotManufacturer);
+    }
+    // Store the robot with metadata INCLUDING manufacturer and baseId
     const robotData = {
       name: robotName,
       model: robot,
       robot: robot, // Alias for compatibility
       urdfPath: urdfPath,
       validation,
-      id: robotName // Add id for compatibility
+      id: robotName, // Add id for compatibility
+      manufacturer: robotManufacturer || 'unknown', // ALWAYS store manufacturer
+      baseId: baseRobotId // Store base ID for easier lookup
     };
-    
-    // Add to scene with a container
     const robotContainer = new THREE.Object3D();
     robotContainer.name = `${robotName}_container`;
     robotContainer.add(robot);
     robotContainer.position.set(position.x, position.y, position.z);
-    
     sceneSetupRef.current.robotRoot.add(robotContainer);
     robotData.container = robotContainer;
-    
-    // Store the robot
     setRobots(prev => new Map(prev).set(robotName, robotData));
-    
-    // Set loading state to loaded
     setLoadingStates(prev => new Map(prev).set(robotName, LOADING_STATES.LOADED));
-    
-    // Update scene
     if (sceneSetupRef.current.setUpAxis) {
       sceneSetupRef.current.setUpAxis('+Z');
     }
-    
     EventBus.emit('robot:loaded', { 
       robotName, 
       robot,
@@ -426,33 +502,62 @@ const loadRobot = useCallback(async (robotName, urdfPath, options = {}) => {
       activeRobots: Array.from(activeRobots),
       validation
     });
-    
     setSuccessMessage(`${robotName} loaded successfully!`);
     setTimeout(() => setSuccessMessage(''), 3000);
-    
     console.info(`Successfully loaded robot: ${robotName}`);
     return robot;
-    
   } catch (error) {
     console.error(`Error loading robot ${robotName}:`, error);
     setError(`Failed to load robot: ${error.message}`);
-    
-    // Set loading state to error
     setLoadingStates(prev => new Map(prev).set(robotName, LOADING_STATES.ERROR));
-    
     throw error;
   } finally {
     setIsLoading(false);
   }
-}, [robots, activeRobots, setActiveRobotId]);
+}, [robots, activeRobots, setActiveRobotId, categories, workspaceRobots]);
 
 /**
  * Get a specific robot by name
  */
 const getRobot = useCallback((robotId) => {
+  if (!robotId) return null;
+  
+  // Method 1: Direct lookup in loadedRobots
   const robotData = robots.get(robotId);
-  return robotData ? (robotData.model || robotData.robot) : null;
-}, [robots]);
+  if (robotData) {
+    console.log(`[RobotContext] Found robot ${robotId} in loadedRobots`);
+    return robotData.robot || robotData.model || robotData;
+  }
+  
+  // Method 2: Try base robot ID
+  const baseRobotId = robotId.split('_')[0];
+  
+  // Check if any loaded robot has this base ID
+  for (const [key, data] of robots.entries()) {
+    if (key.startsWith(baseRobotId + '_') || data.baseId === baseRobotId) {
+      console.log(`[RobotContext] Found robot by base ID ${baseRobotId} -> ${key}`);
+      return data.robot || data.model || data;
+    }
+  }
+  
+  // Method 3: Check workspace robots
+  const workspaceRobot = workspaceRobots.find(r => 
+    r.id === robotId || r.robotId === baseRobotId
+  );
+  
+  if (workspaceRobot) {
+    // Try to find the loaded instance
+    for (const [key, data] of robots.entries()) {
+      if (key === workspaceRobot.id) {
+        console.log(`[RobotContext] Found robot via workspace ${workspaceRobot.id}`);
+        return data.robot || data.model || data;
+      }
+    }
+  }
+  
+  console.warn(`[RobotContext] Robot ${robotId} not found in any source`);
+  return null;
+}, [robots, workspaceRobots]);
 
 /**
  * Get all loaded robots
@@ -933,7 +1038,10 @@ const value = useMemo(() => ({
   
   // ========== ERROR HANDLING ==========
   clearError,
-  clearSuccess
+  clearSuccess,
+  
+  // ========== MANUFACTURER HELPER ==========
+  getManufacturer,
 }), [
   availableRobots,
   categories,

@@ -1200,6 +1200,78 @@ app.delete('/api/trajectory/delete', express.json(), (req, res) => {
   }
 });
 
+// Get available robots by scanning the robots directory (SCAN ENDPOINT)
+app.get('/api/robots/scan', (req, res) => {
+  try {
+    const robotsDir = path.join(__dirname, '..', '..', 'public', 'robots');
+    if (!fs.existsSync(robotsDir)) {
+      return res.json({ success: true, categories: [] });
+    }
+    const categories = [];
+    const categoryDirs = fs.readdirSync(robotsDir, { withFileTypes: true })
+      .filter(dirent => dirent.isDirectory());
+    for (const categoryDir of categoryDirs) {
+      const categoryName = categoryDir.name;
+      const categoryPath = path.join(robotsDir, categoryName);
+      const categoryFiles = fs.readdirSync(categoryPath, { withFileTypes: true });
+      const manufacturerLogoFile = categoryFiles.find(file => file.isFile() && isImageFile(file.name));
+      let manufacturerLogoPath = null;
+      if (manufacturerLogoFile) {
+        manufacturerLogoPath = `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(manufacturerLogoFile.name)}`;
+      }
+      try {
+        const robotDirs = fs.readdirSync(categoryPath, { withFileTypes: true })
+          .filter(dirent => dirent.isDirectory());
+        const robots = [];
+        for (const robotDir of robotDirs) {
+          const robotId = robotDir.name;
+          const robotPath = path.join(categoryPath, robotId);
+          try {
+            const files = fs.readdirSync(robotPath);
+            const urdfFile = files.find(file => file.endsWith('.urdf'));
+            const hasMeshes = files.some(file => file.endsWith('.stl') || file.endsWith('.dae'));
+            const imageFiles = files.filter(file => isImageFile(file));
+            const imageFile = imageFiles.length > 0 ? imageFiles[0] : null;
+            if (urdfFile && hasMeshes) {
+              const robotData = {
+                id: robotId.toLowerCase().replace(/\s+/g, '_'),
+                name: robotId.charAt(0).toUpperCase() + robotId.slice(1),
+                urdfPath: `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}/${encodeURIComponent(urdfFile)}`,
+                packagePath: `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}`,
+                meshFiles: files.filter(file => file.endsWith('.stl') || file.endsWith('.dae'))
+              };
+              if (imageFile) {
+                robotData.imagePath = `/robots/${encodeURIComponent(categoryName)}/${encodeURIComponent(robotId)}/${encodeURIComponent(imageFile)}`;
+              }
+              robots.push(robotData);
+            }
+          } catch (error) {
+            console.warn(`Error reading robot directory ${robotPath}:`, error.message);
+          }
+        }
+        if (robots.length > 0) {
+          categories.push({
+            id: categoryName.toLowerCase().replace(/\s+/g, '_'),
+            name: categoryName,
+            robots: robots,
+            manufacturerLogoPath: manufacturerLogoPath
+          });
+        }
+      } catch (error) {
+        console.warn(`Error reading category directory ${categoryPath}:`, error.message);
+      }
+    }
+    res.json({ success: true, categories });
+  } catch (error) {
+    console.error('Error scanning robots directory:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error scanning robots directory',
+      error: error.message
+    });
+  }
+});
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {

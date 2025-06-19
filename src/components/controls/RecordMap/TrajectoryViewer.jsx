@@ -164,28 +164,22 @@ const TrajectoryViewer = ({ viewerRef }) => {
     }
   };
 
-  const handlePlayTrajectory = async (trajectoryInfo) => {
-    if (!canPlay) {
-      alert('Robot not ready for playback');
-      return;
-    }
-
-    try {
-      const success = await playTrajectory(trajectoryInfo, {
-        ...playbackOptions,
-        onComplete: () => {
-          console.log(`[TrajectoryViewer] Playback of "${trajectoryInfo.name}" completed`);
-        }
-      });
-
-      if (success) {
-        setSelectedTrajectory(trajectoryInfo);
-      } else {
-        alert('Failed to start playback. Check console for details.');
-      }
-    } catch (error) {
-      console.error('[TrajectoryViewer] Error starting playback:', error);
-      alert('Failed to start playback. Check console for details.');
+  const handlePlayTrajectory = async (trajectory) => {
+    if (!playTrajectory) return;
+    
+    // Make sure to pass the complete trajectory metadata
+    const success = await playTrajectory({
+      name: trajectory.name,
+      manufacturer: trajectory.manufacturer,
+      model: trajectory.model,
+      // Include any other metadata from the trajectory
+      ...trajectory
+    });
+    
+    if (success) {
+      console.log(`[TrajectoryViewer] Started playback of "${trajectory.name}"`);
+    } else {
+      console.error(`[TrajectoryViewer] Failed to play trajectory: ${trajectory.name}`);
     }
   };
 
