@@ -10,13 +10,14 @@ import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
 import { useRobotManager } from '../../../contexts/hooks/useRobotManager';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
 import EventBus from '../../../utils/EventBus';
+import { useRobotContext } from '../../../contexts/RobotContext';
 
 /**
  * TrajectoryViewer component - UI for trajectory recording, playback, and management
  * Now uses TrajectoryContext instead of the old hooks
  */
 const TrajectoryViewer = ({ viewerRef }) => {
-  const { activeRobotId, isReady, hasJoints, hasValidEndEffector, isUsingTCP } = useRobotControl(viewerRef);
+  const { activeRobotId, isReady, hasJoints, hasValidEndEffector, isUsingTCP, getJointValues } = useRobotControl(viewerRef);
   const { categories, getRobotById } = useRobotManager();
   
   // Use specialized hooks from the new TrajectoryContext
@@ -53,7 +54,11 @@ const TrajectoryViewer = ({ viewerRef }) => {
   const {
     error: contextError,
     clearError,
+    isRobotReady,
+    robotId
   } = useTrajectoryContext();
+
+  const { getWorkspaceRobot, loadedRobots } = useRobotContext();
 
   // Combine errors
   const error = contextError || managementError;
@@ -133,6 +138,59 @@ const TrajectoryViewer = ({ viewerRef }) => {
       unsubscribeCompleted();
     };
   }, [activeRobotId]);
+
+  useEffect(() => {
+    (async () => {
+      console.log('=== ROBOT READINESS DEBUG ===');
+      try {
+        // 1. Check what robot ID is being used
+        if (typeof getWorkspaceRobot === 'function') {
+          const workspaceRobot = await getWorkspaceRobot();
+          console.log('Workspace Robot:', workspaceRobot);
+          console.log('Robot ID:', workspaceRobot?.id);
+          console.log('Robot Name:', workspaceRobot?.name);
+          console.log('Manufacturer:', workspaceRobot?.manufacturer);
+          console.log('Model:', workspaceRobot?.robotId);
+
+          // 2. Check if robot is in loadedRobots
+          if (Array.isArray(loadedRobots)) {
+            const loadedRobot = loadedRobots.find(r => r.id === workspaceRobot?.id);
+            console.log('Found in loadedRobots:', !!loadedRobot);
+            console.log('Has joints:', loadedRobot?.joints ? Object.keys(loadedRobot.joints).length : 0);
+          }
+        }
+
+        // 3. Check if we can get joint values
+        const jointValues = getJointValues ? getJointValues() : {};
+        console.log('Joint values:', jointValues);
+        console.log('Joint count:', Object.keys(jointValues).length);
+
+        // 4. Check robot manager
+        if (viewerInstance?.robotLoaderRef?.current) {
+          const manager = viewerInstance.robotLoaderRef.current;
+          const workspaceRobot = typeof getWorkspaceRobot === 'function' ? await getWorkspaceRobot() : null;
+          const managerRobot = manager.getRobot ? manager.getRobot(workspaceRobot?.id) : null;
+          console.log('Robot in manager:', !!managerRobot);
+          console.log('Manager has getRobot:', !!manager.getRobot);
+          console.log('Manager has setJointValue:', !!manager.setJointValue);
+        }
+
+        // 5. Test event system
+        if (typeof EventBus !== 'undefined') {
+          const workspaceRobot = typeof getWorkspaceRobot === 'function' ? await getWorkspaceRobot() : null;
+          EventBus.emit('robot:check-joints', { 
+            robotId: workspaceRobot?.id, 
+            callback: (jointInfo) => {
+              console.log('Joint check callback:', jointInfo);
+            }
+          });
+        }
+      } catch (err) {
+        console.error('DEBUG ERROR:', err);
+      }
+      console.log('=== END DEBUG ===');
+    })();
+  }, [robotId, activeRobotId, isReady, hasJoints, hasValidEndEffector, getJointValues, getWorkspaceRobot, loadedRobots, viewerInstance]);
 
   // ========== UI EVENT HANDLERS ==========
 
@@ -223,6 +281,26 @@ const TrajectoryViewer = ({ viewerRef }) => {
 
   // ========== UI RENDER HELPERS ==========
 
+  // Compute robot readiness for trajectory (used for enabling/disabling controls and warnings)
+  const isRobotReadyForTrajectory = useMemo(() => {
+    if (!activeRobotId || !robotId) return false;
+    if (activeRobotId !== robotId) return false;
+    if (!isReady) return false;
+    const jointValues = getJointValues ? getJointValues() : {};
+    const hasJointValues = Object.keys(jointValues).length > 0;
+    const contextReady = isRobotReady ? isRobotReady(robotId) : false;
+    return (hasJointValues || contextReady || hasJoints) && hasValidEndEffector;
+  }, [activeRobotId, robotId, isReady, hasJoints, getJointValues, isRobotReady, hasValidEndEffector]);
+
+  // Display robot status
+  const robotStatus = {
+    robot: activeRobotId || 'None',
+    joints: isRobotReadyForTrajectory ? '✓' : '✗',
+    endEffector: hasValidEndEffector ? '✓' : '✗',
+    tcpTool: isUsingTCP ? '✓' : '✗',
+    ready: isRobotReadyForTrajectory && hasValidEndEffector
+  };
+
   const renderRobotStatus = () => (
     <div className="controls-mb-3" style={{
       padding: '0.75rem',
@@ -237,7 +315,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
         <div><strong>End Effector:</strong> {hasValidEndEffector ? '✓' : '✗'}</div>
         <div><strong>TCP Tool:</strong> {isUsingTCP ? '✓' : '✗'}</div>
       </div>
-      {!canRecord && (
+      {!isRobotReadyForTrajectory && (
         <div className="controls-text-danger controls-small controls-mt-2">
           Robot not ready for trajectory operations
         </div>
@@ -356,7 +434,6 @@ const TrajectoryViewer = ({ viewerRef }) => {
       {/* Recording Controls */}
       <div className="trajectory-recording controls-mb-4">
         <h4>Record New Trajectory</h4>
-        
         <div className="controls-form-group">
           <label className="controls-form-label">Trajectory Name:</label>
           <input
@@ -365,10 +442,9 @@ const TrajectoryViewer = ({ viewerRef }) => {
             placeholder="Enter trajectory name"
             value={newTrajectoryName}
             onChange={(e) => setNewTrajectoryName(e.target.value)}
-            disabled={isRecording || isPlaying}
+            disabled={isRecording || isPlaying || !isRobotReadyForTrajectory}
           />
         </div>
-
         <div className="controls-form-group">
           <label className="controls-form-label">
             Recording Interval (ms):
@@ -380,18 +456,17 @@ const TrajectoryViewer = ({ viewerRef }) => {
               step="10"
               value={recordInterval}
               onChange={(e) => setRecordInterval(parseInt(e.target.value, 10))}
-              disabled={isRecording || isPlaying}
+              disabled={isRecording || isPlaying || !isRobotReadyForTrajectory}
               style={{ width: '100px', marginLeft: '0.5rem' }}
             />
           </label>
         </div>
-
         <div className="controls-btn-group">
           {!isRecording ? (
             <button 
               className="controls-btn controls-btn-success"
               onClick={handleStartRecording}
-              disabled={!canRecord || !newTrajectoryName.trim() || isPlaying}
+              disabled={!canRecord || !newTrajectoryName.trim() || isPlaying || !isRobotReadyForTrajectory}
             >
               🔴 Start Recording
             </button>
