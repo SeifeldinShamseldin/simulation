@@ -149,6 +149,21 @@ function createEndEffectorVisualization(endEffectorPath) {
   return new THREE.Line(geometry, material);
 }
 
+/**
+ * Pre-animate robot to the first frame of a trajectory
+ * Always uses the first frame in the array, regardless of timestamp
+ */
+const preAnimateToFirstFrame = async (trajectory, robotId, jointMapper, jointContext, jointMapping, duration = 500) => {
+  if (!trajectory || !trajectory.frames || trajectory.frames.length === 0) return;
+  const firstFrame = trajectory.frames[0];
+  const firstFrameJoints = jointMapper.applyMapping(firstFrame.jointValues, jointMapping);
+  console.log('[TrajectoryContext] Pre-animating to first frame');
+  await jointContext.animateToJointValues(robotId, firstFrameJoints, {
+    duration,
+    motionProfile: 'trapezoidal',
+  });
+};
+
 export const TrajectoryProvider = ({ children }) => {
   const jointContext = useJointContext();
   const { getRobot, activeRobotId, workspaceRobots } = useRobotContext();
@@ -513,15 +528,10 @@ export const TrajectoryProvider = ({ children }) => {
       animationDuration = 2000
     } = options;
 
-    // Pre-animation to first frame (new format)
+    // Pre-animation to first frame (always use helper)
     if (enablePreAnimation && trajectory.frames.length > 0) {
-      const firstFrameJoints = jointMapper.applyMapping(firstFrame.jointValues, jointMapping);
-      log('[TrajectoryContext] Pre-animating to first frame');
       try {
-        await jointContext.animateToJointValues(robotId, firstFrameJoints, {
-          duration: animationDuration,
-          motionProfile: 'trapezoidal'
-        });
+        await preAnimateToFirstFrame(trajectory, robotId, jointMapper, jointContext, jointMapping, animationDuration);
         if (trajectory.endEffectorPath && trajectory.endEffectorPath.length > 0) {
           createTrajectoryVisualization(trajectory);
         }
@@ -562,71 +572,45 @@ export const TrajectoryProvider = ({ children }) => {
     });
 
     // Start playback loop (new format only)
+    let currentFrameIndex = 0;
+    const frames = trajectory.frames;
     const playFrame = () => {
-      const state = playbackStateRef.current;
-      if (!state || !state.isPlaying) {
+      if (!playbackStateRef.current || !playbackStateRef.current.isPlaying) {
         return;
       }
-
-      const elapsed = (Date.now() - state.startTime) * state.speed;
-      const progress = Math.min(elapsed / state.trajectory.duration, 1);
-
-      // Find current frame (always use timestamp and jointValues)
-      let frameIndex = 0;
-      const frames = state.trajectory.frames;
-      for (let i = 1; i < frames.length; i++) {
-        if (frames[i].timestamp <= elapsed) {
-          frameIndex = i;
-        } else {
-          break;
-        }
+      if (currentFrameIndex >= frames.length) {
+        setIsPlaying(false);
+        stopPlayback();
+        playbackStateRef.current?.onComplete?.();
+        EventBus.emit('trajectory:playback-completed', {
+          robotId,
+          trajectoryName: trajectory.name
+        });
+        return;
       }
-
-      // Apply frame if changed or if this is the very first frame
-      if ((frameIndex !== state.frameIndex || state.frameIndex === 0) && frameIndex < frames.length) {
-        const frame = frames[frameIndex];
-        // Only use jointValues from the new format
-        const mappedJoints = jointMapper.applyMapping(frame.jointValues, state.jointMapping);
-        const success = jointContext.setJointValues(robotId, mappedJoints);
-        if (success) {
-          state.frameIndex = frameIndex;
-          // Update end effector visualization (new format)
-          const endEffectorFrame = state.trajectory.endEffectorPath?.[frameIndex];
-          if (endEffectorFrame) {
-            setPlaybackEndEffectorPoint(endEffectorFrame.position);
-            setPlaybackEndEffectorOrientation(endEffectorFrame.orientation || endEffectorFrame.rotation);
-            EventBus.emit('tcp:endeffector-updated', {
-              robotId,
-              position: endEffectorFrame.position,
-              rotation: endEffectorFrame.orientation || endEffectorFrame.rotation,
-              isPlayback: true,
-              frame: frameIndex,
-              progress
-            });
-          }
-          state.onFrame(frame, endEffectorFrame, progress);
-        }
+      const frame = frames[currentFrameIndex];
+      // Map joint values if needed
+      const mappedJoints = jointMapper.applyMapping(frame.jointValues, jointMapping);
+      jointContext.setJointValues(robotId, mappedJoints);
+      // End effector visualization
+      if (trajectory.endEffectorPath && trajectory.endEffectorPath[currentFrameIndex]) {
+        const endEffectorPose = trajectory.endEffectorPath[currentFrameIndex];
+        setPlaybackEndEffectorPoint(endEffectorPose.position);
+        setPlaybackEndEffectorOrientation(endEffectorPose.orientation || endEffectorPose.rotation);
+        EventBus.emit('tcp:endeffector-updated', {
+          robotId,
+          position: endEffectorPose.position,
+          rotation: endEffectorPose.orientation || endEffectorPose.rotation,
+          isPlayback: true,
+          frame: currentFrameIndex,
+          progress: currentFrameIndex / (frames.length - 1)
+        });
       }
-
-      setProgress(progress);
-
-      // Check if completed
-      if (progress >= 1) {
-        if (state.loop) {
-          state.startTime = Date.now();
-          state.frameIndex = 0;
-          requestAnimationFrame(playFrame);
-        } else {
-          stopPlayback();
-          state.onComplete();
-          EventBus.emit('trajectory:playback-completed', {
-            robotId,
-            trajectoryName: state.trajectory.name
-          });
-        }
-      } else {
-        requestAnimationFrame(playFrame);
-      }
+      // Call onFrame callback if provided
+      playbackStateRef.current?.onFrame?.(frame, trajectory.endEffectorPath?.[currentFrameIndex], currentFrameIndex / (frames.length - 1));
+      setProgress(currentFrameIndex / (frames.length - 1));
+      currentFrameIndex++;
+      requestAnimationFrame(playFrame);
     };
     requestAnimationFrame(playFrame);
     return true;
