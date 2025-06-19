@@ -5,6 +5,8 @@ import { useTCP } from './useTCP';
 import { useRobotManager } from './useRobotManager';
 import { useJointContext } from '../JointContext';
 import EventBus from '../../utils/EventBus';
+import * as THREE from 'three';
+import { useViewer } from '../ViewerContext';
 
 // Debug utility to reduce console pollution
 const DEBUG = process.env.NODE_ENV === 'development';
@@ -1025,6 +1027,266 @@ export const useTrajectoryVisualization = (robotId = null) => {
     trajectories: trajectory.trajectories,
     scanTrajectories: trajectory.scanTrajectories
   };
+};
+
+// --- Playback Trajectory Line Visualization Hook ---
+export const usePlaybackTrajectoryLine = (robotId = null) => {
+  const { isViewerReady, getScene } = useViewer();
+  const { loadTrajectory, createTrajectoryVisualization, getRobotInfo } = useTrajectory(robotId);
+  const lineRef = useRef(null);
+  const waypointsRef = useRef([]);
+  const orientationFramesRef = useRef([]);
+  const currentMarkerRef = useRef(null);
+  const activePlaybackRef = useRef(null);
+  const storedTrajectoryRef = useRef(null);
+  const activeRobotIdRef = useRef(null);
+
+  useEffect(() => {
+    if (!isViewerReady) return;
+    const scene = getScene();
+    if (!scene) return;
+
+    // --- Event Handlers ---
+    const handlePlaybackStarted = async (data) => {
+      const { robotId, trajectoryName, hadPreAnimation, frameCount } = data;
+      const prevActiveRobotId = activeRobotIdRef.current;
+      if (prevActiveRobotId && prevActiveRobotId !== robotId) {
+        cleanup(prevActiveRobotId);
+      } else if (!prevActiveRobotId && getScene()) {
+        const scene = getScene();
+        const allVisObjects = scene.children.filter(child =>
+          child.name.startsWith('playback_trajectory_line_') ||
+          child.name.startsWith('waypoint_sphere_') ||
+          child.name.startsWith('orientation_frame_') ||
+          child.name.startsWith('trajectory_marker_')
+        );
+        allVisObjects.forEach(obj => {
+          scene.remove(obj);
+          if (obj.geometry) obj.geometry.dispose();
+          if (obj.material) obj.material.dispose();
+          if (obj.isGroup) {
+            obj.children.forEach(child => {
+              if (child.geometry) child.geometry.dispose();
+              if (child.material) child.material.dispose();
+            });
+          }
+        });
+      }
+      activeRobotIdRef.current = robotId;
+      activePlaybackRef.current = { robotId, trajectoryName };
+      if (robotId && trajectoryName) {
+        try {
+          const { manufacturer, model } = getRobotInfo(robotId);
+          const trajectory = await loadTrajectory(manufacturer, model, trajectoryName);
+          if (trajectory) {
+            handleTrajectoryDataAvailable({ trajectory, robotId });
+          }
+        } catch (error) {
+          // error
+        }
+      }
+    };
+
+    const handleTrajectoryDataAvailable = async (data) => {
+      const { trajectory, robotId } = data;
+      if (activePlaybackRef.current?.robotId !== robotId) return;
+      if (!trajectory || !trajectory.endEffectorPath || trajectory.endEffectorPath.length < 2) return;
+      storedTrajectoryRef.current = trajectory;
+      const visualization = createTrajectoryVisualization(trajectory.endEffectorPath);
+      if (!visualization || !visualization.smoothPoints) return;
+      const scene = getScene();
+      if (!scene) return;
+      createFullVisualization(trajectory, visualization, scene, robotId);
+    };
+
+    const createFullVisualization = (trajectory, visualization, scene, robotId) => {
+      const points = visualization.smoothPoints.map(p => new THREE.Vector3(p.x, p.y, p.z));
+      const colors = [];
+      visualization.colors.forEach(color => {
+        colors.push(color.r, color.g, color.b);
+      });
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      const material = new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 3, opacity: 0.9, transparent: true });
+      const line = new THREE.Line(geometry, material);
+      line.name = `playback_trajectory_line_${robotId}`;
+      scene.add(line);
+      lineRef.current = line;
+      if (visualization.waypoints) {
+        visualization.waypoints.forEach((waypoint, index) => {
+          const sphereGeometry = new THREE.SphereGeometry(0.01, 8, 8);
+          const sphereMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color().setHSL(index / visualization.waypoints.length, 1, 0.5) });
+          const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+          sphere.name = `waypoint_sphere_${robotId}_${index}`;
+          sphere.position.set(waypoint.position.x, waypoint.position.y, waypoint.position.z);
+          scene.add(sphere);
+          waypointsRef.current.push(sphere);
+        });
+      }
+      createOrientationFrames(trajectory, scene, robotId);
+      const markerGeometry = new THREE.SphereGeometry(0.025, 16, 16);
+      const markerMaterial = new THREE.MeshPhongMaterial({ color: 0xffff00, emissive: 0xffff00, emissiveIntensity: 0.5 });
+      const marker = new THREE.Mesh(markerGeometry, markerMaterial);
+      marker.name = `trajectory_marker_${robotId}`;
+      if (points.length > 0) marker.position.copy(points[0]);
+      scene.add(marker);
+      currentMarkerRef.current = marker;
+    };
+
+    const createOrientationFrames = (trajectory, scene, robotId) => {
+      if (!scene) return;
+      const endEffectorPath = trajectory.endEffectorPath;
+      if (!endEffectorPath || !Array.isArray(endEffectorPath) || endEffectorPath.length < 2) return;
+      const hasOrientationData = endEffectorPath.some(point => point && point.orientation && typeof point.orientation.x === 'number' && typeof point.orientation.y === 'number' && typeof point.orientation.z === 'number' && typeof point.orientation.w === 'number');
+      const totalPoints = endEffectorPath.length;
+      const desiredFrameCount = 20;
+      const frameInterval = Math.max(1, Math.floor(totalPoints / desiredFrameCount));
+      orientationFramesRef.current.forEach(frameGroup => {
+        scene.remove(frameGroup);
+        frameGroup.traverse((child) => {
+          if (child.geometry) child.geometry.dispose();
+          if (child.material) child.material.dispose();
+        });
+      });
+      orientationFramesRef.current = [];
+      const calculateOrientationFromPath = (index) => {
+        if (index >= totalPoints - 1) return calculateOrientationFromPath(index - 1);
+        const current = endEffectorPath[index].position;
+        const next = endEffectorPath[index + 1].position;
+        const direction = new THREE.Vector3(next.x - current.x, next.y - current.y, next.z - current.z);
+        direction.normalize();
+        const up = new THREE.Vector3(0, 1, 0);
+        if (Math.abs(direction.y) > 0.999) up.set(1, 0, 0);
+        const matrix = new THREE.Matrix4();
+        matrix.lookAt(new THREE.Vector3(0, 0, 0), direction, up);
+        const quaternion = new THREE.Quaternion();
+        quaternion.setFromRotationMatrix(matrix);
+        return quaternion;
+      };
+      for (let i = 0; i < totalPoints; i += frameInterval) {
+        const pathPoint = endEffectorPath[i];
+        if (!pathPoint || !pathPoint.position || typeof pathPoint.position.x !== 'number' || typeof pathPoint.position.y !== 'number' || typeof pathPoint.position.z !== 'number') continue;
+        const frameGroup = new THREE.Group();
+        frameGroup.name = `orientation_frame_${robotId}_${i}`;
+        frameGroup.position.set(pathPoint.position.x, pathPoint.position.y, pathPoint.position.z);
+        let quaternion;
+        if (hasOrientationData && pathPoint.orientation && typeof pathPoint.orientation.x === 'number' && typeof pathPoint.orientation.y === 'number' && typeof pathPoint.orientation.z === 'number' && typeof pathPoint.orientation.w === 'number') {
+          quaternion = new THREE.Quaternion(pathPoint.orientation.x, pathPoint.orientation.y, pathPoint.orientation.z, pathPoint.orientation.w);
+          quaternion.normalize();
+        } else {
+          quaternion = calculateOrientationFromPath(i);
+        }
+        frameGroup.quaternion.copy(quaternion);
+        const axisLength = 0.05;
+        const axisThickness = 1.5;
+        const xDir = new THREE.Vector3(1, 0, 0);
+        const xOrigin = new THREE.Vector3(0, 0, 0);
+        const xArrow = new THREE.ArrowHelper(xDir, xOrigin, axisLength, 0xff0000, axisLength * 0.3, axisLength * 0.2);
+        xArrow.line.material.linewidth = axisThickness;
+        frameGroup.add(xArrow);
+        const yDir = new THREE.Vector3(0, 1, 0);
+        const yArrow = new THREE.ArrowHelper(yDir, xOrigin, axisLength, 0x00ff00, axisLength * 0.3, axisLength * 0.2);
+        yArrow.line.material.linewidth = axisThickness;
+        frameGroup.add(yArrow);
+        const zDir = new THREE.Vector3(0, 0, 1);
+        const zArrow = new THREE.ArrowHelper(zDir, xOrigin, axisLength, 0x0000ff, axisLength * 0.3, axisLength * 0.2);
+        zArrow.line.material.linewidth = axisThickness;
+        frameGroup.add(zArrow);
+        scene.add(frameGroup);
+        orientationFramesRef.current.push(frameGroup);
+      }
+      if (scene.parent && scene.parent.type === 'Scene') {
+        scene.updateMatrixWorld(true);
+      }
+    };
+
+    const handleEndEffectorUpdate = (data) => {
+      if (!currentMarkerRef.current || !data.endEffectorPoint) return;
+      const { x, y, z } = data.endEffectorPoint;
+      currentMarkerRef.current.position.set(x, y, z);
+    };
+
+    const handlePlaybackStopped = () => {
+      if (activeRobotIdRef.current) {
+        cleanup(activeRobotIdRef.current);
+      } else {
+        const scene = getScene();
+        if (scene) {
+          const allVisObjects = scene.children.filter(child =>
+            child.name.startsWith('playback_trajectory_line_') ||
+            child.name.startsWith('waypoint_sphere_') ||
+            child.name.startsWith('orientation_frame_') ||
+            child.name.startsWith('trajectory_marker_')
+          );
+          allVisObjects.forEach(obj => {
+            scene.remove(obj);
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) obj.material.dispose();
+            if (obj.isGroup) {
+              obj.children.forEach(child => {
+                if (child.geometry) child.geometry.dispose();
+                if (child.material) child.material.dispose();
+              });
+            }
+          });
+        }
+      }
+    };
+
+    const cleanup = (targetRobotId) => {
+      const scene = getScene();
+      if (!scene) return;
+      const objectsToRemove = [];
+      scene.children.forEach(child => {
+        if (child.name.startsWith(`playback_trajectory_line_${targetRobotId}`) ||
+            child.name.startsWith(`waypoint_sphere_${targetRobotId}`) ||
+            child.name.startsWith(`orientation_frame_${targetRobotId}`) ||
+            child.name.startsWith(`trajectory_marker_${targetRobotId}`)) {
+          objectsToRemove.push(child);
+        }
+      });
+      objectsToRemove.forEach(obj => {
+        scene.remove(obj);
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) obj.material.dispose();
+        if (obj.isGroup) {
+          obj.children.forEach(child => {
+            if (child.geometry) child.geometry.dispose();
+            if (child.material) child.material.dispose();
+          });
+        }
+      });
+      if (lineRef.current?.name?.startsWith(`playback_trajectory_line_${targetRobotId}`)) {
+        lineRef.current = null;
+      }
+      waypointsRef.current = waypointsRef.current.filter(wp => !wp.name.startsWith(`waypoint_sphere_${targetRobotId}`));
+      orientationFramesRef.current = orientationFramesRef.current.filter(of => !of.name.startsWith(`orientation_frame_${targetRobotId}`));
+      if (currentMarkerRef.current?.name?.startsWith(`trajectory_marker_${targetRobotId}`)) {
+        currentMarkerRef.current = null;
+      }
+      if (activeRobotIdRef.current === targetRobotId) {
+        activePlaybackRef.current = null;
+        storedTrajectoryRef.current = null;
+        activeRobotIdRef.current = null;
+      }
+    };
+
+    const unsubscribes = [
+      EventBus.on('trajectory:playback-started', handlePlaybackStarted),
+      EventBus.on('tcp:endeffector-updated', handleEndEffectorUpdate),
+      EventBus.on('trajectory:playback-stopped', handlePlaybackStopped),
+      EventBus.on('trajectory:playback-completed', handlePlaybackStopped)
+    ];
+
+    return () => {
+      unsubscribes.forEach(unsub => unsub());
+      if (activeRobotIdRef.current) {
+        cleanup(activeRobotIdRef.current);
+      }
+    };
+  }, [isViewerReady, getScene, loadTrajectory, createTrajectoryVisualization, getRobotInfo, robotId]);
+
+  return null;
 };
 
 export default useTrajectory;

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { usePlaybackTrajectoryLine } from '../../../contexts/hooks/usePlaybackTrajectoryLine';
+import { usePlaybackTrajectoryLine } from '../../../contexts/hooks/useTrajectory';
 import { useRobotSelection } from '../../../contexts/hooks/useRobotManager';
 
 const TrajectoryLineVisualizer = () => {
