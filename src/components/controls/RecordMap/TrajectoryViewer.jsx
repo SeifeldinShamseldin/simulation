@@ -75,7 +75,10 @@ const TrajectoryViewer = ({ viewerRef }) => {
     loop: false,
     animateToStart: true,        // Enable pre-animation by default
     animationDuration: 2000,     // 2 seconds for pre-animation
-    animationProfile: 's-curve'  // Smooth motion profile
+    animationProfile: 's-curve', // Smooth motion profile
+    maxVelocity: 2.0,
+    maxAcceleration: 4.0,
+    maxJerk: 20.0,
   });
   const [showAnalysis, setShowAnalysis] = useState(false);
   const [analysisData, setAnalysisData] = useState(null);
@@ -224,16 +227,22 @@ const TrajectoryViewer = ({ viewerRef }) => {
 
   const handlePlayTrajectory = async (trajectory) => {
     if (!playTrajectory) return;
-    
-    // Make sure to pass the complete trajectory metadata
+    // Pass all animation settings from playbackOptions
     const success = await playTrajectory({
       name: trajectory.name,
       manufacturer: trajectory.manufacturer,
       model: trajectory.model,
-      // Include any other metadata from the trajectory
       ...trajectory
+    }, {
+      speed: playbackOptions.speed,
+      loop: playbackOptions.loop,
+      enablePreAnimation: playbackOptions.animateToStart,
+      animationDuration: playbackOptions.animationDuration,
+      animationProfile: playbackOptions.animationProfile,
+      maxVelocity: playbackOptions.maxVelocity,
+      maxAcceleration: playbackOptions.maxAcceleration,
+      maxJerk: playbackOptions.maxJerk,
     });
-    
     if (success) {
       console.log(`[TrajectoryViewer] Started playback of "${trajectory.name}"`);
     } else {
@@ -489,87 +498,118 @@ const TrajectoryViewer = ({ viewerRef }) => {
         </div>
       </div>
 
-      {/* Playback Options */}
+      {/* Animation Settings */}
       <div className="controls-mb-4">
-        <h4>Playback Options</h4>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
-          <label>
-            Speed:
-            <input
-              type="number"
-              min="0.1"
-              max="5"
-              step="0.1"
-              value={playbackOptions.speed}
-              onChange={(e) => handlePlaybackOptionChange('speed', parseFloat(e.target.value))}
-              disabled={isRecording || isPlaying}
-              style={{ width: '80px', marginLeft: '0.5rem' }}
-            />
-          </label>
-          
-          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <input
-              type="checkbox"
-              checked={playbackOptions.loop}
-              onChange={(e) => handlePlaybackOptionChange('loop', e.target.checked)}
-              disabled={isRecording || isPlaying}
-            />
-            Loop
-          </label>
-        </div>
-        
-        {/* Pre-animation Options */}
-        <div style={{ 
-          padding: '0.75rem', 
-          backgroundColor: '#f8f9fa', 
-          borderRadius: '4px', 
+        <h4>Animation Settings</h4>
+        <div style={{
+          padding: '0.75rem',
+          backgroundColor: '#f8f9fa',
+          borderRadius: '4px',
           border: '1px solid #e9ecef',
-          marginTop: '0.5rem'
+          marginTop: '0.5rem',
+          marginBottom: '0.5rem',
         }}>
-          <h6 style={{ margin: '0 0 0.5rem 0', fontSize: '0.9rem' }}>Pre-animation Settings</h6>
-          
-          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '0.75rem' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <input
                 type="checkbox"
                 checked={playbackOptions.animateToStart}
                 onChange={(e) => handlePlaybackOptionChange('animateToStart', e.target.checked)}
-                disabled={isRecording || isPlaying || isPreAnimating}
+                disabled={isRecording || isPlaying}
               />
               Animate to start position
             </label>
+            <label>
+              Speed:
+              <input
+                type="number"
+                min="0.1"
+                max="5"
+                step="0.1"
+                value={playbackOptions.speed}
+                onChange={(e) => handlePlaybackOptionChange('speed', parseFloat(e.target.value))}
+                disabled={isRecording || isPlaying}
+                style={{ width: '80px', marginLeft: '0.5rem' }}
+              />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <input
+                type="checkbox"
+                checked={playbackOptions.loop}
+                onChange={(e) => handlePlaybackOptionChange('loop', e.target.checked)}
+                disabled={isRecording || isPlaying}
+              />
+              Loop
+            </label>
           </div>
-          
-          {playbackOptions.animateToStart && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <label>
-                Animation Duration (ms):
-                <input
-                  type="number"
-                  min="500"
-                  max="10000"
-                  step="100"
-                  value={playbackOptions.animationDuration}
-                  onChange={(e) => handlePlaybackOptionChange('animationDuration', parseInt(e.target.value, 10))}
-                  disabled={isRecording || isPlaying || isPreAnimating}
-                  style={{ width: '100px', marginLeft: '0.5rem' }}
-                />
-              </label>
-              
-              <label>
-                Motion Profile:
-                <select
-                  value={playbackOptions.animationProfile}
-                  onChange={(e) => handlePlaybackOptionChange('animationProfile', e.target.value)}
-                  disabled={isRecording || isPlaying || isPreAnimating}
-                  style={{ marginLeft: '0.5rem' }}
-                >
-                  <option value="s-curve">S-Curve (Smooth)</option>
-                  <option value="trapezoidal">Trapezoidal (Linear)</option>
-                </select>
-              </label>
-            </div>
-          )}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '0.75rem' }}>
+            <label>
+              Animation Duration (ms):
+              <input
+                type="number"
+                min="100"
+                max="10000"
+                step="100"
+                value={playbackOptions.animationDuration}
+                onChange={(e) => handlePlaybackOptionChange('animationDuration', parseInt(e.target.value, 10))}
+                disabled={isRecording || isPlaying}
+                style={{ width: '100px', marginLeft: '0.5rem' }}
+              />
+            </label>
+            <label>
+              Motion Profile:
+              <select
+                value={playbackOptions.animationProfile}
+                onChange={(e) => handlePlaybackOptionChange('animationProfile', e.target.value)}
+                disabled={isRecording || isPlaying}
+                style={{ marginLeft: '0.5rem' }}
+              >
+                <option value="s-curve">S-Curve (Smooth)</option>
+                <option value="trapezoidal">Trapezoidal (Linear)</option>
+              </select>
+            </label>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <label>
+              Max Velocity:
+              <input
+                type="number"
+                min="0.1"
+                max="10"
+                step="0.1"
+                value={playbackOptions.maxVelocity}
+                onChange={(e) => handlePlaybackOptionChange('maxVelocity', parseFloat(e.target.value))}
+                disabled={isRecording || isPlaying}
+                style={{ width: '80px', marginLeft: '0.5rem' }}
+              />
+            </label>
+            <label>
+              Max Acceleration:
+              <input
+                type="number"
+                min="0.1"
+                max="20"
+                step="0.1"
+                value={playbackOptions.maxAcceleration}
+                onChange={(e) => handlePlaybackOptionChange('maxAcceleration', parseFloat(e.target.value))}
+                disabled={isRecording || isPlaying}
+                style={{ width: '80px', marginLeft: '0.5rem' }}
+              />
+            </label>
+            <label>
+              Max Jerk:
+              <input
+                type="number"
+                min="0.1"
+                max="100"
+                step="0.1"
+                value={playbackOptions.maxJerk}
+                onChange={(e) => handlePlaybackOptionChange('maxJerk', parseFloat(e.target.value))}
+                disabled={isRecording || isPlaying}
+                style={{ width: '80px', marginLeft: '0.5rem' }}
+              />
+            </label>
+          </div>
         </div>
       </div>
 
@@ -620,7 +660,7 @@ const TrajectoryViewer = ({ viewerRef }) => {
         ) : (
           <div className="controls-list">
             {trajectories.map(trajectory => (
-              <div key={trajectory.id} className="controls-list-item">
+              <div key={`${trajectory.manufacturer}_${trajectory.model}_${trajectory.name}`} className="controls-list-item">
                 <div className="controls-list-item-content">
                   <h6 
                     className="controls-list-item-title"

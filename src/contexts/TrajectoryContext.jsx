@@ -153,16 +153,41 @@ function createEndEffectorVisualization(endEffectorPath) {
  * Pre-animate robot to the first frame of a trajectory
  * Always uses the first frame in the array, regardless of timestamp
  */
-const preAnimateToFirstFrame = async (trajectory, robotId, jointMapper, jointContext, jointMapping, duration = 500) => {
+const preAnimateToFirstFrame = async (trajectory, robotId, jointMapper, jointContext, jointMapping, options = {}) => {
   if (!trajectory || !trajectory.frames || trajectory.frames.length === 0) return;
   const firstFrame = trajectory.frames[0];
   const firstFrameJoints = jointMapper.applyMapping(firstFrame.jointValues, jointMapping);
-  console.log('[TrajectoryContext] Pre-animating to first frame');
+  const {
+    duration = 500,
+    motionProfile = 's-curve',
+    animationSpeed = 1.0,
+    maxVelocity = 2.0,
+    maxAcceleration = 4.0,
+    maxJerk = 20.0,
+  } = options;
+  console.log('[TrajectoryContext] Pre-animating to first frame', { duration, motionProfile, animationSpeed, maxVelocity, maxAcceleration, maxJerk });
   await jointContext.animateToJointValues(robotId, firstFrameJoints, {
-    duration,
-    motionProfile: 'trapezoidal',
+    duration: duration / animationSpeed,
+    motionProfile,
+    defaultConstraints: {
+      maxVelocity,
+      maxAcceleration,
+      maxJerk,
+    },
   });
 };
+
+// Helper to normalize the first timestamp to zero
+function normalizeFirstTimestamp(frames) {
+  if (Array.isArray(frames) && frames.length > 0 && frames[0].timestamp !== 0) {
+    const offset = frames[0].timestamp;
+    frames.forEach(frame => {
+      if (typeof frame.timestamp === 'number') {
+        frame.timestamp -= offset;
+      }
+    });
+  }
+}
 
 export const TrajectoryProvider = ({ children }) => {
   const jointContext = useJointContext();
@@ -341,6 +366,9 @@ export const TrajectoryProvider = ({ children }) => {
     const duration = Date.now() - recordingStartTimeRef.current;
     const frames = frameBufferRef.current;
     const endEffectorPath = endEffectorBufferRef.current;
+    // Normalize first timestamp to zero for frames and endEffectorPath
+    normalizeFirstTimestamp(frames);
+    normalizeFirstTimestamp(endEffectorPath);
     // Use the same logic as scanTrajectories for manufacturer/model
     const robot = workspaceRobots.find(r => r.id === robotId) || getRobot(robotId);
     const trajectoryInfo = {
@@ -472,6 +500,10 @@ export const TrajectoryProvider = ({ children }) => {
       return false;
     }
 
+    // Normalize first timestamp to zero for frames and endEffectorPath
+    normalizeFirstTimestamp(trajectory.frames);
+    if (trajectory.endEffectorPath) normalizeFirstTimestamp(trajectory.endEffectorPath);
+
     // === ENFORCE NEW FORMAT ===
     // Validate that trajectory.frames is an array of {timestamp, jointValues}
     if (!trajectory || !Array.isArray(trajectory.frames) || trajectory.frames.length === 0) {
@@ -525,13 +557,32 @@ export const TrajectoryProvider = ({ children }) => {
       onComplete = () => {},
       onFrame = () => {},
       enablePreAnimation = true,
-      animationDuration = 2000
+      animationDuration = 2000,
+      animationProfile = 's-curve',
+      maxVelocity = 2.0,
+      maxAcceleration = 4.0,
+      maxJerk = 20.0,
     } = options;
 
     // Pre-animation to first frame (always use helper)
     if (enablePreAnimation && trajectory.frames.length > 0) {
       try {
-        await preAnimateToFirstFrame(trajectory, robotId, jointMapper, jointContext, jointMapping, animationDuration);
+        await preAnimateToFirstFrame(
+          trajectory,
+          robotId,
+          jointMapper,
+          jointContext,
+          jointMapping,
+          {
+            duration: animationDuration / speed,
+            motionProfile: animationProfile,
+            defaultConstraints: {
+              maxVelocity,
+              maxAcceleration,
+              maxJerk,
+            },
+          }
+        );
         if (trajectory.endEffectorPath && trajectory.endEffectorPath.length > 0) {
           createTrajectoryVisualization(trajectory);
         }
@@ -574,7 +625,21 @@ export const TrajectoryProvider = ({ children }) => {
     // Start playback loop (new format only)
     let currentFrameIndex = 0;
     const frames = trajectory.frames;
-    const playFrame = () => {
+    // Helper to animate between frames
+    const animateFrame = async (fromJoints, toJoints, onFrameDone) => {
+      await jointContext.animateToJointValues(robotId, toJoints, {
+        duration: animationDuration / speed,
+        motionProfile: animationProfile,
+        defaultConstraints: {
+          maxVelocity,
+          maxAcceleration,
+          maxJerk,
+        },
+      });
+      if (onFrameDone) onFrameDone();
+    };
+    // Playback function
+    const playFrame = async () => {
       if (!playbackStateRef.current || !playbackStateRef.current.isPlaying) {
         return;
       }
@@ -591,28 +656,32 @@ export const TrajectoryProvider = ({ children }) => {
       const frame = frames[currentFrameIndex];
       // Map joint values if needed
       const mappedJoints = jointMapper.applyMapping(frame.jointValues, jointMapping);
-      jointContext.setJointValues(robotId, mappedJoints);
-      // End effector visualization
-      if (trajectory.endEffectorPath && trajectory.endEffectorPath[currentFrameIndex]) {
-        const endEffectorPose = trajectory.endEffectorPath[currentFrameIndex];
-        setPlaybackEndEffectorPoint(endEffectorPose.position);
-        setPlaybackEndEffectorOrientation(endEffectorPose.orientation || endEffectorPose.rotation);
-        EventBus.emit('tcp:endeffector-updated', {
-          robotId,
-          position: endEffectorPose.position,
-          rotation: endEffectorPose.orientation || endEffectorPose.rotation,
-          isPlayback: true,
-          frame: currentFrameIndex,
-          progress: currentFrameIndex / (frames.length - 1)
-        });
-      }
-      // Call onFrame callback if provided
-      playbackStateRef.current?.onFrame?.(frame, trajectory.endEffectorPath?.[currentFrameIndex], currentFrameIndex / (frames.length - 1));
-      setProgress(currentFrameIndex / (frames.length - 1));
-      currentFrameIndex++;
-      requestAnimationFrame(playFrame);
+      // Animate to this frame from current robot state
+      await animateFrame(jointContext.getJointValues(robotId), mappedJoints, () => {
+        // End effector visualization
+        if (trajectory.endEffectorPath && trajectory.endEffectorPath[currentFrameIndex]) {
+          const endEffectorPose = trajectory.endEffectorPath[currentFrameIndex];
+          setPlaybackEndEffectorPoint(endEffectorPose.position);
+          setPlaybackEndEffectorOrientation(endEffectorPose.orientation || endEffectorPose.rotation);
+          EventBus.emit('tcp:endeffector-updated', {
+            robotId,
+            position: endEffectorPose.position,
+            rotation: endEffectorPose.orientation || endEffectorPose.rotation,
+            isPlayback: true,
+            frame: currentFrameIndex,
+            progress: currentFrameIndex / (frames.length - 1)
+          });
+        }
+        // Call onFrame callback if provided
+        playbackStateRef.current?.onFrame?.(frame, trajectory.endEffectorPath?.[currentFrameIndex], currentFrameIndex / (frames.length - 1));
+        setProgress(currentFrameIndex / (frames.length - 1));
+        currentFrameIndex++;
+        // Continue to next frame
+        playFrame();
+      });
     };
-    requestAnimationFrame(playFrame);
+    // Start playback
+    playFrame();
     return true;
   }, [robotId, jointContext, getTrajectoryInfo, loadTrajectory, stopPlayback, createTrajectoryVisualization]);
 
