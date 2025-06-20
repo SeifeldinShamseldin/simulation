@@ -140,13 +140,99 @@ class DynamicJointMapper {
   }
 }
 
-// Helper: Create a THREE.js line for the end effector path
-function createEndEffectorVisualization(endEffectorPath) {
+// Helper: Create a THREE.js line for the end effector path with orientation markers
+function createEndEffectorVisualization(endEffectorPath, options = {}) {
   if (!endEffectorPath || endEffectorPath.length < 2) return null;
+  
+  const {
+    showOrientationMarkers = true,
+    markerInterval = Math.max(1, Math.floor(endEffectorPath.length / 30)),
+    axisLength = 0.03,
+    lineColor = 0xff0000,
+    lineWidth = 2,
+    showAllAxes = true,
+    showArrowheads = false
+  } = options;
+  
+  // Create a group to hold the trajectory and orientation markers
+  const group = new THREE.Group();
+  group.name = 'trajectory-visualization';
+  
+  // Create the main trajectory line
   const points = endEffectorPath.map(p => new THREE.Vector3(p.position.x, p.position.y, p.position.z));
   const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  const material = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
-  return new THREE.Line(geometry, material);
+  const material = new THREE.LineBasicMaterial({ color: lineColor, linewidth: lineWidth });
+  const trajectoryLine = new THREE.Line(geometry, material);
+  group.add(trajectoryLine);
+  
+  // Create orientation markers
+  if (showOrientationMarkers) {
+    endEffectorPath.forEach((pose, index) => {
+      // Only add markers at intervals to avoid clutter
+      if (index % markerInterval !== 0 && index !== 0 && index !== endEffectorPath.length - 1) return;
+      
+      const position = new THREE.Vector3(pose.position.x, pose.position.y, pose.position.z);
+      const orientation = pose.orientation || pose.rotation || { x: 0, y: 0, z: 0, w: 1 };
+      
+      // Create quaternion from orientation
+      const quaternion = new THREE.Quaternion(
+        orientation.x || 0,
+        orientation.y || 0,
+        orientation.z || 0,
+        orientation.w !== undefined ? orientation.w : 1
+      );
+      
+      // Create coordinate frame axes
+      const axesGroup = new THREE.Group();
+      axesGroup.position.copy(position);
+      axesGroup.quaternion.copy(quaternion);
+      
+      // Helper function to create arrow
+      const createAxis = (direction, color) => {
+        if (showArrowheads) {
+          const arrowHelper = new THREE.ArrowHelper(
+            direction,
+            new THREE.Vector3(0, 0, 0),
+            axisLength,
+            color,
+            axisLength * 0.3, // Head length
+            axisLength * 0.2  // Head width
+          );
+          return arrowHelper;
+        } else {
+          const points = [
+            new THREE.Vector3(0, 0, 0),
+            direction.clone().multiplyScalar(axisLength)
+          ];
+          const geometry = new THREE.BufferGeometry().setFromPoints(points);
+          const material = new THREE.LineBasicMaterial({ color });
+          return new THREE.Line(geometry, material);
+        }
+      };
+      
+      if (showAllAxes) {
+        // X-axis (red)
+        const xAxis = createAxis(new THREE.Vector3(1, 0, 0), 0xff0000);
+        axesGroup.add(xAxis);
+        
+        // Y-axis (green)
+        const yAxis = createAxis(new THREE.Vector3(0, 1, 0), 0x00ff00);
+        axesGroup.add(yAxis);
+        
+        // Z-axis (blue)
+        const zAxis = createAxis(new THREE.Vector3(0, 0, 1), 0x0000ff);
+        axesGroup.add(zAxis);
+      } else {
+        // Show only Z-axis (approach direction)
+        const zAxis = createAxis(new THREE.Vector3(0, 0, 1), 0x0080ff);
+        axesGroup.add(zAxis);
+      }
+      
+      group.add(axesGroup);
+    });
+  }
+  
+  return group;
 }
 
 /**
