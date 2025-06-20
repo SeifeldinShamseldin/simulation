@@ -6,8 +6,9 @@ import {
   useTrajectoryPlayback, 
   useTrajectoryManagement 
 } from '../../../contexts/TrajectoryContext';
-import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
-import { useRobotManager } from '../../../contexts/hooks/useRobotManager';
+import { useRobotManager, useRobotSelection } from '../../../contexts/hooks/useRobotManager';
+import { useJoints } from '../../../contexts/hooks/useJoints';
+import { useTCP } from '../../../contexts/hooks/useTCP';
 import LiveTrajectoryGraph from './LiveTrajectoryGraph';
 import EventBus from '../../../utils/EventBus';
 import { useRobotContext } from '../../../contexts/RobotContext';
@@ -17,8 +18,22 @@ import { useRobotContext } from '../../../contexts/RobotContext';
  * Now uses TrajectoryContext instead of the old hooks
  */
 const TrajectoryViewer = ({ viewerRef }) => {
-  const { activeRobotId, isReady, hasJoints, hasValidEndEffector, isUsingTCP, getJointValues } = useRobotControl(viewerRef);
-  const { categories, getRobotById } = useRobotManager();
+  // Get active robot ID
+  const { activeId: activeRobotId } = useRobotSelection();
+  
+  // Get robot state and management functions
+  const { getRobot, isRobotLoaded, categories, getRobotById } = useRobotManager();
+  const robot = getRobot(activeRobotId);
+  const isReady = isRobotLoaded(activeRobotId);
+  
+  // Get joint control functions
+  const { getJointValues } = useJoints(activeRobotId);
+  
+  // Get TCP state
+  const { hasValidEndEffector, isUsingTCP } = useTCP(activeRobotId);
+  
+  // Check if robot has joints
+  const hasJoints = robot && robot.joints && Object.keys(robot.joints).length > 0;
   
   // Use specialized hooks from the new TrajectoryContext
   const {
@@ -300,14 +315,12 @@ const TrajectoryViewer = ({ viewerRef }) => {
 
   // Compute robot readiness for trajectory (used for enabling/disabling controls and warnings)
   const isRobotReadyForTrajectory = useMemo(() => {
-    if (!activeRobotId || !robotId) return false;
-    if (activeRobotId !== robotId) return false;
+    if (!activeRobotId) return false;
     if (!isReady) return false;
     const jointValues = getJointValues ? getJointValues() : {};
     const hasJointValues = Object.keys(jointValues).length > 0;
-    const contextReady = isRobotReady ? isRobotReady(robotId) : false;
-    return (hasJointValues || contextReady || hasJoints) && hasValidEndEffector;
-  }, [activeRobotId, robotId, isReady, hasJoints, getJointValues, isRobotReady, hasValidEndEffector]);
+    return (hasJointValues || hasJoints) && hasValidEndEffector;
+  }, [activeRobotId, isReady, hasJoints, getJointValues, hasValidEndEffector]);
 
   // Display robot status
   const robotStatus = {

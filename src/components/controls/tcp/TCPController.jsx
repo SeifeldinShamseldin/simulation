@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
+import { useRobotManager, useRobotSelection } from '../../../contexts/hooks/useRobotManager';
 import { useTCP } from '../../../contexts/hooks/useTCP';
 import EventBus from '../../../utils/EventBus';
 
 const TCPController = React.memo(({ viewerRef }) => {
-  const { activeRobotId, isReady } = useRobotControl();
+  // Get active robot ID
+  const { activeId: activeRobotId } = useRobotSelection();
+  // Get robot ready state
+  const { isRobotLoaded } = useRobotManager();
+  const isReady = isRobotLoaded(activeRobotId);
   const {
     robotId,
     currentTool,

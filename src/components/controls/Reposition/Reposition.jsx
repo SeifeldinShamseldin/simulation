@@ -1,12 +1,17 @@
 // components/controls/Reposition/Reposition.jsx
 import React, { useState, useEffect } from 'react';
-import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
+import { useRobotManager, useRobotSelection } from '../../../contexts/hooks/useRobotManager';
 
 /**
  * Component for repositioning the robot in world space
  */
 const Reposition = ({ viewerRef }) => {
-  const { activeRobotId, robot, isReady, robotManager } = useRobotControl(viewerRef);
+  // Get active robot ID
+  const { activeId: activeRobotId } = useRobotSelection();
+  // Get robot, ready state, and manager
+  const { getRobot, isRobotLoaded, robotManager } = useRobotManager();
+  const robot = getRobot(activeRobotId);
+  const isReady = isRobotLoaded(activeRobotId);
   const [position, setPosition] = useState({ x: 0, y: 0, z: 0 });
   
   // Initialize position when robot changes
@@ -54,27 +59,20 @@ const Reposition = ({ viewerRef }) => {
    * Apply the current position to the robot
    */
   const applyPosition = () => {
-    if (!robot || !isReady || !robotManager || !activeRobotId) return;
-    
+    console.log('[Reposition] Apply Position clicked', { robot, isReady, activeRobotId, position });
+    if (!robot || !isReady || !activeRobotId) {
+      console.warn('[Reposition] Not ready to apply position', { robot, isReady, activeRobotId });
+      return;
+    }
+
     try {
-      // Get the robot data from the manager
-      const robotData = robotManager.getAllRobots().get(activeRobotId);
-      
-      if (robotData && robotData.container) {
-        // Apply position to container, not the robot model
-        robotData.container.position.set(position.x, position.y, position.z);
-        
-        // Update matrices
-        robotData.container.updateMatrix();
-        robotData.container.updateMatrixWorld(true);
-      } else {
-        // Fallback: apply to robot directly
-        robot.position.set(position.x, position.y, position.z);
-        robot.updateMatrix();
-        robot.updateMatrixWorld(true);
-      }
-      
-      // Focus camera if available
+      // Try to use robot.container if it exists
+      const target = robot.container || robot;
+      target.position.set(position.x, position.y, position.z);
+      target.updateMatrix();
+      target.updateMatrixWorld(true);
+      console.log('[Reposition] Set position to', position, 'on', target);
+
       if (viewerRef?.current?.focusOnRobot) {
         viewerRef.current.focusOnRobot(activeRobotId);
       }

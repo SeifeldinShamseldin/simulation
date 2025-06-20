@@ -1,7 +1,7 @@
 // components/controls/IKController/IKController.jsx - Fixed infinite loop and input handling
 import React, { useState, useEffect } from 'react';
 import * as THREE from 'three';
-import { useRobotControl } from '../../../contexts/hooks/useRobotControl';
+import { useRobotManager, useRobotSelection } from '../../../contexts/hooks/useRobotManager';
 import { useIK } from '../../../contexts/hooks/useIK';
 import { debugIK } from '../../../utils/DebugSystem';
 
@@ -37,10 +37,17 @@ const quaternionToEuler = (quaternion) => {
 
 /**
  * Component for controlling Inverse Kinematics with position and orientation
- * Uses direct end effector position and orientation tracking for robot movement
+ * Uses specialized hooks instead of useRobotControl
  */
 const IKController = () => {
-  const { activeRobotId, robot, isReady } = useRobotControl();
+  // Get active robot ID
+  const { activeId: activeRobotId } = useRobotSelection();
+  
+  // Get robot and ready state
+  const { getRobot, isRobotLoaded } = useRobotManager();
+  const robot = getRobot(activeRobotId);
+  const isReady = isRobotLoaded(activeRobotId);
+  
   const {
     currentPosition,
     currentOrientation,
