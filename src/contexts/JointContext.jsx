@@ -951,6 +951,23 @@ export const JointProvider = ({ children }) => {
     };
   }, []);
 
+  // Move robot to joint values (optionally animated)
+  const moveJoints = useCallback(async (robotId, values, options = {}) => {
+    // If you want animation, use animateToJointValues
+    if (options.animate) {
+      return await animateToJointValues(robotId, values, options);
+    } else {
+      // Otherwise, set instantly
+      return setJointValues(robotId, values, 'moveJoints');
+    }
+  }, [animateToJointValues, setJointValues]);
+
+  // Receive and apply joint values (from IK, etc.)
+  const receiveJoints = useCallback((robotId, values) => {
+    // Always set instantly, mark as 'receiveJoints'
+    return setJointValues(robotId, values, 'receiveJoints');
+  }, [setJointValues]);
+
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(() => ({
     // State
@@ -969,6 +986,8 @@ export const JointProvider = ({ children }) => {
     getAnimationProgress,
     stopAnimation,
     animateToJointValues,
+    moveJoints,
+    receiveJoints,
   }), [
     robotJoints,
     robotJointValues,
@@ -984,6 +1003,8 @@ export const JointProvider = ({ children }) => {
     getAnimationProgress,
     stopAnimation,
     animateToJointValues,
+    moveJoints,
+    receiveJoints,
   ]);
 
   return (

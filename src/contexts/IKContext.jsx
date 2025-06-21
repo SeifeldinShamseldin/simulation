@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { useRobotSelection, useRobotManagement } from './hooks/useRobotManager';
 import { useTCPContext } from './TCPContext';
 import EventBus from '../utils/EventBus';
+import { useJointContext } from '../JointContext';
+import { useRobotContext } from '../RobotContext';
 
 const IKContext = createContext(null);
 
@@ -17,6 +19,9 @@ export const IKProvider = ({ children }) => {
     hasToolAttached,
     recalculateEndEffector
   } = useTCPContext();
+
+  const jointContext = useJointContext();
+  const { activeId: robotId } = useRobotContext();
 
   // State
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
@@ -290,23 +295,7 @@ export const IKProvider = ({ children }) => {
         };
         
         // Send to Joint Context with motion profile options
-        EventBus.emit('ik:joint-values-calculated', {
-          robotId: activeRobotId,
-          jointValues,
-          animate: options.animate !== false,
-          duration: options.duration || 1000,
-          // NEW: Pass motion profile options
-          motionProfile: options.motionProfile || 'trapezoidal',
-          jointConstraints: options.jointConstraints || defaultJointConstraints,
-          animationSpeed: options.animationSpeed || 1.0,
-          onProgress: (progressData) => {
-            // Optional: emit progress for UI updates
-            EventBus.emit('ik:animation-progress', {
-              robotId: activeRobotId,
-              ...progressData
-            });
-          }
-        });
+        jointContext.moveJoints(robotId, jointValues, { animate: true, duration: 1000 });
         
         return true;
       } else {
