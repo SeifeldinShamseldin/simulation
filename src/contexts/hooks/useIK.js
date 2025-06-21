@@ -1,163 +1,355 @@
-// src/contexts/hooks/useIK.js - Clean IK API
-import { useCallback } from 'react';
+// src/contexts/hooks/useIK.js
+// Complete facade hook that aggregates all IK-related functionality
+
+import { useCallback, useMemo } from 'react';
 import { useIKContext } from '../IKContext';
+import { useRobotManager, useRobotSelection } from './useRobotManager';
+import { useJoints } from './useJoints';
+import { useTCP } from './useTCP';
+import { useAnimationContext } from '../AnimationContext';
+import EventBus from '../../utils/EventBus';
+import * as THREE from 'three';
 
-export const useIK = () => {
-  const context = useIKContext();
-  
-  if (!context) {
-    throw new Error('useIK must be used within IKProvider');
+/**
+ * Utility function to convert quaternion to Euler angles
+ * @param {Object} quaternion - Quaternion object with x, y, z, w components
+ * @returns {Object} Euler angles in degrees { roll, pitch, yaw }
+ */
+const quaternionToEuler = (quaternion) => {
+  if (!quaternion) {
+    return { roll: 0, pitch: 0, yaw: 0 };
   }
-  
-  const {
-    targetPosition,
-    targetOrientation,
-    currentEndEffector,
-    isAnimating,
-    solverStatus,
-    currentSolver,
-    availableSolvers,
-    setTargetPosition,
-    setTargetOrientation,
-    setCurrentSolver,
-    executeIK: contextExecuteIK,
-    stopAnimation,
-    configureSolver,
-    getSolverSettings,
-    isReady,
-    hasValidEndEffector
-  } = context;
 
-  // Simplified execute function
-  const executeIK = useCallback(async (position, orientation = null, options = {}) => {
-    const ikOptions = {
-      ...options,
-      targetOrientation: orientation
-    };
-    
-    return contextExecuteIK(position, ikOptions);
-  }, [contextExecuteIK]);
+  // Create THREE.js quaternion
+  const q = new THREE.Quaternion(
+    quaternion.x || 0,
+    quaternion.y || 0,
+    quaternion.z || 0,
+    quaternion.w || 1
+  );
 
-  // Move to target with current settings
-  const moveToTarget = useCallback(async (animate = true) => {
-    return contextExecuteIK(targetPosition, {
-      animate,
-      targetOrientation
-    });
-  }, [contextExecuteIK, targetPosition, targetOrientation]);
+  // Create Euler angles
+  const euler = new THREE.Euler();
+  euler.setFromQuaternion(q, 'XYZ');
 
-  // Move relative to current position
-  const moveRelative = useCallback((axis, delta) => {
-    const newTarget = { ...targetPosition };
-    newTarget[axis] += delta;
-    setTargetPosition(newTarget);
-  }, [targetPosition, setTargetPosition]);
-
-  // Rotate relative (orientation)
-  const rotateRelative = useCallback((axis, delta) => {
-    const newOrientation = { ...targetOrientation };
-    newOrientation[axis] += delta;
-    setTargetOrientation(newOrientation);
-  }, [targetOrientation, setTargetOrientation]);
-
-  // Sync target to current end effector
-  const syncTargetToCurrent = useCallback(() => {
-    setTargetPosition({
-      x: currentEndEffector.position.x,
-      y: currentEndEffector.position.y,
-      z: currentEndEffector.position.z
-    });
-    
-    // Convert quaternion to euler if needed
-    const euler = quaternionToEuler(currentEndEffector.orientation);
-    setTargetOrientation({
-      roll: euler.roll * 180 / Math.PI,
-      pitch: euler.pitch * 180 / Math.PI,
-      yaw: euler.yaw * 180 / Math.PI
-    });
-  }, [currentEndEffector, setTargetPosition, setTargetOrientation]);
-
-  // Get solver configuration
-  const getSolverConfig = useCallback(() => {
-    return getSolverSettings(currentSolver);
-  }, [getSolverSettings, currentSolver]);
-
-  // Update solver configuration
-  const updateSolverConfig = useCallback((config) => {
-    configureSolver(currentSolver, config);
-  }, [configureSolver, currentSolver]);
-
+  // Return in roll, pitch, yaw format (converted to degrees)
   return {
-    // Current state
-    currentPosition: currentEndEffector.position,
-    currentOrientation: currentEndEffector.orientation,
-    currentEulerAngles: quaternionToEuler(currentEndEffector.orientation),
-    
-    // Target state
-    targetPosition,
-    targetOrientation,
-    
-    // Animation state
-    isAnimating,
-    animationProgress: 0, // Could be enhanced later
-    
-    // Solver state
-    solverStatus,
-    currentSolver,
-    availableSolvers,
-    
-    // Main methods
-    executeIK,
-    moveToTarget,
-    stopAnimation,
-    
-    // Position control
-    setTargetPosition,
-    moveRelative,
-    
-    // Orientation control
-    setTargetOrientation,
-    rotateRelative,
-    
-    // Sync methods
-    syncTargetToCurrent,
-    
-    // Solver management
-    setCurrentSolver,
-    configureSolver: updateSolverConfig,
-    getSolverSettings: getSolverConfig,
-    
-    // Status
-    isReady,
-    hasValidEndEffector,
-    canExecute: isReady && hasValidEndEffector && !isAnimating
+    roll: euler.x * 180 / Math.PI,
+    pitch: euler.y * 180 / Math.PI,
+    yaw: euler.z * 180 / Math.PI
   };
 };
 
-// Helper function to convert quaternion to euler angles
-function quaternionToEuler(q) {
-  const { x, y, z, w } = q;
+/**
+ * Utility function to convert Euler angles to quaternion
+ * @param {Object} euler - Euler angles in degrees { roll, pitch, yaw }
+ * @returns {Object} Quaternion { x, y, z, w }
+ */
+const eulerToQuaternion = (euler) => {
+  // Convert degrees to radians
+  const rollRad = (euler.roll || 0) * Math.PI / 180;
+  const pitchRad = (euler.pitch || 0) * Math.PI / 180;
+  const yawRad = (euler.yaw || 0) * Math.PI / 180;
   
-  // Roll (x-axis rotation)
-  const sinr_cosp = 2 * (w * x + y * z);
-  const cosr_cosp = 1 - 2 * (x * x + y * y);
-  const roll = Math.atan2(sinr_cosp, cosr_cosp);
+  // Create Euler and quaternion
+  const e = new THREE.Euler(rollRad, pitchRad, yawRad, 'XYZ');
+  const q = new THREE.Quaternion();
+  q.setFromEuler(e);
   
-  // Pitch (y-axis rotation)
-  const sinp = 2 * (w * y - z * x);
-  let pitch;
-  if (Math.abs(sinp) >= 1) {
-    pitch = Math.sign(sinp) * Math.PI / 2;
-  } else {
-    pitch = Math.asin(sinp);
-  }
-  
-  // Yaw (z-axis rotation)
-  const siny_cosp = 2 * (w * z + x * y);
-  const cosy_cosp = 1 - 2 * (y * y + z * z);
-  const yaw = Math.atan2(siny_cosp, cosy_cosp);
-  
-  return { roll, pitch, yaw };
-}
+  return {
+    x: q.x,
+    y: q.y,
+    z: q.z,
+    w: q.w
+  };
+};
 
+/**
+ * Complete IK hook that provides all functionality needed for IK operations
+ * Acts as a facade to aggregate data from multiple contexts
+ * 
+ * @param {string|null} robotIdOverride - Optional robot ID to override context
+ * @returns {Object} Complete IK API with all necessary data and functions
+ */
+export const useIK = (robotIdOverride = null) => {
+  // Get core IK context
+  const ikContext = useIKContext();
+  
+  // Get robot-related data
+  const { activeId: contextRobotId } = useRobotSelection();
+  const { getRobot, isRobotLoaded } = useRobotManager();
+  
+  // Determine which robot ID to use
+  const robotId = robotIdOverride || contextRobotId;
+  
+  // Get robot instance and state
+  const robot = getRobot(robotId);
+  const isReady = isRobotLoaded(robotId) && ikContext.isReady;
+  
+  // Get joint control functions
+  const { getJointValues, updateJoints } = useJoints(robotId);
+  
+  // Get TCP state
+  const tcp = useTCP(robotId);
+  const { 
+    endEffector: { hasValid: hasValidEndEffector, isUsing: isUsingTCP },
+    utils: { getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation },
+    tool: { offset: tcpOffset }
+  } = tcp;
+  
+  // Get animation state
+  const { isAnimating: contextAnimating } = useAnimationContext();
+  
+  // Robot state helpers
+  const hasJoints = robot && robot.joints && Object.keys(robot.joints).length > 0;
+  const canOperate = isReady && hasJoints && robotId && hasValidEndEffector;
+  
+  // Get current Euler angles from quaternion
+  const currentEulerAngles = useMemo(() => {
+    return quaternionToEuler(ikContext.currentEndEffector?.orientation);
+  }, [ikContext.currentEndEffector?.orientation]);
+  
+  // Get target Euler angles from quaternion
+  const targetEulerAngles = useMemo(() => {
+    return quaternionToEuler(ikContext.targetOrientation);
+  }, [ikContext.targetOrientation]);
+  
+  // Enhanced IK execution with validation
+  const executeIKWithValidation = useCallback(async (position, orientation = null, options = {}) => {
+    if (!canOperate) {
+      console.warn('[useIK] Cannot execute IK - robot not ready');
+      return { success: false, error: 'Robot not ready' };
+    }
+    
+    if (contextAnimating || ikContext.isAnimating) {
+      console.warn('[useIK] Cannot execute IK - animation in progress');
+      return { success: false, error: 'Animation in progress' };
+    }
+    
+    // Emit start event
+    EventBus.emit('ik:execution-started', {
+      robotId,
+      position,
+      orientation,
+      options
+    });
+    
+    try {
+      const result = await ikContext.executeIK(position, {
+        ...options,
+        targetOrientation: orientation
+      });
+      
+      if (result.success) {
+        EventBus.emit('ik:execution-completed', {
+          robotId,
+          solution: result.solution
+        });
+      } else {
+        EventBus.emit('ik:execution-failed', {
+          robotId,
+          error: result.error
+        });
+      }
+      
+      return result;
+    } catch (error) {
+      EventBus.emit('ik:execution-error', {
+        robotId,
+        error: error.message
+      });
+      return { success: false, error: error.message };
+    }
+  }, [canOperate, contextAnimating, ikContext, robotId]);
+  
+  // Move to target position with current settings
+  const moveToTarget = useCallback(async (animate = true) => {
+    const orientationQuat = eulerToQuaternion(targetEulerAngles);
+    return executeIKWithValidation(ikContext.targetPosition, orientationQuat, { animate });
+  }, [executeIKWithValidation, ikContext.targetPosition, targetEulerAngles]);
+  
+  // Move relative to current position
+  const moveRelative = useCallback((axis, delta) => {
+    const newTarget = { ...ikContext.targetPosition };
+    newTarget[axis] = (newTarget[axis] || 0) + delta;
+    ikContext.setTargetPosition(newTarget);
+  }, [ikContext]);
+  
+  // Set target orientation in Euler angles
+  const setTargetEulerAngles = useCallback((euler) => {
+    const quaternion = eulerToQuaternion(euler);
+    ikContext.setTargetOrientation(quaternion);
+  }, [ikContext]);
+  
+  // Rotate relative (in Euler angles)
+  const rotateRelative = useCallback((axis, delta) => {
+    const currentEuler = targetEulerAngles;
+    const newEuler = { ...currentEuler };
+    newEuler[axis] = (newEuler[axis] || 0) + delta;
+    setTargetEulerAngles(newEuler);
+  }, [targetEulerAngles, setTargetEulerAngles]);
+  
+  // Sync target to current end effector
+  const syncTargetToCurrent = useCallback(() => {
+    // Set position
+    const currentPos = getCurrentEndEffectorPoint();
+    if (currentPos) {
+      ikContext.setTargetPosition({
+        x: currentPos.x || 0,
+        y: currentPos.y || 0,
+        z: currentPos.z || 0
+      });
+    }
+    
+    // Set orientation (already in Euler)
+    setTargetEulerAngles(currentEulerAngles);
+  }, [getCurrentEndEffectorPoint, currentEulerAngles, ikContext, setTargetEulerAngles]);
+  
+  // Get solver configuration with defaults
+  const getSolverConfig = useCallback(() => {
+    const config = ikContext.getSolverSettings(ikContext.currentSolver);
+    return config || getDefaultSolverConfig(ikContext.currentSolver);
+  }, [ikContext]);
+  
+  // Update solver configuration
+  const updateSolverConfig = useCallback((config) => {
+    ikContext.configureSolver(ikContext.currentSolver, config);
+    
+    EventBus.emit('ik:solver-configured', {
+      robotId,
+      solver: ikContext.currentSolver,
+      config
+    });
+  }, [ikContext, robotId]);
+  
+  // Get default solver configuration
+  const getDefaultSolverConfig = (solverName) => {
+    const defaults = {
+      'ccd': {
+        maxIterations: 50,
+        tolerance: 0.001,
+        constraintsEnabled: true
+      },
+      'fabrik': {
+        maxIterations: 20,
+        tolerance: 0.01,
+        chainLength: 'auto'
+      },
+      'jacobian': {
+        dampingFactor: 0.1,
+        stepSize: 0.1,
+        maxIterations: 100,
+        tolerance: 0.001
+      }
+    };
+    
+    return defaults[solverName] || {};
+  };
+  
+  // Motion profile helpers
+  const motionProfiles = ['linear', 'trapezoidal', 's-curve', 'cubic', 'quintic'];
+  
+  // Get position increment options
+  const getPositionIncrements = () => [
+    { label: '0.001m', value: 0.001 },
+    { label: '0.01m', value: 0.01 },
+    { label: '0.1m', value: 0.1 },
+    { label: '1m', value: 1.0 }
+  ];
+  
+  // Get rotation increment options
+  const getRotationIncrements = () => [
+    { label: '0.1°', value: 0.1 },
+    { label: '1°', value: 1.0 },
+    { label: '5°', value: 5.0 },
+    { label: '10°', value: 10.0 }
+  ];
+  
+  // Return complete API
+  return {
+    // Robot state
+    robotId,
+    robot,
+    isReady,
+    hasJoints,
+    canOperate,
+    
+    // Current state
+    current: {
+      position: ikContext.currentEndEffector?.position || { x: 0, y: 0, z: 0 },
+      orientation: ikContext.currentEndEffector?.orientation || { x: 0, y: 0, z: 0, w: 1 },
+      eulerAngles: currentEulerAngles,
+      endEffectorValid: hasValidEndEffector
+    },
+    
+    // Target state
+    target: {
+      position: ikContext.targetPosition,
+      orientation: ikContext.targetOrientation,
+      eulerAngles: targetEulerAngles,
+      setPosition: ikContext.setTargetPosition,
+      setOrientation: ikContext.setTargetOrientation,
+      setEulerAngles: setTargetEulerAngles
+    },
+    
+    // Movement API
+    movement: {
+      executeIK: executeIKWithValidation,
+      moveToTarget,
+      moveRelative,
+      rotateRelative,
+      syncTargetToCurrent,
+      stopAnimation: ikContext.stopAnimation
+    },
+    
+    // Solver API
+    solver: {
+      current: ikContext.currentSolver,
+      available: ikContext.availableSolvers,
+      status: ikContext.solverStatus,
+      setSolver: ikContext.setCurrentSolver,
+      getConfig: getSolverConfig,
+      updateConfig: updateSolverConfig,
+      defaultConfigs: {
+        ccd: getDefaultSolverConfig('ccd'),
+        fabrik: getDefaultSolverConfig('fabrik'),
+        jacobian: getDefaultSolverConfig('jacobian')
+      }
+    },
+    
+    // Animation state
+    animation: {
+      isAnimating: ikContext.isAnimating || contextAnimating,
+      progress: ikContext.animationProgressValue || 0
+    },
+    
+    // TCP state
+    tcp: {
+      isUsing: isUsingTCP,
+      hasValid: hasValidEndEffector,
+      offset: tcpOffset
+    },
+    
+    // UI Helpers
+    ui: {
+      motionProfiles,
+      positionIncrements: getPositionIncrements(),
+      rotationIncrements: getRotationIncrements(),
+      canExecute: canOperate && !ikContext.isAnimating && !contextAnimating
+    },
+    
+    // Status helpers
+    status: {
+      message: ikContext.isAnimating ? 'Executing IK...' :
+               contextAnimating ? 'Animation in progress' :
+               !hasValidEndEffector ? 'No valid end effector' :
+               !isReady ? 'IK not ready' :
+               'Ready',
+      isReady: canOperate,
+      isBusy: ikContext.isAnimating || contextAnimating
+    }
+  };
+};
+
+// Export as default
 export default useIK;

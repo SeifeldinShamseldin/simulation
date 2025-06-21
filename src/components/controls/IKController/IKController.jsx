@@ -1,241 +1,173 @@
-// components/controls/IKController/IKController.jsx - Fixed infinite loop and input handling
+// src/components/controls/IKController/IKController.jsx
+// Refactored to only import from useIK hook with exact original UI
+
 import React, { useState, useEffect } from 'react';
-import * as THREE from 'three';
-import { useRobotManager, useRobotSelection } from '../../../contexts/hooks/useRobotManager';
-import { useIK } from '../../../contexts/hooks/useIK';
-import { debugIK } from '../../../utils/DebugSystem';
-
-/**
- * Utility function to convert quaternion to Euler angles
- * @param {Object} quaternion - Quaternion object with x, y, z, w components
- * @returns {Object} Euler angles in radians { roll, pitch, yaw }
- */
-const quaternionToEuler = (quaternion) => {
-  if (!quaternion) {
-    return { roll: 0, pitch: 0, yaw: 0 };
-  }
-
-  // Create THREE.js quaternion
-  const q = new THREE.Quaternion(
-    quaternion.x,
-    quaternion.y,
-    quaternion.z,
-    quaternion.w
-  );
-
-  // Create Euler angles
-  const euler = new THREE.Euler();
-  euler.setFromQuaternion(q, 'XYZ');
-
-  // Return in roll, pitch, yaw format
-  return {
-    roll: euler.x,
-    pitch: euler.y,
-    yaw: euler.z
-  };
-};
+import useIK from '../../../contexts/hooks/useIK';
 
 /**
  * Component for controlling Inverse Kinematics with position and orientation
- * Uses specialized hooks instead of useRobotControl
+ * Now only imports from useIK hook for cleaner architecture
  */
 const IKController = () => {
-  // Get active robot ID
-  const { activeId: activeRobotId } = useRobotSelection();
+  // Get all IK functionality from single hook
+  const ik = useIK();
   
-  // Get robot and ready state
-  const { getRobot, isRobotLoaded } = useRobotManager();
-  const robot = getRobot(activeRobotId);
-  const isReady = isRobotLoaded(activeRobotId);
-  
+  // Destructure what we need
   const {
-    currentPosition,
-    currentOrientation,
-    currentEulerAngles,
-    targetPosition,
-    isAnimating,
-    solverStatus,
-    currentSolver,
-    availableSolvers,
-    setTargetPosition,
-    setCurrentSolver,
-    executeIK,
-    stopAnimation,
-    configureSolver,
-    getSolverSettings
-  } = useIK();
-
+    robotId,
+    isReady,
+    current,
+    target,
+    movement,
+    solver,
+    animation,
+    ui
+  } = ik;
+  
+  // Local UI state
   const [showSettings, setShowSettings] = useState(false);
   const [solverSettings, setSolverSettings] = useState({});
   const [targetOrientation, setTargetOrientation] = useState({ roll: 0, pitch: 0, yaw: 0 });
   const [orientationInitialized, setOrientationInitialized] = useState(false);
   const [orientationMode, setOrientationMode] = useState(false);
   
-  // NEW: Motion profile state
+  // Motion profile state
   const [motionProfile, setMotionProfile] = useState('trapezoidal');
   const [animationSpeed, setAnimationSpeed] = useState(1.0);
   const [useMotionProfile, setUseMotionProfile] = useState(true);
-
+  
   // Update solver settings when solver changes
   useEffect(() => {
-    const settings = getSolverSettings(currentSolver);
-    if (settings) {
-      setSolverSettings(settings);
-    } else {
-      // Set default settings if getSolverSettings returns null
-      setSolverSettings({});
-      debugIK(`No settings found for solver: ${currentSolver}`);
-    }
-  }, [currentSolver, getSolverSettings]);
-
+    const settings = solver.getConfig();
+    setSolverSettings(settings);
+  }, [solver.current]);
+  
   // FIXED: Only sync target orientation with current ONCE when robot first loads or changes
   useEffect(() => {
-    if (!orientationInitialized && robot && isReady) {
-      const euler = quaternionToEuler(currentOrientation);
+    if (!orientationInitialized && ik.robot && isReady) {
       setTargetOrientation({
-        roll: euler.roll * 180 / Math.PI,
-        pitch: euler.pitch * 180 / Math.PI,
-        yaw: euler.yaw * 180 / Math.PI
+        roll: current.eulerAngles.roll,
+        pitch: current.eulerAngles.pitch,
+        yaw: current.eulerAngles.yaw
       });
       setOrientationInitialized(true);
     }
-  }, [robot, isReady, currentOrientation, orientationInitialized]);
-
+  }, [ik.robot, isReady, current.eulerAngles, orientationInitialized]);
+  
   // Reset initialization when robot changes
   useEffect(() => {
     setOrientationInitialized(false);
     setTargetOrientation({ roll: 0, pitch: 0, yaw: 0 });
-  }, [activeRobotId]);
-
+  }, [robotId]);
+  
   const handlePositionChange = (axis, value) => {
-    setTargetPosition(prev => ({
+    target.setPosition(prev => ({
       ...prev,
       [axis]: parseFloat(value) || 0
     }));
   };
-
+  
   const handleOrientationChange = (axis, value) => {
-    debugIK(`Orientation change: ${axis} = ${value}`);
     setTargetOrientation(prev => ({
       ...prev,
       [axis]: parseFloat(value) || 0
     }));
   };
-
+  
   const moveRelative = (axis, delta) => {
-    setTargetPosition(prev => ({
-      ...prev,
-      [axis]: (prev[axis] || 0) + delta
-    }));
+    movement.moveRelative(axis, delta);
   };
-
+  
   const rotateRelative = (axis, delta) => {
-    debugIK(`Rotate relative: ${axis} += ${delta}`);
     setTargetOrientation(prev => ({
       ...prev,
       [axis]: (prev[axis] || 0) + delta
     }));
   };
-
+  
   const moveToTarget = async (animate = true) => {
-    if (!robot || !isReady || isAnimating) return;
+    if (!ik.robot || !isReady || animation.isAnimating) return;
     
-    try {
-      debugIK(`Moving to target position:`, targetPosition);
-      debugIK(`Moving to target orientation:`, targetOrientation);
-      debugIK(`Orientation mode:`, orientationMode);
-      debugIK(`Current solver:`, currentSolver);
-      debugIK(`Solver settings:`, solverSettings);
-      
-      // Convert target orientation from degrees to radians for the solver
-      const targetOrientationRad = {
-        roll: targetOrientation.roll * Math.PI / 180,
-        pitch: targetOrientation.pitch * Math.PI / 180,
-        yaw: targetOrientation.yaw * Math.PI / 180
-      };
-      
-      // Configure solver based on type and settings
-      if (currentSolver === 'HalimIK') {
-        // Pass HalimIK-specific settings
-        configureSolver(currentSolver, {
-          ...solverSettings,
-          orientationMode: solverSettings.orientationMode || (orientationMode ? 'all' : null),
-          noPosition: solverSettings.noPosition || false,
-          // Adjust learning rate based on orientation mode
-          learningRate: solverSettings.orientationMode ? 0.05 : 0.1,
-          // Adjust regularization based on orientation mode
-          regularizationParameter: solverSettings.orientationMode ? 0.0005 : 0.001
-        });
-      } else if (currentSolver === 'CCD') {
-        // CCD solver configuration
-        configureSolver(currentSolver, {
-          ...solverSettings,
-          // Adjust parameters based on orientation mode
-          orientationWeight: orientationMode ? 0.8 : 0.1,
-          maxIterations: orientationMode ? 20 : 10,
-          tolerance: orientationMode ? 0.02 : 0.01,
-          dampingFactor: orientationMode ? 0.5 : 0.7,
-          angleLimit: orientationMode ? 0.15 : 0.2
-        });
-      }
-      
-      // Execute IK with motion profile options
-      await executeIK(targetPosition, {
-        animate,
-        targetOrientation: targetOrientationRad,
-        motionProfile: useMotionProfile ? motionProfile : null,
-        animationSpeed,
-        duration: 2000 // Will be overridden by motion profile calculation
+    // Convert target orientation from degrees to radians for the solver
+    const targetOrientationRad = {
+      roll: targetOrientation.roll * Math.PI / 180,
+      pitch: targetOrientation.pitch * Math.PI / 180,
+      yaw: targetOrientation.yaw * Math.PI / 180
+    };
+    
+    // Configure solver based on type and settings
+    if (solver.current === 'HalimIK') {
+      solver.updateConfig({
+        ...solverSettings,
+        orientationMode: solverSettings.orientationMode || (orientationMode ? 'all' : null),
+        noPosition: solverSettings.noPosition || false,
+        learningRate: solverSettings.orientationMode ? 0.05 : 0.1,
+        regularizationParameter: solverSettings.orientationMode ? 0.0005 : 0.001
       });
-    } catch (error) {
-      debugIK(`Error executing IK:`, error);
+    } else if (solver.current === 'CCD') {
+      solver.updateConfig({
+        ...solverSettings,
+        orientationWeight: orientationMode ? 0.8 : 0.1,
+        maxIterations: orientationMode ? 20 : 10,
+        tolerance: orientationMode ? 0.02 : 0.01,
+        dampingFactor: orientationMode ? 0.5 : 0.7,
+        angleLimit: orientationMode ? 0.15 : 0.2
+      });
     }
-  };
-
-  const syncTargetToCurrent = () => {
-    debugIK('Syncing target to current');
-    setTargetPosition({
-      x: currentPosition.x,
-      y: currentPosition.y,
-      z: currentPosition.z
-    });
     
-    if (currentEulerAngles) {
-      const newOrientation = {
-        roll: currentEulerAngles.roll * 180 / Math.PI,
-        pitch: currentEulerAngles.pitch * 180 / Math.PI,
-        yaw: currentEulerAngles.yaw * 180 / Math.PI
-      };
-      debugIK(`Syncing orientation to:`, newOrientation);
-      setTargetOrientation(newOrientation);
-    }
-  };
-
-  const resetRobot = () => {
-    if (!robot) return;
-    // Reset all joints to 0
-    Object.values(robot.joints).forEach(joint => {
-      if (joint.jointType !== 'fixed') {
-        robot.setJointValue(joint.name, 0);
-      }
+    // Convert Euler to quaternion for execution
+    const orientationQuat = eulerToQuaternion(targetOrientationRad);
+    
+    // Execute IK with motion profile options
+    await movement.executeIK(target.position, orientationQuat, {
+      animate,
+      motionProfile: useMotionProfile ? motionProfile : null,
+      animationSpeed,
+      duration: 2000
     });
   };
-
-  const handleSolverChange = (solver) => {
-    setCurrentSolver(solver);
+  
+  const syncTargetToCurrent = () => {
+    movement.syncTargetToCurrent();
+    setTargetOrientation({
+      roll: current.eulerAngles.roll,
+      pitch: current.eulerAngles.pitch,
+      yaw: current.eulerAngles.yaw
+    });
   };
-
+  
+  const handleSolverChange = (solverName) => {
+    solver.setSolver(solverName);
+  };
+  
   const handleSettingChange = (setting, value) => {
-    const newSettings = { ...solverSettings, [setting]: parseFloat(value) };
+    const newSettings = { ...solverSettings, [setting]: value };
     setSolverSettings(newSettings);
-    configureSolver(currentSolver, newSettings);
+    solver.updateConfig(newSettings);
   };
-
+  
   const handleStopMovement = () => {
-    debugIK(`Stop button clicked`);
-    stopAnimation();
+    movement.stopAnimation();
   };
-
+  
+  // Helper function to convert Euler to quaternion
+  const eulerToQuaternion = (euler) => {
+    // This should be provided by the hook, but as a fallback:
+    const cy = Math.cos(euler.yaw * 0.5);
+    const sy = Math.sin(euler.yaw * 0.5);
+    const cp = Math.cos(euler.pitch * 0.5);
+    const sp = Math.sin(euler.pitch * 0.5);
+    const cr = Math.cos(euler.roll * 0.5);
+    const sr = Math.sin(euler.roll * 0.5);
+    
+    return {
+      w: cr * cp * cy + sr * sp * sy,
+      x: sr * cp * cy - cr * sp * sy,
+      y: cr * sp * cy + sr * cp * sy,
+      z: cr * cp * sy - sr * sp * cy
+    };
+  };
+  
   if (!isReady) {
     return (
       <div className="controls-section">
@@ -244,40 +176,40 @@ const IKController = () => {
       </div>
     );
   }
-
+  
   return (
     <div className="controls-section">
-      <h3 className="controls-section-title">Inverse Kinematics - {activeRobotId}</h3>
+      <h3 className="controls-section-title">Inverse Kinematics - {robotId}</h3>
       
       {/* Solver Selection */}
       <div className="controls-form-group">
         <label className="controls-form-label">IK Solver:</label>
         <select 
           className="controls-form-select"
-          value={currentSolver}
+          value={solver.current}
           onChange={(e) => handleSolverChange(e.target.value)}
-          disabled={isAnimating}
+          disabled={animation.isAnimating}
         >
-          {availableSolvers.map(solver => (
-            <option key={solver} value={solver}>{solver}</option>
+          {solver.available.map(s => (
+            <option key={s} value={s}>{s}</option>
           ))}
         </select>
         
         <button
           className="controls-btn controls-btn-sm controls-btn-secondary controls-mt-2"
           onClick={() => setShowSettings(!showSettings)}
-          disabled={isAnimating}
+          disabled={animation.isAnimating}
         >
           {showSettings ? 'Hide' : 'Show'} Settings
         </button>
       </div>
-
+      
       {/* Solver Settings */}
       {showSettings && solverSettings && (
         <div className="controls-card controls-p-3 controls-mb-3">
-          <h5 className="controls-h6">{currentSolver} Settings:</h5>
+          <h5 className="controls-h6">{solver.current} Settings:</h5>
           
-          {currentSolver === 'HalimIK' && (
+          {solver.current === 'HalimIK' && (
             <>
               <div className="controls-form-group">
                 <label className="controls-form-label">Orientation Mode:</label>
@@ -285,7 +217,7 @@ const IKController = () => {
                   className="controls-form-select"
                   value={solverSettings.orientationMode || ''}
                   onChange={(e) => handleSettingChange('orientationMode', e.target.value || null)}
-                  disabled={isAnimating}
+                  disabled={animation.isAnimating}
                 >
                   <option value="">None (Position Only)</option>
                   <option value="X">Target X Axis</option>
@@ -302,7 +234,7 @@ const IKController = () => {
                     checked={solverSettings.noPosition || false}
                     onChange={(e) => handleSettingChange('noPosition', e.target.checked)}
                     style={{ marginRight: '0.5rem' }}
-                    disabled={isAnimating || !solverSettings.orientationMode}
+                    disabled={animation.isAnimating || !solverSettings.orientationMode}
                   />
                   Orientation Only (No Position)
                 </label>
@@ -313,7 +245,7 @@ const IKController = () => {
             </>
           )}
           
-          {currentSolver === 'CCD' && (
+          {solver.current === 'CCD' && (
             <div className="controls-form-group">
               <label className="controls-form-label">
                 <input
@@ -335,7 +267,7 @@ const IKController = () => {
             if (key === 'orientationMode' || key === 'noPosition') return null;
             
             // Skip orientationWeight for CCD if not in orientation mode
-            if (currentSolver === 'CCD' && key === 'orientationWeight' && !orientationMode) return null;
+            if (solver.current === 'CCD' && key === 'orientationWeight' && !orientationMode) return null;
             
             return (
               <div key={key} className="controls-form-group">
@@ -350,7 +282,7 @@ const IKController = () => {
                   step={key.includes('Factor') || key.includes('Limit') || key.includes('Coeff') || key.includes('Rate') ? 0.1 : 1}
                   min={0}
                   max={key === 'learningRate' ? 1 : undefined}
-                  disabled={isAnimating}
+                  disabled={animation.isAnimating}
                 />
                 {key === 'learningRate' && (
                   <small className="controls-text-muted">
@@ -372,47 +304,47 @@ const IKController = () => {
           })}
         </div>
       )}
-
+      
       {/* Current End Effector State */}
       <div className="controls-form-group">
         <h4 className="controls-h6">Current End Effector Position:</h4>
         <div className="controls-grid controls-grid-cols-3 controls-gap-2">
           <div>
             <label className="controls-form-label">X</label>
-            <div className="controls-form-control-static">{currentPosition.x.toFixed(4)}</div>
+            <div className="controls-form-control-static">{current.position.x.toFixed(4)}</div>
           </div>
           <div>
             <label className="controls-form-label">Y</label>
-            <div className="controls-form-control-static">{currentPosition.y.toFixed(4)}</div>
+            <div className="controls-form-control-static">{current.position.y.toFixed(4)}</div>
           </div>
           <div>
             <label className="controls-form-label">Z</label>
-            <div className="controls-form-control-static">{currentPosition.z.toFixed(4)}</div>
+            <div className="controls-form-control-static">{current.position.z.toFixed(4)}</div>
           </div>
         </div>
       </div>
-
+      
       {/* Current End Effector Orientation */}
-      {currentEulerAngles && (
+      {current.eulerAngles && (
         <div className="controls-form-group">
           <h4 className="controls-h6">Current End Effector Orientation:</h4>
           <div className="controls-grid controls-grid-cols-3 controls-gap-2">
             <div>
               <label className="controls-form-label">Roll (°)</label>
-              <div className="controls-form-control-static">{(currentEulerAngles.roll * 180 / Math.PI).toFixed(2)}</div>
+              <div className="controls-form-control-static">{current.eulerAngles.roll.toFixed(2)}</div>
             </div>
             <div>
               <label className="controls-form-label">Pitch (°)</label>
-              <div className="controls-form-control-static">{(currentEulerAngles.pitch * 180 / Math.PI).toFixed(2)}</div>
+              <div className="controls-form-control-static">{current.eulerAngles.pitch.toFixed(2)}</div>
             </div>
             <div>
               <label className="controls-form-label">Yaw (°)</label>
-              <div className="controls-form-control-static">{(currentEulerAngles.yaw * 180 / Math.PI).toFixed(2)}</div>
+              <div className="controls-form-control-static">{current.eulerAngles.yaw.toFixed(2)}</div>
             </div>
           </div>
         </div>
       )}
-
+      
       {/* Move Robot To Section */}
       <div className="controls-card controls-p-3 controls-mb-3">
         <h4 className="controls-h5 controls-mb-3">MOVE ROBOT TO:</h4>
@@ -426,17 +358,17 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('x', -0.01)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 -
               </button>
               <input
                 type="number"
                 className="controls-form-control"
-                value={targetPosition.x}
+                value={target.position.x}
                 onChange={(e) => handlePositionChange('x', e.target.value)}
                 step="0.001"
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -445,30 +377,30 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('x', 0.01)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 +
               </button>
             </div>
           </div>
-
+          
           <div>
             <label className="controls-form-label">Y Position:</label>
             <div className="controls-input-group">
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('y', -0.01)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 -
               </button>
               <input
                 type="number"
                 className="controls-form-control"
-                value={targetPosition.y}
+                value={target.position.y}
                 onChange={(e) => handlePositionChange('y', e.target.value)}
                 step="0.001"
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -477,30 +409,30 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('y', 0.01)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 +
               </button>
             </div>
           </div>
-
+          
           <div>
             <label className="controls-form-label">Z Position:</label>
             <div className="controls-input-group">
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('z', -0.01)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 -
               </button>
               <input
                 type="number"
                 className="controls-form-control"
-                value={targetPosition.z}
+                value={target.position.z}
                 onChange={(e) => handlePositionChange('z', e.target.value)}
                 step="0.001"
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -509,14 +441,14 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => moveRelative('z', 0.01)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 +
               </button>
             </div>
           </div>
         </div>
-
+        
         {/* Orientation Controls */}
         <h5 className="controls-h6 controls-mb-2">Target Orientation:</h5>
         <div className="controls-grid controls-grid-cols-3 controls-gap-3 controls-mb-3">
@@ -526,7 +458,7 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('roll', -5)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 -
               </button>
@@ -536,7 +468,7 @@ const IKController = () => {
                 value={targetOrientation.roll}
                 onChange={(e) => handleOrientationChange('roll', e.target.value)}
                 step="1"
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -545,20 +477,20 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('roll', 5)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 +
               </button>
             </div>
           </div>
-
+          
           <div>
             <label className="controls-form-label">Pitch (°):</label>
             <div className="controls-input-group">
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('pitch', -5)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 -
               </button>
@@ -568,7 +500,7 @@ const IKController = () => {
                 value={targetOrientation.pitch}
                 onChange={(e) => handleOrientationChange('pitch', e.target.value)}
                 step="1"
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -577,20 +509,20 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('pitch', 5)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 +
               </button>
             </div>
           </div>
-
+          
           <div>
             <label className="controls-form-label">Yaw (°):</label>
             <div className="controls-input-group">
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('yaw', -5)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 -
               </button>
@@ -600,7 +532,7 @@ const IKController = () => {
                 value={targetOrientation.yaw}
                 onChange={(e) => handleOrientationChange('yaw', e.target.value)}
                 step="1"
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
                 style={{
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
@@ -609,22 +541,22 @@ const IKController = () => {
               <button
                 className="controls-btn controls-btn-sm controls-btn-secondary"
                 onClick={() => rotateRelative('yaw', 5)}
-                disabled={isAnimating}
+                disabled={animation.isAnimating}
               >
                 +
               </button>
             </div>
           </div>
         </div>
-
+        
         <button
           className="controls-btn controls-btn-sm controls-btn-info controls-w-100 controls-mt-3"
           onClick={syncTargetToCurrent}
-          disabled={isAnimating}
+          disabled={animation.isAnimating}
         >
           Use Current Position & Orientation
         </button>
-
+        
         {/* NEW: Motion Profile Controls */}
         <div className="controls-form-group">
           <h5 className="controls-h6 controls-mb-2">Motion Profile:</h5>
@@ -667,14 +599,14 @@ const IKController = () => {
             )}
           </div>
         </div>
-
+        
         {/* Move/Stop buttons */}
         <div className="controls-btn-group controls-w-100 controls-mt-2">
-          {!isAnimating ? (
+          {!animation.isAnimating ? (
             <button
               className="controls-btn controls-btn-primary controls-w-100"
               onClick={() => moveToTarget(true)}
-              disabled={isAnimating}
+              disabled={animation.isAnimating}
             >
               Move Robot to Target
             </button>
@@ -688,19 +620,19 @@ const IKController = () => {
           )}
         </div>
       </div>
-
+      
       {/* Status */}
       <div className="controls-mt-3">
         <strong>Status:</strong> 
         <span className={`controls-text-${
-          solverStatus.includes('Error') || solverStatus.includes('Failed') ? 'danger' : 
-          solverStatus.includes('Moving') || solverStatus.includes('Solving') ? 'warning' :
-          solverStatus.includes('Complete') ? 'success' : 'muted'
+          solver.status?.includes('Error') || solver.status?.includes('Failed') ? 'danger' : 
+          solver.status?.includes('Moving') || solver.status?.includes('Solving') ? 'warning' :
+          solver.status?.includes('Complete') ? 'success' : 'muted'
         }`}>
-          {' ' + solverStatus}
+          {' ' + (solver.status || 'Ready')}
         </span>
         
-        {isAnimating && (
+        {animation.isAnimating && (
           <div className="controls-mt-2">
             <small className="controls-text-muted">
               Animation in progress... Click "Stop Movement" to cancel.
@@ -712,4 +644,4 @@ const IKController = () => {
   );
 };
 
-export default IKController;
+export default IKController

@@ -1,123 +1,303 @@
-// Migration hook to maintain compatibility with existing useTrajectory usage
-// This allows gradual migration from the old hook to the new context
+// src/contexts/hooks/useTrajectory.js
+// Complete facade hook that aggregates all trajectory-related functionality
 
-import { useTrajectoryContext } from '../TrajectoryContext';
+import { 
+  useTrajectoryContext,
+  useTrajectoryRecording as useContextRecording,
+  useTrajectoryPlayback as useContextPlayback,
+  useTrajectoryManagement as useContextManagement,
+  useTrajectoryVisualization as useContextVisualization
+} from '../TrajectoryContext';
+
 import { useRobotContext } from '../RobotContext';
+import { useRobotManager, useRobotSelection } from './useRobotManager';
+import { useJoints } from './useJoints';
+import { useTCP } from './useTCP';
 import { useAnimationContext } from '../AnimationContext';
+import EventBus from '../../utils/EventBus';
 
 /**
- * Compatibility hook that mirrors the old useTrajectory API
- * but uses the new TrajectoryContext under the hood
+ * Complete trajectory hook that provides all functionality needed for trajectory operations
+ * Acts as a facade to aggregate data from multiple contexts
  * 
- * @param {string|null} robotId - Optional robot ID to override context
- * @returns {Object} Trajectory API matching the old hook interface
+ * @param {string|null} robotIdOverride - Optional robot ID to override context
+ * @returns {Object} Complete trajectory API with all necessary data and functions
  */
-export const useTrajectory = (robotId = null) => {
-  const context = useTrajectoryContext();
-  const { getRobot } = useRobotContext();
+export const useTrajectory = (robotIdOverride = null) => {
+  // Get core trajectory context
+  const trajectoryContext = useTrajectoryContext();
+  
+  // Get robot-related data
+  const { activeId: contextRobotId } = useRobotSelection();
+  const { getRobot, isRobotLoaded, categories, getRobotById } = useRobotManager();
+  const { getRobotTrajectories: getAllRobotTrajectories } = useRobotContext();
+  
+  // Determine which robot ID to use
+  const robotId = robotIdOverride || trajectoryContext.robotId || contextRobotId;
+  
+  // Get robot instance and state
+  const robot = getRobot(robotId);
+  const isReady = isRobotLoaded(robotId);
+  
+  // Get joint control functions
+  const { 
+    jointValues, 
+    updateJoints: updateJoints
+  } = useJoints(robotId);
+  
+  // Get TCP state
+  const tcp = useTCP(robotId);
+  const { 
+    endEffector: { hasValid: hasValidEndEffector, isUsing: isUsingTCP },
+    utils: { getCurrentEndEffectorPoint: currentEndEffectorPoint, getCurrentEndEffectorOrientation: currentEndEffectorOrientation },
+    tool: { offset: tcpOffset }
+  } = tcp;
+  
+  // Get animation state
   const { isAnimating } = useAnimationContext();
   
-  // If a specific robotId is passed, we need to handle it differently
-  // For now, we'll use the context's robotId and log a warning if they differ
-  if (robotId && robotId !== context.robotId) {
-    console.warn(
-      `[useTrajectory] Specified robotId (${robotId}) differs from context robotId (${context.robotId}). ` +
-      `Using context robotId. Consider updating to use TrajectoryContext directly.`
-    );
-  }
+  // Get specialized trajectory hooks
+  const recording = useContextRecording();
+  const playback = useContextPlayback();
+  const management = useContextManagement();
+  const visualization = useContextVisualization();
   
-  // Helper function for getting robot info
-  const getRobotInfo = (id) => {
-    const robot = getRobot(id || context.robotId);
-    if (!robot) {
-      return { manufacturer: 'unknown', model: 'unknown' };
+  // Robot state helpers
+  const hasJoints = robot && robot.joints && Object.keys(robot.joints).length > 0;
+  const canOperate = isReady && hasJoints && robotId;
+  
+  // Get robot info for file organization
+  const getRobotInfo = () => {
+    if (!robotId) return { manufacturer: 'unknown', model: 'unknown' };
+    
+    const baseRobotId = robotId.split('_')[0];
+    let manufacturer = 'unknown';
+    let model = baseRobotId.toLowerCase();
+    
+    for (const category of categories || []) {
+      if (category.robots?.some(r => r.id === baseRobotId)) {
+        manufacturer = category.id;
+        const fullRobotData = getRobotById(baseRobotId);
+        model = fullRobotData?.name?.toLowerCase() || baseRobotId.toLowerCase();
+        break;
+      }
     }
+    
+    return { manufacturer, model };
+  };
+  
+  // Get current trajectory state
+  const getCurrentTrajectoryState = () => {
+    const endEffectorPosition = currentEndEffectorPoint;
+    const endEffectorOrientation = currentEndEffectorOrientation;
+    
     return {
-      manufacturer: robot.manufacturer || 'unknown',
-      model: robot.model || robot.name || 'unknown'
+      timestamp: Date.now(),
+      jointValues,
+      endEffector: {
+        position: endEffectorPosition,
+        orientation: endEffectorOrientation
+      },
+      tcpState: {
+        isUsing: isUsingTCP,
+        hasValid: hasValidEndEffector,
+        offset: tcpOffset
+      }
     };
   };
   
-  // Return the same interface as the old useTrajectory hook
+  // Enhanced recording functions
+  const startRecordingWithValidation = (name) => {
+    if (!canOperate) {
+      console.warn('[useTrajectory] Cannot start recording - robot not ready');
+      return false;
+    }
+    
+    if (!name || name.trim() === '') {
+      console.warn('[useTrajectory] Recording name is required');
+      return false;
+    }
+    
+    // Emit event for other components
+    EventBus.emit('trajectory:recording-started', {
+      robotId,
+      name,
+      robotInfo: getRobotInfo()
+    });
+    
+    return recording.startRecording(name);
+  };
+  
+  const stopRecordingWithSave = async () => {
+    const result = await recording.stopRecording();
+    
+    if (result) {
+      // Emit completion event
+      EventBus.emit('trajectory:recording-stopped', {
+        robotId,
+        trajectoryName: result.name,
+        frameCount: result.frames?.length || 0
+      });
+      
+      // Refresh trajectories list
+      await management.scanTrajectories();
+    }
+    
+    return result;
+  };
+  
+  // Enhanced playback functions
+  const playTrajectoryWithValidation = async (trajectoryInfo, options = {}) => {
+    if (!canOperate) {
+      console.warn('[useTrajectory] Cannot play trajectory - robot not ready');
+      return false;
+    }
+    
+    if (isAnimating || recording.isRecording) {
+      console.warn('[useTrajectory] Cannot play - robot is busy');
+      return false;
+    }
+    
+    // Emit start event
+    EventBus.emit('trajectory:playback-started', {
+      robotId,
+      trajectory: trajectoryInfo,
+      options
+    });
+    
+    const success = await playback.playTrajectory(trajectoryInfo, options);
+    
+    if (!success) {
+      EventBus.emit('trajectory:playback-failed', {
+        robotId,
+        trajectory: trajectoryInfo
+      });
+    }
+    
+    return success;
+  };
+  
+  const stopPlaybackWithCleanup = () => {
+    playback.stopPlayback();
+    
+    EventBus.emit('trajectory:playback-stopped', {
+      robotId,
+      progress: playback.progress
+    });
+  };
+  
+  // Get filtered trajectories for current robot
+  const getRobotTrajectories = () => {
+    const { manufacturer, model } = getRobotInfo();
+    return management.availableTrajectories.filter(traj => 
+      traj.manufacturer === manufacturer && traj.model === model
+    );
+  };
+  
+  // Visualization helpers
+  const createVisualization = (trajectoryData) => {
+    if (!trajectoryData) return null;
+    
+    const vis = visualization.createTrajectoryVisualization(trajectoryData);
+    
+    // Add camera bounds calculation
+    if (vis && trajectoryData.endEffectorPath) {
+      vis.bounds = visualization.calculateBounds(trajectoryData.endEffectorPath);
+      vis.cameraPosition = visualization.calculateCameraPosition(vis.bounds);
+    }
+    
+    return vis;
+  };
+  
+  // Return complete API
   return {
-    // State
-    robotId: context.robotId,
-    isRecording: context.isRecording,
-    isPlaying: context.isPlaying,
-    isScanning: context.isScanning,
-    recordingName: context.recordingName,
-    frameCount: context.frameCount,
-    progress: context.progress,
-    currentTrajectory: context.currentTrajectory,
-    playbackEndEffectorPoint: context.playbackEndEffectorPoint,
-    playbackEndEffectorOrientation: context.playbackEndEffectorOrientation,
+    // Robot state
+    robotId,
+    robot,
+    isReady,
+    hasJoints,
+    canOperate,
+    robotInfo: getRobotInfo(),
     
-    // Recording
-    startRecording: context.startRecording,
-    stopRecording: context.stopRecording,
+    // Recording API
+    recording: {
+      isRecording: recording.isRecording,
+      canRecord: recording.canRecord && canOperate && !isAnimating,
+      recordingName: recording.recordingName,
+      frameCount: recording.frameCount,
+      startRecording: startRecordingWithValidation,
+      stopRecording: stopRecordingWithSave,
+      getCurrentState: getCurrentTrajectoryState
+    },
     
-    // Playback
-    playTrajectory: context.playTrajectory,
-    stopPlayback: context.stopPlayback,
+    // Playback API
+    playback: {
+      isPlaying: playback.isPlaying,
+      canPlay: playback.canPlay && canOperate && !isAnimating,
+      progress: playback.progress,
+      currentTrajectory: playback.currentTrajectory,
+      playbackEndEffectorPoint: playback.playbackEndEffectorPoint,
+      playTrajectory: playTrajectoryWithValidation,
+      stopPlayback: stopPlaybackWithCleanup
+    },
     
-    // File operations
-    scanTrajectories: context.scanTrajectories,
-    loadTrajectory: context.loadTrajectory,
-    deleteTrajectory: context.deleteTrajectory,
-    analyzeTrajectory: context.analyzeTrajectory,
-    getRobotTrajectories: context.getRobotTrajectories,
+    // Management API
+    management: {
+      trajectories: getRobotTrajectories(),
+      allTrajectories: management.availableTrajectories,
+      isScanning: management.isScanning,
+      scanTrajectories: management.scanTrajectories,
+      deleteTrajectory: management.deleteTrajectory,
+      analyzeTrajectory: management.analyzeTrajectory,
+      count: getRobotTrajectories().length,
+      totalCount: management.count
+    },
     
-    // Visualization
-    createTrajectoryVisualization: context.createTrajectoryVisualization,
-    calculateBounds: context.calculateBounds,
-    calculateCameraPosition: context.calculateCameraPosition,
-    getTrajectoryVisualization: context.getTrajectoryVisualization,
+    // Joint and TCP state
+    joints: {
+      values: jointValues,
+      update: updateJoints
+    },
     
-    // Get specific robot info (compatibility method)
-    getRobotInfo,
+    tcp: {
+      hasValidEndEffector,
+      isUsingTCP,
+      currentPosition: currentEndEffectorPoint,
+      currentOrientation: currentEndEffectorOrientation,
+      offset: tcpOffset
+    },
     
-    // Computed values
-    canRecord: context.canRecord,
-    canPlay: context.canPlay,
-    hasFrames: context.hasFrames,
-    hasTrajectories: context.hasTrajectories,
-    count: context.count,
+    // Visualization API
+    visualization: {
+      create: createVisualization,
+      calculateBounds: visualization.calculateBounds,
+      calculateCameraPosition: visualization.calculateCameraPosition,
+      currentVisualization: playback.currentTrajectory ? 
+        createVisualization(playback.currentTrajectory) : null
+    },
+    
+    // Animation state
+    animation: {
+      isAnimating,
+      isActive: isAnimating || recording.isRecording || playback.isPlaying
+    },
     
     // Error handling
-    error: context.error,
-    setError: () => {}, // Deprecated - use clearError
-    clearError: context.clearError,
+    error: trajectoryContext.error || management.error,
+    clearError: trajectoryContext.clearError,
     
-    // Access to trajectory lists (compatibility)
-    trajectories: context.getRobotTrajectories(),
-    availableTrajectories: context.availableTrajectories,
-    
-    // Additional compatibility properties
-    isAnimating,
-    visualizationData: context.currentTrajectory ? {
-      visualization: {
-        smoothPoints: context.currentTrajectory.endEffectorPath?.map(p => p.position) || []
-      }
-    } : null
+    // Status helpers
+    status: {
+      canRecord: recording.canRecord && canOperate && !isAnimating,
+      canPlay: playback.canPlay && canOperate && !isAnimating,
+      isBusy: isAnimating || recording.isRecording || playback.isPlaying,
+      message: recording.isRecording ? `Recording: ${recording.frameCount} frames` :
+               playback.isPlaying ? `Playing: ${Math.round(playback.progress * 100)}%` :
+               isAnimating ? 'Animating...' :
+               'Ready'
+    }
   };
 };
 
-/**
- * Migration helper for usePlaybackTrajectoryLine
- * This functionality is now built into the TrajectoryContext
- */
-export const usePlaybackTrajectoryLine = (robotId = null) => {
-  // The line visualization is now handled automatically by TrajectoryContext
-  // This hook is kept for compatibility but doesn't need to do anything
-  return null;
-};
-
-// Export the specialized hooks from TrajectoryContext for convenience
-export {
-  useTrajectoryRecording,
-  useTrajectoryPlayback,
-  useTrajectoryManagement,
-  useTrajectoryVisualization
-} from '../TrajectoryContext';
-
+// Export as default
 export default useTrajectory;

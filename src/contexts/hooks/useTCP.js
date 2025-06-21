@@ -1,363 +1,372 @@
-// src/contexts/hooks/useTCP.js - Enhanced with position and orientation (OPTIMIZED)
-import { useCallback, useState, useEffect, useRef } from 'react';
-import { useTCPContext } from '../TCPContext';
-import { useRobotSelection } from './useRobotManager';
+// src/contexts/hooks/useTCP.js
+// Complete facade hook that aggregates all TCP-related functionality
+
+import { useCallback, useState, useEffect, useMemo, useContext } from 'react';
+import TCPContext from '../TCPContext';
+import { useRobotManager, useRobotSelection } from './useRobotManager';
+import { useJoints } from './useJoints';
 import EventBus from '../../utils/EventBus';
 
-// Debug utility to reduce console pollution
-const DEBUG = process.env.NODE_ENV === 'development';
-const log = DEBUG ? console.log : () => {};
-
-export const useTCP = (robotId = null) => {
-  const {
-    availableTools,
-    attachedTools,
-    isLoading,
-    error,
-    isInitialized,
-    loadAvailableTools,
-    attachTool,
-    removeTool,
-    setToolTransform,
-    setToolVisibility,
-    getToolInfo,
-    getCurrentEndEffectorPoint,
-    getCurrentEndEffectorOrientation, // New method from TCPContext
-    getEndEffectorLink: getEndEffectorLinkFromContext,
-    recalculateEndEffector,
-    getRobotEndEffectorPosition,
-    getRobotEndEffectorOrientation, // New method from TCPContext
-    hasToolAttached,
-    clearError
-  } = useTCPContext();
+/**
+ * Complete TCP hook that provides all functionality needed for TCP operations
+ * Acts as a facade to aggregate data from multiple contexts
+ * 
+ * @param {string|null} robotIdOverride - Optional robot ID to override context
+ * @returns {Object} Complete TCP API with all necessary data and functions
+ */
+export const useTCP = (robotIdOverride = null) => {
+  // Get core TCP context
+  const tcpContext = useContext(TCPContext);
   
-  const { activeId: activeRobotId } = useRobotSelection();
-  
-  // Use provided robotId or fall back to active robot
-  const targetRobotId = robotId || activeRobotId;
-  
-  // State for current end effector position and orientation
-  const [currentEndEffectorPoint, setCurrentEndEffectorPoint] = useState({ x: 0, y: 0, z: 0 });
-  const [currentEndEffectorOrientation, setCurrentEndEffectorOrientation] = useState({ 
-    x: 0, y: 0, z: 0, w: 1 // quaternion
-  });
-  
-  // Performance optimizations
-  const lastUpdateRef = useRef(0);
-  const updateTimeoutRef = useRef(null);
-  const debounceTime = 16; // ~60fps
-  
-  // Get current tool info for target robot
-  const currentTool = targetRobotId ? attachedTools.get(targetRobotId) : null;
-  
-  // Listen for end effector updates (position and orientation) - OPTIMIZED
-  useEffect(() => {
-    const handleEndEffectorUpdate = (data) => {
-      if (data.robotId === targetRobotId) {
-        const now = Date.now();
-        
-        // Debounce updates to prevent excessive re-renders
-        if ((now - lastUpdateRef.current) < debounceTime) {
-          // Clear existing timeout and set new one
-          if (updateTimeoutRef.current) {
-            clearTimeout(updateTimeoutRef.current);
-          }
-          
-          updateTimeoutRef.current = setTimeout(() => {
-            handleEndEffectorUpdate(data);
-          }, debounceTime);
-          return;
-        }
-        
-        lastUpdateRef.current = now;
-        
-        // Update position
-        if (data.endEffectorPoint) {
-          log(`[TCP Hook] End effector position updated for ${targetRobotId}:`, {
-            x: data.endEffectorPoint.x,
-            y: data.endEffectorPoint.y, 
-            z: data.endEffectorPoint.z
-          });
-          
-          setCurrentEndEffectorPoint({
-            x: data.endEffectorPoint.x,
-            y: data.endEffectorPoint.y,
-            z: data.endEffectorPoint.z
-          });
-        }
-        
-        // Update orientation if provided
-        if (data.endEffectorOrientation) {
-          log(`[TCP Hook] End effector orientation updated for ${targetRobotId}:`, data.endEffectorOrientation);
-          
-          setCurrentEndEffectorOrientation({
-            x: data.endEffectorOrientation.x || 0,
-            y: data.endEffectorOrientation.y || 0,
-            z: data.endEffectorOrientation.z || 0,
-            w: data.endEffectorOrientation.w || 1
-          });
-        }
-
-        // Log tool dimensions if available
-        if (data.toolDimensions) {
-          log(`[TCP Hook] Tool dimensions for ${targetRobotId}:`, data.toolDimensions);
-        }
+  // Handle case where context is not available
+  if (!tcpContext) {
+    console.warn('[useTCP] TCPContext not available');
+    return {
+      robotId: null,
+      robot: null,
+      isReady: false,
+      hasJoints: false,
+      canOperate: false,
+      tool: {
+        current: null,
+        info: null,
+        hasTool: false,
+        isVisible: false,
+        transforms: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } },
+        offset: { x: 0, y: 0, z: 0 }
+      },
+      tools: {
+        available: [],
+        isLoading: false,
+        error: null,
+        getById: () => null
+      },
+      operations: {
+        attach: async () => {},
+        remove: async () => {},
+        setTransform: () => {},
+        toggleVisibility: () => {},
+        resetTransforms: () => {},
+        scaleUniform: () => {},
+        refresh: async () => {},
+        clearError: () => {}
+      },
+      endEffector: {
+        position: { x: 0, y: 0, z: 0 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 },
+        hasValid: false,
+        isUsing: false,
+        type: null,
+        state: () => ({ position: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 }, hasValid: false })
+      },
+      system: {
+        isInitialized: false,
+        isUpdating: false,
+        lastUpdateTime: null,
+        canAttach: false,
+        canTransform: false,
+        isDisabled: true
+      },
+      utils: {
+        recalculateEndEffector: () => null,
+        getCurrentEndEffectorPoint: () => ({ x: 0, y: 0, z: 0 }),
+        getCurrentEndEffectorOrientation: () => ({ x: 0, y: 0, z: 0, w: 1 })
       }
     };
-    
-    const unsubscribe = EventBus.on('tcp:endeffector-updated', handleEndEffectorUpdate);
-    
-    return () => {
-      unsubscribe();
-      if (updateTimeoutRef.current) {
-        clearTimeout(updateTimeoutRef.current);
-      }
-    };
-  }, [targetRobotId, debounceTime]);
+  }
   
-  // ========== OPTIMIZED SINGLE EFFECT ==========
+  // Get robot-related data
+  const { activeId: contextRobotId } = useRobotSelection();
+  const { getRobot, isRobotLoaded } = useRobotManager();
   
-  // Combined effect: Handle initialization, robot changes, tool changes, and method changes (OPTIMIZED)
-  useEffect(() => {
-    log(`[TCP Hook] Combined effect - targetRobotId: ${targetRobotId}, isInitialized: ${isInitialized}, hasTool: ${!!currentTool}`);
+  // Determine which robot ID to use
+  const robotId = robotIdOverride || contextRobotId;
+  
+  // Get robot instance and state
+  const robot = robotId ? getRobot(robotId) : null;
+  const isRobotReady = robotId ? isRobotLoaded(robotId) : false;
+  const isReady = isRobotReady;
+  
+  // Get joint control functions
+  const { getJointValues } = useJoints(robotId);
+  
+  // Local state for UI feedback
+  const [lastUpdateTime, setLastUpdateTime] = useState(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  
+  // Robot state helpers
+  const hasJoints = robot && robot.joints && Object.keys(robot.joints).length > 0;
+  const canOperate = isReady && hasJoints && robotId;
+  
+  // Get tool by ID helper
+  const getToolById = useCallback((toolId) => {
+    if (!toolId || !tcpContext.availableTools) return null;
+    return tcpContext.availableTools.find(tool => tool.id === toolId) || null;
+  }, [tcpContext.availableTools]);
+  
+  // Get current tool info
+  const currentToolInfo = useMemo(() => {
+    if (!robotId || !tcpContext.attachedTools) return null;
+    const toolData = tcpContext.attachedTools.get(robotId);
+    if (!toolData) return null;
+    return getToolById(toolData.toolId);
+  }, [robotId, tcpContext.attachedTools, getToolById]);
+  
+  // Get current tool data
+  const currentTool = useMemo(() => {
+    if (!robotId || !tcpContext.attachedTools) return null;
+    return tcpContext.attachedTools.get(robotId);
+  }, [robotId, tcpContext.attachedTools]);
+  
+  // Enhanced attach tool with validation
+  const attachToolWithValidation = useCallback(async (toolId) => {
+    if (!canOperate) {
+      console.warn('[useTCP] Cannot attach tool - robot not ready');
+      throw new Error('Robot not ready');
+    }
     
-    if (!targetRobotId || !isInitialized) {
-      log(`[TCP Hook] Reset end effector data - robotId: ${targetRobotId}, initialized: ${isInitialized}`);
-      setCurrentEndEffectorPoint({ x: 0, y: 0, z: 0 });
-      setCurrentEndEffectorOrientation({ x: 0, y: 0, z: 0, w: 1 });
+    if (!robotId) {
+      console.warn('[useTCP] Cannot attach tool - no robot ID');
+      throw new Error('No robot selected');
+    }
+    
+    setIsUpdating(true);
+    
+    try {
+      EventBus.emit('tcp:attaching-tool', { robotId, toolId });
+      await tcpContext.attachTool(robotId, toolId);
+      
+      setLastUpdateTime(new Date().toLocaleTimeString());
+      EventBus.emit('tcp:tool-attached', { 
+        robotId, 
+        toolId
+      });
+      
+      return true;
+    } catch (error) {
+      EventBus.emit('tcp:attach-error', { robotId, toolId, error });
+      throw error;
+    } finally {
+      setTimeout(() => setIsUpdating(false), 500);
+    }
+  }, [canOperate, robotId, tcpContext]);
+  
+  // Enhanced remove tool with validation
+  const removeToolWithValidation = useCallback(async () => {
+    if (!robotId || !currentTool) {
+      console.warn('[useTCP] No tool to remove');
       return;
     }
     
-    // Debounce the update to prevent excessive recalculations
-    if (updateTimeoutRef.current) {
-      clearTimeout(updateTimeoutRef.current);
-    }
+    setIsUpdating(true);
     
-    updateTimeoutRef.current = setTimeout(() => {
-      // Single recalculation function
-      const updateEndEffector = () => {
-        try {
-          log(`[TCP Hook] Recalculating end effector for ${targetRobotId}`);
-          
-          // Try combined method first
-          const endEffectorState = recalculateEndEffector(targetRobotId);
-          log(`[TCP Hook] recalculateEndEffector returned:`, endEffectorState);
-          
-          if (endEffectorState) {
-            // Update position if available
-            if (endEffectorState.position) {
-              const extractedPoint = {
-                x: endEffectorState.position.x || 0,
-                y: endEffectorState.position.y || 0,
-                z: endEffectorState.position.z || 0
-              };
-              setCurrentEndEffectorPoint(extractedPoint);
-              log(`[TCP Hook] Set current end effector position:`, extractedPoint);
-            }
-            
-            // Update orientation if available
-            if (endEffectorState.orientation) {
-              const extractedOrientation = {
-                x: endEffectorState.orientation.x || 0,
-                y: endEffectorState.orientation.y || 0,
-                z: endEffectorState.orientation.z || 0,
-                w: endEffectorState.orientation.w || 1
-              };
-              setCurrentEndEffectorOrientation(extractedOrientation);
-              log(`[TCP Hook] Set current end effector orientation:`, extractedOrientation);
-            }
-          } else {
-            // Fallback: try individual methods if combined call fails
-            log(`[TCP Hook] Combined call failed, trying individual methods`);
-            
-            // Get position
-            const currentPoint = getCurrentEndEffectorPoint(targetRobotId);
-            log(`[TCP Hook] getCurrentEndEffectorPoint returned:`, currentPoint);
-            
-            if (currentPoint) {
-              const extractedPoint = {
-                x: currentPoint.x || 0,
-                y: currentPoint.y || 0,
-                z: currentPoint.z || 0
-              };
-              setCurrentEndEffectorPoint(extractedPoint);
-              log(`[TCP Hook] Set current end effector position:`, extractedPoint);
-            }
-            
-            // Get orientation
-            const currentOrientation = getCurrentEndEffectorOrientation(targetRobotId);
-            log(`[TCP Hook] getCurrentEndEffectorOrientation returned:`, currentOrientation);
-            
-            if (currentOrientation) {
-              const extractedOrientation = {
-                x: currentOrientation.x || 0,
-                y: currentOrientation.y || 0,
-                z: currentOrientation.z || 0,
-                w: currentOrientation.w || 1
-              };
-              setCurrentEndEffectorOrientation(extractedOrientation);
-              log(`[TCP Hook] Set current end effector orientation:`, extractedOrientation);
-            }
-          }
-        } catch (error) {
-          console.error(`[TCP Hook] Error updating end effector data:`, error);
-          // Reset to default values on error
-          setCurrentEndEffectorPoint({ x: 0, y: 0, z: 0 });
-          setCurrentEndEffectorOrientation({ x: 0, y: 0, z: 0, w: 1 });
-        }
-      };
+    try {
+      EventBus.emit('tcp:removing-tool', { robotId });
+      await tcpContext.removeTool(robotId);
       
-      // Execute the update
-      updateEndEffector();
-    }, 50); // Small delay to batch updates
-    
-  }, [targetRobotId, isInitialized, currentTool, recalculateEndEffector, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation]);
-  
-  // Robot-specific methods
-  const attachToolToRobot = useCallback(async (toolId) => {
-    if (!targetRobotId) {
-      throw new Error('No robot ID provided');
+      setLastUpdateTime(new Date().toLocaleTimeString());
+      EventBus.emit('tcp:tool-removed', { robotId });
+    } catch (error) {
+      EventBus.emit('tcp:remove-error', { robotId, error });
+      throw error;
+    } finally {
+      setTimeout(() => setIsUpdating(false), 500);
     }
-    return await attachTool(targetRobotId, toolId);
-  }, [targetRobotId, attachTool]);
+  }, [robotId, currentTool, tcpContext]);
   
-  const removeToolFromRobot = useCallback(async () => {
-    if (!targetRobotId) return;
-    return await removeTool(targetRobotId);
-  }, [targetRobotId, removeTool]);
+  // Enhanced set transform with validation
+  const setToolTransformWithValidation = useCallback((transforms) => {
+    if (!robotId || !currentTool) {
+      console.warn('[useTCP] No tool to transform');
+      return;
+    }
+    
+    setIsUpdating(true);
+    tcpContext.setToolTransform(robotId, transforms);
+    setLastUpdateTime(new Date().toLocaleTimeString());
+    
+    EventBus.emit('tcp:tool-transform-changed', {
+      robotId,
+      transforms
+    });
+    
+    setTimeout(() => setIsUpdating(false), 200);
+  }, [robotId, currentTool, tcpContext]);
   
-  const setRobotToolTransform = useCallback((transforms) => {
-    if (!targetRobotId) return;
-    setToolTransform(targetRobotId, transforms);
-  }, [targetRobotId, setToolTransform]);
+  // Toggle visibility with feedback
+  const toggleToolVisibility = useCallback(() => {
+    if (!robotId || !currentTool) return;
+    
+    setIsUpdating(true);
+    const newVisibility = !currentTool.visible;
+    tcpContext.setToolVisibility(robotId, newVisibility);
+    
+    EventBus.emit('tcp:visibility-changed', {
+      robotId,
+      visible: newVisibility
+    });
+    
+    setTimeout(() => setIsUpdating(false), 200);
+  }, [robotId, currentTool, tcpContext]);
   
-  const setRobotToolVisibility = useCallback((visible) => {
-    if (!targetRobotId) return;
-    setToolVisibility(targetRobotId, visible);
-  }, [targetRobotId, setToolVisibility]);
-  
-  // Convenience methods
-  const resetToolTransforms = useCallback(() => {
-    if (!targetRobotId) return;
-    setToolTransform(targetRobotId, {
+  // Reset transforms with feedback
+  const resetTransformsWithFeedback = useCallback(() => {
+    if (!robotId || !currentTool) return;
+    
+    setIsUpdating(true);
+    const defaultTransforms = {
       position: { x: 0, y: 0, z: 0 },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 }
-    });
-  }, [targetRobotId, setToolTransform]);
-  
-  const scaleToolUniform = useCallback((scale) => {
-    if (!targetRobotId || !currentTool) return;
-    const currentTransforms = currentTool.transforms;
-    setToolTransform(targetRobotId, {
-      ...currentTransforms,
-      scale: { x: scale, y: scale, z: scale }
-    });
-  }, [targetRobotId, currentTool, setToolTransform]);
-  
-  // Get end effector type
-  const getEndEffectorType = useCallback(() => {
-    if (!targetRobotId) return 'none';
-    return currentTool ? 'tcp' : 'robot';
-  }, [targetRobotId, currentTool]);
-  
-  // Get comprehensive end effector info
-  const getEndEffectorInfo = useCallback(() => {
-    if (!targetRobotId) return null;
-    
-    const toolData = currentTool;
-    const toolDimensions = toolData?.dimensions || null;
-    
-    return {
-      position: currentEndEffectorPoint,
-      orientation: currentEndEffectorOrientation,
-      type: getEndEffectorType(),
-      toolName: 'tcp', // Always return "tcp" as the name
-      originalToolName: toolData?.tool?.name || null, // Keep original name for reference
-      hasValidPosition: !!(currentEndEffectorPoint.x !== 0 || currentEndEffectorPoint.y !== 0 || currentEndEffectorPoint.z !== 0),
-      hasValidOrientation: !!(currentEndEffectorOrientation.w !== 1 || currentEndEffectorOrientation.x !== 0 || currentEndEffectorOrientation.y !== 0 || currentEndEffectorOrientation.z !== 0),
-      toolDimensions: toolDimensions,
-      hasValidDimensions: !!(toolDimensions && (toolDimensions.x > 0 || toolDimensions.y > 0 || toolDimensions.z > 0))
     };
-  }, [targetRobotId, currentEndEffectorPoint, currentEndEffectorOrientation, getEndEffectorType, currentTool]);
+    tcpContext.setToolTransform(robotId, defaultTransforms);
+    setLastUpdateTime(new Date().toLocaleTimeString());
+    
+    EventBus.emit('tcp:transforms-reset', { robotId });
+    
+    setTimeout(() => setIsUpdating(false), 200);
+  }, [robotId, currentTool, tcpContext]);
   
-  // Utility methods for orientation
-  const getEndEffectorEulerAngles = useCallback(() => {
-    // Convert quaternion to euler angles (in radians)
-    const { x, y, z, w } = currentEndEffectorOrientation;
+  // Scale uniform with feedback
+  const scaleUniformWithFeedback = useCallback((scale) => {
+    if (!robotId || !currentTool) return;
     
-    // Roll (x-axis rotation)
-    const sinr_cosp = 2 * (w * x + y * z);
-    const cosr_cosp = 1 - 2 * (x * x + y * y);
-    const roll = Math.atan2(sinr_cosp, cosr_cosp);
+    setIsUpdating(true);
+    const newTransforms = {
+      ...currentTool.transforms,
+      scale: { x: scale, y: scale, z: scale }
+    };
+    tcpContext.setToolTransform(robotId, newTransforms);
+    setLastUpdateTime(new Date().toLocaleTimeString());
     
-    // Pitch (y-axis rotation)
-    const sinp = 2 * (w * y - z * x);
-    let pitch;
-    if (Math.abs(sinp) >= 1) {
-      pitch = Math.sign(sinp) * Math.PI / 2; // Use 90 degrees if out of range
-    } else {
-      pitch = Math.asin(sinp);
+    EventBus.emit('tcp:scale-applied', { robotId, scale });
+    
+    setTimeout(() => setIsUpdating(false), 200);
+  }, [robotId, currentTool, tcpContext]);
+  
+  // Refresh tools with loading state
+  const refreshToolsWithLoading = useCallback(async () => {
+    setIsUpdating(true);
+    
+    try {
+      await tcpContext.loadAvailableTools();
+      setLastUpdateTime(new Date().toLocaleTimeString());
+      EventBus.emit('tcp:tools-refreshed', { robotId });
+    } catch (error) {
+      EventBus.emit('tcp:refresh-error', { robotId, error });
+      throw error;
+    } finally {
+      setTimeout(() => setIsUpdating(false), 500);
+    }
+  }, [tcpContext, robotId]);
+  
+  // Get end effector state
+  const getEndEffectorState = useCallback(() => {
+    if (!robotId) {
+      return {
+        position: { x: 0, y: 0, z: 0 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 },
+        hasValid: false
+      };
     }
     
-    // Yaw (z-axis rotation)
-    const siny_cosp = 2 * (w * z + x * y);
-    const cosy_cosp = 1 - 2 * (y * y + z * z);
-    const yaw = Math.atan2(siny_cosp, cosy_cosp);
-    
-    return { roll, pitch, yaw };
-  }, [currentEndEffectorOrientation]);
+    return {
+      position: tcpContext.getCurrentEndEffectorPoint?.(robotId) || { x: 0, y: 0, z: 0 },
+      orientation: tcpContext.getCurrentEndEffectorOrientation?.(robotId) || { x: 0, y: 0, z: 0, w: 1 },
+      hasValid: true
+    };
+  }, [robotId, tcpContext]);
   
+  // Listen for TCP events
+  useEffect(() => {
+    if (!robotId) return;
+    
+    const handleTCPEvent = (data) => {
+      if (data.robotId === robotId) {
+        setLastUpdateTime(new Date().toLocaleTimeString());
+      }
+    };
+    
+    const unsubscribes = [
+      EventBus.on('tcp:tool-attached', handleTCPEvent),
+      EventBus.on('tcp:tool-removed', handleTCPEvent),
+      EventBus.on('tcp:tool-transform-changed', handleTCPEvent)
+    ];
+    
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [robotId]);
+  
+  // Return complete API
   return {
-    // State (robot-specific)
-    robotId: targetRobotId,
-    currentTool,
-    hasTool: !!currentTool,
-    isToolVisible: currentTool?.visible ?? false,
-    toolTransforms: currentTool?.transforms ?? null,
+    // Robot state
+    robotId,
+    robot,
+    isReady,
+    hasJoints,
+    canOperate,
     
-    // End effector state (position and orientation)
-    currentEndEffectorPoint,
-    currentEndEffectorOrientation,
-    hasValidEndEffector: !!(currentEndEffectorPoint.x !== 0 || currentEndEffectorPoint.y !== 0 || currentEndEffectorPoint.z !== 0),
-    isUsingTCP: !!currentTool,
-    isUsingRobotEndEffector: !currentTool && targetRobotId,
+    // Tool state
+    tool: {
+      current: currentTool,
+      info: currentToolInfo,
+      hasTool: !!currentTool,
+      isVisible: currentTool?.visible ?? false,
+      transforms: currentTool?.transforms || {
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 }
+      },
+      offset: currentTool?.transforms?.position || { x: 0, y: 0, z: 0 }
+    },
     
-    // Global state
-    availableTools,
-    isLoading,
-    error,
-    isInitialized,
+    // Available tools
+    tools: {
+      available: tcpContext.availableTools || [],
+      isLoading: tcpContext.isLoading,
+      error: tcpContext.error,
+      getById: getToolById
+    },
     
-    // Robot-specific methods
-    attachTool: attachToolToRobot,
-    removeTool: removeToolFromRobot,
-    setToolTransform: setRobotToolTransform,
-    setToolVisibility: setRobotToolVisibility,
+    // Tool operations
+    operations: {
+      attach: attachToolWithValidation,
+      remove: removeToolWithValidation,
+      setTransform: setToolTransformWithValidation,
+      toggleVisibility: toggleToolVisibility,
+      resetTransforms: resetTransformsWithFeedback,
+      scaleUniform: scaleUniformWithFeedback,
+      refresh: refreshToolsWithLoading,
+      clearError: tcpContext.clearError
+    },
     
-    // Convenience methods
-    resetTransforms: resetToolTransforms,
-    scaleUniform: scaleToolUniform,
+    // End effector state
+    endEffector: {
+      position: tcpContext.getCurrentEndEffectorPoint?.(robotId) || { x: 0, y: 0, z: 0 },
+      orientation: tcpContext.getCurrentEndEffectorOrientation?.(robotId) || { x: 0, y: 0, z: 0, w: 1 },
+      hasValid: !!robotId,
+      isUsing: !!currentTool,
+      type: currentTool ? 'tcp' : 'robot',
+      state: getEndEffectorState()
+    },
     
-    // End effector methods
-    getEndEffectorInfo,
-    getEndEffectorType,
-    getEndEffectorEulerAngles,
+    // System state
+    system: {
+      isInitialized: tcpContext.isInitialized,
+      isUpdating,
+      lastUpdateTime,
+      canAttach: canOperate && !currentTool && !isUpdating,
+      canTransform: !!currentTool && !isUpdating,
+      isDisabled: tcpContext.isLoading || !tcpContext.isInitialized || isUpdating
+    },
     
-    // Global methods
-    refreshTools: loadAvailableTools,
-    clearError,
-    
-    // Utils
-    getToolById: (toolId) => availableTools.find(t => t.id === toolId),
-    isToolAttached: (toolId) => currentTool?.toolId === toolId,
-    
-    // New method
-    getEndEffectorLink: useCallback(() => {
-      if (!targetRobotId) return null;
-      return getEndEffectorLinkFromContext(targetRobotId);
-    }, [targetRobotId, getEndEffectorLinkFromContext])
+    // Utility functions
+    utils: {
+      recalculateEndEffector: () => robotId ? tcpContext.recalculateEndEffector?.(robotId) : null,
+      getCurrentEndEffectorPoint: () => robotId ? tcpContext.getCurrentEndEffectorPoint?.(robotId) : { x: 0, y: 0, z: 0 },
+      getCurrentEndEffectorOrientation: () => robotId ? tcpContext.getCurrentEndEffectorOrientation?.(robotId) : { x: 0, y: 0, z: 0, w: 1 }
+    }
   };
 };
 
+// Export as default
 export default useTCP;

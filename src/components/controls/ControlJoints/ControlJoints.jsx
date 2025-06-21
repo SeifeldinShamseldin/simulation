@@ -1,35 +1,30 @@
-// src/components/controls/ControlJoints/ControlJoints.jsx - Updated to use unified RobotContext
+// src/components/controls/ControlJoints/ControlJoints.jsx
+// Refactored to only import from useJoints hook with exact original UI
+
 import React, { useCallback } from 'react';
-import { useJoints } from '../../../contexts/hooks/useJoints';
-import { useRobotContext } from '../../../contexts/RobotContext'; // Updated import
-import { debugJoint } from '../../../utils/DebugSystem'; // Updated debug import
-import { useAnimationContext } from '../../../contexts/AnimationContext';
+import useJoints from '../../../contexts/hooks/useJoints';
 
 const ControlJoints = () => {
+  // Get all joint functionality from single hook
+  const joints = useJoints();
+  
+  // Destructure what we need
   const {
     robotId,
-    jointInfo,
-    jointValues,
     isAnimating,
-    animationProgress,
+    progress,
     setJointValue,
     resetJoints,
     getJointLimits,
     getJointValue,
     hasJoints,
     hasMovableJoints,
-    getMovableJoints
-  } = useJoints();
-
-  const { isRobotReady } = useRobotContext(); // Updated to use unified context
-  const { progress } = useAnimationContext();
-
+    getMovableJoints,
+    debugJoint
+  } = joints;
+  
+  // Handle joint change
   const handleJointChange = useCallback((jointName, value) => {
-    if (!isRobotReady(robotId)) {
-      debugJoint('Robot not ready for joint updates');
-      return;
-    }
-    
     const numValue = parseFloat(value);
     const success = setJointValue(jointName, numValue);
     
@@ -37,24 +32,20 @@ const ControlJoints = () => {
       debugJoint(`Failed to update joint ${jointName}`);
       // You could add a toast notification here
     }
-  }, [robotId, isRobotReady, setJointValue]);
-
+  }, [setJointValue, debugJoint]);
+  
+  // Handle reset
   const handleReset = useCallback(() => {
-    if (!isRobotReady(robotId)) {
-      debugJoint('Robot not ready for reset');
-      return;
-    }
-    
     const success = resetJoints();
     if (!success) {
       debugJoint('Failed to reset joints');
       // You could add a toast notification here
     }
-  }, [robotId, isRobotReady, resetJoints]);
-
+  }, [resetJoints, debugJoint]);
+  
   // Get movable joints for display
   const movableJoints = getMovableJoints();
-
+  
   if (!robotId || !hasJoints) {
     return (
       <div className="controls-section">
@@ -63,7 +54,7 @@ const ControlJoints = () => {
       </div>
     );
   }
-
+  
   if (!hasMovableJoints) {
     return (
       <div className="controls-section">
@@ -72,9 +63,7 @@ const ControlJoints = () => {
       </div>
     );
   }
-
-  const isRobotReadyForControl = isRobotReady(robotId);
-
+  
   return (
     <div className="controls-section">
       <h3 className="controls-section-title">
@@ -82,11 +71,6 @@ const ControlJoints = () => {
         {isAnimating && (
           <span className="controls-badge controls-badge-info controls-ml-2">
             Moving... {Math.round(progress * 100)}%
-          </span>
-        )}
-        {!isRobotReadyForControl && (
-          <span className="controls-badge controls-badge-warning controls-ml-2">
-            Robot Loading...
           </span>
         )}
       </h3>
@@ -98,7 +82,7 @@ const ControlJoints = () => {
           const min = limits.lower ?? -Math.PI;
           const max = limits.upper ?? Math.PI;
           const step = (max - min) / 100;
-
+          
           return (
             <div key={joint.name} className="controls-form-group">
               <label className="controls-form-label">
@@ -116,7 +100,7 @@ const ControlJoints = () => {
                   step={step}
                   value={value}
                   onChange={(e) => handleJointChange(joint.name, e.target.value)}
-                  disabled={isAnimating || !isRobotReadyForControl}
+                  disabled={isAnimating}
                 />
                 <span className="joint-value-display">
                   {value.toFixed(2)} rad
@@ -135,7 +119,7 @@ const ControlJoints = () => {
       <button 
         onClick={handleReset} 
         className="controls-btn controls-btn-warning controls-btn-block controls-mt-3"
-        disabled={isAnimating || !isRobotReadyForControl}
+        disabled={isAnimating}
       >
         Reset All Joints
       </button>
