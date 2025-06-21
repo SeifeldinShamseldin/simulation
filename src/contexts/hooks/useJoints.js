@@ -1,7 +1,7 @@
 // src/contexts/hooks/useJoints.js
-// Complete facade hook that aggregates all joint-related functionality
+// Enhanced with debugging to trace joint value flow
 
-import { useCallback, useMemo, useContext } from 'react';
+import { useCallback, useMemo, useEffect } from 'react';
 import { useJointContext } from '../JointContext';
 import { useRobotManager, useRobotSelection } from './useRobotManager';
 import { useRobotContext } from '../RobotContext';
@@ -26,21 +26,42 @@ export const useJoints = (robotIdOverride = null) => {
   // Determine which robot ID to use
   const robotId = robotIdOverride || contextRobotId;
   
+  // Debug when robotId changes
+  useEffect(() => {
+    console.log('[useJoints] Robot ID:', robotId);
+    console.log('[useJoints] Context robot ID:', contextRobotId);
+    console.log('[useJoints] Override ID:', robotIdOverride);
+  }, [robotId, contextRobotId, robotIdOverride]);
+  
   // Get robot instance and state
   const robot = robotId ? getRobot(robotId) : null;
   const isReady = robotId ? isRobotLoaded(robotId) : false;
   const isRobotReadyForControl = robotId ? isRobotReady(robotId) : false;
   
+  // Debug robot state
+  useEffect(() => {
+    console.log('[useJoints] Robot ready state:', {
+      robotId,
+      isReady,
+      isRobotReadyForControl,
+      hasRobot: !!robot
+    });
+  }, [robotId, isReady, isRobotReadyForControl, robot]);
+  
   // Get joint info for target robot
   const jointInfo = useMemo(() => {
     if (!robotId) return [];
-    return jointContext.getJointInfo(robotId);
+    const info = jointContext.getJointInfo(robotId);
+    console.log('[useJoints] Joint info for', robotId, ':', info);
+    return info;
   }, [robotId, jointContext]);
   
   // Get joint values
   const jointValues = useMemo(() => {
     if (!robotId) return {};
-    return jointContext.getJointValues(robotId);
+    const values = jointContext.getJointValues(robotId);
+    console.log('[useJoints] Joint values for', robotId, ':', values);
+    return values;
   }, [robotId, jointContext]);
   
   // Get animation state for target robot
@@ -61,11 +82,13 @@ export const useJoints = (robotIdOverride = null) => {
   
   // Get movable joints
   const getMovableJoints = useCallback(() => {
-    return jointInfo.filter(joint => 
+    const movable = jointInfo.filter(joint => 
       joint.type === 'revolute' || 
       joint.type === 'prismatic' || 
       joint.type === 'continuous'
     );
+    console.log('[useJoints] Movable joints:', movable);
+    return movable;
   }, [jointInfo]);
   
   const movableJoints = useMemo(() => getMovableJoints(), [getMovableJoints]);
@@ -76,17 +99,26 @@ export const useJoints = (robotIdOverride = null) => {
   
   // Get joint value with validation
   const getJointValue = useCallback((jointName) => {
-    return jointValues[jointName] || 0;
+    const value = jointValues[jointName] || 0;
+    console.log(`[useJoints] getJointValue(${jointName}) = ${value}`);
+    return value;
   }, [jointValues]);
   
   // Get joint limits
   const getJointLimits = useCallback((jointName) => {
     if (!robotId) return { lower: -Math.PI, upper: Math.PI };
-    return jointContext.getJointLimits(robotId, jointName);
+    const limits = jointContext.getJointLimits(robotId, jointName);
+    console.log(`[useJoints] getJointLimits(${jointName}) =`, limits);
+    return limits;
   }, [robotId, jointContext]);
   
   // Set joint value with validation and event emission
   const setJointValue = useCallback((jointName, value) => {
+    console.log(`[useJoints] setJointValue called: ${jointName} = ${value}`);
+    console.log('[useJoints] Current robotId:', robotId);
+    console.log('[useJoints] Robot ready for control:', isRobotReadyForControl);
+    console.log('[useJoints] Current joint values:', jointValues);
+    
     if (!robotId) {
       console.warn('[useJoints] No robot ID for joint control');
       return false;
@@ -97,9 +129,14 @@ export const useJoints = (robotIdOverride = null) => {
       return false;
     }
     
+    console.log(`[useJoints] Calling jointContext.setJointValue(${robotId}, ${jointName}, ${value})`);
+    
     const success = jointContext.setJointValue(robotId, jointName, value);
     
+    console.log(`[useJoints] jointContext.setJointValue returned: ${success}`);
+    
     if (success) {
+      console.log('[useJoints] Emitting robot:joint-changed event');
       // Emit joint change event
       EventBus.emit('robot:joint-changed', {
         robotId,
@@ -111,10 +148,13 @@ export const useJoints = (robotIdOverride = null) => {
     }
     
     return success;
-  }, [robotId, isRobotReadyForControl, jointContext]);
+  }, [robotId, isRobotReadyForControl, jointContext, jointValues]);
   
   // Set multiple joint values
   const setJointValues = useCallback((values) => {
+    console.log('[useJoints] setJointValues called:', values);
+    console.log('[useJoints] Current robotId:', robotId);
+    
     if (!robotId) {
       console.warn('[useJoints] No robot ID for joint control');
       return false;
@@ -126,6 +166,8 @@ export const useJoints = (robotIdOverride = null) => {
     }
     
     const success = jointContext.setJointValues(robotId, values);
+    
+    console.log(`[useJoints] jointContext.setJointValues returned: ${success}`);
     
     if (success) {
       // Emit joint change event
@@ -142,6 +184,9 @@ export const useJoints = (robotIdOverride = null) => {
   
   // Reset joints with validation
   const resetJoints = useCallback(() => {
+    console.log('[useJoints] resetJoints called');
+    console.log('[useJoints] Current robotId:', robotId);
+    
     if (!robotId) {
       console.warn('[useJoints] No robot ID for joint reset');
       return false;
@@ -152,6 +197,7 @@ export const useJoints = (robotIdOverride = null) => {
       return false;
     }
     
+    console.log(`[useJoints] Calling jointContext.resetJoints(${robotId})`);
     jointContext.resetJoints(robotId);
     
     // Emit reset event

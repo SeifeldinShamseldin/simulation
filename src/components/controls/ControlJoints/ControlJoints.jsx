@@ -1,7 +1,7 @@
 // src/components/controls/ControlJoints/ControlJoints.jsx
-// Refactored to only import from useJoints hook with exact original UI
+// Enhanced with debugging to trace joint value changes
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import useJoints from '../../../contexts/hooks/useJoints';
 
 const ControlJoints = () => {
@@ -20,31 +20,51 @@ const ControlJoints = () => {
     hasJoints,
     hasMovableJoints,
     getMovableJoints,
-    debugJoint
+    debugJoint,
+    jointValues
   } = joints;
+  
+  // Debug when component mounts
+  useEffect(() => {
+    console.log('[ControlJoints] Component mounted with robotId:', robotId);
+    console.log('[ControlJoints] Initial joint values:', jointValues);
+  }, [robotId, jointValues]);
   
   // Handle joint change
   const handleJointChange = useCallback((jointName, value) => {
     const numValue = parseFloat(value);
+    console.log(`[ControlJoints] handleJointChange called: ${jointName} = ${numValue}`);
+    console.log('[ControlJoints] Current joint values before change:', jointValues);
+    
     const success = setJointValue(jointName, numValue);
+    
+    console.log(`[ControlJoints] setJointValue result: ${success}`);
     
     if (!success) {
       debugJoint(`Failed to update joint ${jointName}`);
-      // You could add a toast notification here
+      console.error(`[ControlJoints] Failed to update joint ${jointName} to ${numValue}`);
     }
-  }, [setJointValue, debugJoint]);
+  }, [setJointValue, debugJoint, jointValues]);
   
   // Handle reset
   const handleReset = useCallback(() => {
+    console.log('[ControlJoints] Reset button clicked');
     const success = resetJoints();
+    console.log(`[ControlJoints] resetJoints result: ${success}`);
+    
     if (!success) {
       debugJoint('Failed to reset joints');
-      // You could add a toast notification here
+      console.error('[ControlJoints] Failed to reset joints');
     }
   }, [resetJoints, debugJoint]);
   
   // Get movable joints for display
   const movableJoints = getMovableJoints();
+  
+  // Debug movable joints
+  useEffect(() => {
+    console.log('[ControlJoints] Movable joints:', movableJoints.map(j => j.name));
+  }, [movableJoints]);
   
   if (!robotId || !hasJoints) {
     return (
@@ -99,7 +119,10 @@ const ControlJoints = () => {
                   max={max}
                   step={step}
                   value={value}
-                  onChange={(e) => handleJointChange(joint.name, e.target.value)}
+                  onChange={(e) => {
+                    console.log(`[ControlJoints] Slider onChange for ${joint.name}: ${e.target.value}`);
+                    handleJointChange(joint.name, e.target.value);
+                  }}
                   disabled={isAnimating}
                 />
                 <span className="joint-value-display">
