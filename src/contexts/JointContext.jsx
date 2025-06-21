@@ -28,6 +28,14 @@ export const JointProvider = ({ children }) => {
   const animationTargetValuesRef = useRef(null);
   const animationOptionsRef = useRef(null);
   const animationResolveRef = useRef(null);
+  const ikCallbackRef = useRef(null);
+  const trajCallbackRef = useRef(null);
+  const registerIKCallback = useCallback((cb) => {
+    ikCallbackRef.current = cb;
+  }, []);
+  const registerTrajectoryCallback = useCallback((cb) => {
+    trajCallbackRef.current = cb;
+  }, []);
 
   // Initialize robot manager reference
   useEffect(() => {
@@ -859,6 +867,15 @@ export const JointProvider = ({ children }) => {
         values: allJointValues,
         source: 'manual-batch'
       });
+
+      // Notify IK if callback is registered
+      if (ikCallbackRef.current) {
+        ikCallbackRef.current(robotId, values);
+      }
+      // Notify Trajectory if callback is registered
+      if (trajCallbackRef.current) {
+        trajCallbackRef.current(robotId, values);
+      }
     }
     return success;
   }, [setRobotJointValues_Internal, getRobotJointValues]);
@@ -988,6 +1005,10 @@ export const JointProvider = ({ children }) => {
     animateToJointValues,
     moveJoints,
     receiveJoints,
+    // Expose active robotId for consumers
+    activeRobotId,
+    registerIKCallback,
+    registerTrajectoryCallback,
   }), [
     robotJoints,
     robotJointValues,
@@ -1005,6 +1026,9 @@ export const JointProvider = ({ children }) => {
     animateToJointValues,
     moveJoints,
     receiveJoints,
+    activeRobotId,
+    registerIKCallback,
+    registerTrajectoryCallback,
   ]);
 
   return (

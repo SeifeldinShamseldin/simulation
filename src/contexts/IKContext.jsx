@@ -4,8 +4,7 @@ import * as THREE from 'three';
 import { useRobotSelection, useRobotManagement } from './hooks/useRobotManager';
 import { useTCPContext } from './TCPContext';
 import EventBus from '../utils/EventBus';
-import { useJointContext } from '../JointContext';
-import { useRobotContext } from '../RobotContext';
+import { useJointContext } from './JointContext';
 
 const IKContext = createContext(null);
 
@@ -21,7 +20,6 @@ export const IKProvider = ({ children }) => {
   } = useTCPContext();
 
   const jointContext = useJointContext();
-  const { activeId: robotId } = useRobotContext();
 
   // State
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
@@ -39,6 +37,7 @@ export const IKProvider = ({ children }) => {
   // Refs
   const solversRef = useRef({});
   const isReady = useRef(false);
+  const jointCallbackRef = useRef(null);
 
   // ========== FETCH AVAILABLE SOLVERS FROM SERVER ==========
   useEffect(() => {
@@ -294,8 +293,28 @@ export const IKProvider = ({ children }) => {
           }
         };
         
+        console.log('[IK] activeRobotId:', activeRobotId);
+        console.log('[IK] About to move joints for robotId:', activeRobotId, 'values:', jointValues);
         // Send to Joint Context with motion profile options
-        jointContext.moveJoints(robotId, jointValues, { animate: true, duration: 1000 });
+        if (options.animate !== false) {
+          await jointContext.animateToJointValues(
+            activeRobotId,
+            jointValues,
+            {
+              duration: options.duration || 1000,
+              motionProfile: options.motionProfile || 'trapezoidal',
+              jointConstraints: options.jointConstraints || defaultJointConstraints,
+              animationSpeed: options.animationSpeed || 1.0,
+              onProgress: options.onProgress,
+            }
+          );
+        } else {
+          jointContext.setJointValues(activeRobotId, jointValues, 'ik');
+        }
+        
+        if (jointCallbackRef.current) {
+          jointCallbackRef.current(activeRobotId, jointValues);
+        }
         
         return true;
       } else {
@@ -355,6 +374,10 @@ export const IKProvider = ({ children }) => {
     return {};
   }, []);
 
+  const registerJointCallback = (cb) => {
+    jointCallbackRef.current = cb;
+  };
+
   // ========== CONTEXT VALUE ==========
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(() => ({
@@ -378,7 +401,8 @@ export const IKProvider = ({ children }) => {
     isReady: isReady.current,
     hasValidEndEffector: currentEndEffector.position.x !== 0 || 
                         currentEndEffector.position.y !== 0 || 
-                        currentEndEffector.position.z !== 0
+                        currentEndEffector.position.z !== 0,
+    registerJointCallback,
   }), [
     targetPosition,
     targetOrientation,
@@ -393,7 +417,8 @@ export const IKProvider = ({ children }) => {
     executeIK,
     stopAnimation,
     configureSolver,
-    getSolverSettings
+    getSolverSettings,
+    registerJointCallback,
   ]);
 
   return (
