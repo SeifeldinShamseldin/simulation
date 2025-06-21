@@ -126,49 +126,44 @@ export const IKProvider = ({ children }) => {
         position: position || { x: 0, y: 0, z: 0 },
         orientation: orientation || { x: 0, y: 0, z: 0, w: 1 }
       });
-      
-      console.log(`[IK] Updated end effector data for ${activeRobotId}:`, {
-        position,
-        orientation,
-        hasTCP: hasToolAttached(activeRobotId)
-      });
     };
 
     // Initial update
     updateEndEffectorData();
 
-    // Listen for TCP changes
-    const handleTCPUpdate = (data) => {
+    // Listen only for tool attachment/removal changes
+    const handleToolChange = (data) => {
       if (data.robotId === activeRobotId) {
-        console.log('[IK] TCP update detected, refreshing end effector data');
-        updateEndEffectorData();
+        // Small delay to ensure tool is properly attached/removed
+        setTimeout(() => {
+          updateEndEffectorData();
+        }, 50);
       }
     };
 
     const handleJointChange = (data) => {
-      if (data.robotId === activeRobotId) {
-        // Recalculate end effector after joint changes
+      if (data.robotId === activeRobotId && data.source !== 'trajectory-playback') {
+        // Only update end effector for non-trajectory joint changes
+        // Small delay to ensure joints are updated
         setTimeout(() => {
-          recalculateEndEffector(activeRobotId);
           updateEndEffectorData();
         }, 10);
       }
     };
 
-    const unsubscribeTCP = EventBus.on('tcp:endeffector-updated', handleTCPUpdate);
-    const unsubscribeTool = EventBus.on('tcp:tool-attached', handleTCPUpdate);
-    const unsubscribeRemove = EventBus.on('tcp:tool-removed', handleTCPUpdate);
+    // Don't listen to tcp:endeffector-updated to avoid circular updates
+    const unsubscribeTool = EventBus.on('tcp:tool-attached', handleToolChange);
+    const unsubscribeRemove = EventBus.on('tcp:tool-removed', handleToolChange);
     const unsubscribeJoint = EventBus.on('robot:joint-changed', handleJointChange);
     const unsubscribeJoints = EventBus.on('robot:joints-changed', handleJointChange);
 
     return () => {
-      unsubscribeTCP();
       unsubscribeTool();
       unsubscribeRemove();
       unsubscribeJoint();
       unsubscribeJoints();
     };
-  }, [activeRobotId, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation, hasToolAttached, recalculateEndEffector]);
+  }, [activeRobotId, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation]);
 
   // ========== ANIMATION COMPLETE HANDLER ==========
   useEffect(() => {

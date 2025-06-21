@@ -653,6 +653,12 @@ export const TrajectoryProvider = ({ children }) => {
     // Pre-animation to first frame (always use helper)
     if (enablePreAnimation && trajectory.frames.length > 0) {
       try {
+        // Stop any ongoing animations first to prevent conflicts
+        jointContext.stopAnimation(robotId);
+        
+        // Small delay to ensure animations are fully stopped
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
         await preAnimateToFirstFrame(
           trajectory,
           robotId,
@@ -672,7 +678,7 @@ export const TrajectoryProvider = ({ children }) => {
         if (trajectory.endEffectorPath && trajectory.endEffectorPath.length > 0) {
           createTrajectoryVisualization(trajectory);
         }
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 200));
       } catch (error) {
         console.error('[TrajectoryContext] Pre-animation failed:', error);
       }

@@ -14,17 +14,8 @@ import { useRobotContext } from '../RobotContext';
 import { useRobotManager, useRobotSelection } from './useRobotManager';
 import { useJoints } from './useJoints';
 import { useTCP } from './useTCP';
-import { JointContext } from '../JointContext';
+import { useJointContext } from '../JointContext';
 import EventBus from '../../utils/EventBus';
-
-// Helper to use Joint context
-const useJointContext = () => {
-  const context = useContext(JointContext);
-  if (!context) {
-    throw new Error('useJointContext must be used within JointProvider');
-  }
-  return context;
-};
 
 /**
  * Complete trajectory hook that provides all functionality needed for trajectory operations

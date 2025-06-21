@@ -2,19 +2,10 @@
 // Complete facade hook that aggregates all joint-related functionality
 
 import { useCallback, useMemo, useContext } from 'react';
-import { JointContext } from '../JointContext';
+import { useJointContext } from '../JointContext';
 import { useRobotManager, useRobotSelection } from './useRobotManager';
 import { useRobotContext } from '../RobotContext';
 import EventBus from '../../utils/EventBus';
-
-// Helper to use Joint context
-const useJointContext = () => {
-  const context = useContext(JointContext);
-  if (!context) {
-    throw new Error('useJointContext must be used within JointProvider');
-  }
-  return context;
-};
 
 /**
  * Complete joints hook that provides all functionality needed for joint operations
