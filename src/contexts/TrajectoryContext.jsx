@@ -868,21 +868,19 @@ export const TrajectoryProvider = ({ children }) => {
     let lastFrameTime = 0;
     const FRAME_THROTTLE_MS = 16; // ~60fps
 
-    const handleJointChange = (data) => {
-      if (data.robotId !== robotId) return;
+    // Define the callback to register with JointContext
+    const handleJointChange = (changedRobotId, jointValues) => {
+      if (changedRobotId !== robotId) return;
 
       const currentTime = Date.now();
       if (currentTime - lastFrameTime < FRAME_THROTTLE_MS) return;
       lastFrameTime = currentTime;
 
       const elapsed = currentTime - recordingStartTimeRef.current;
-      const jointValues = data.values || data.joints || {};
 
       // Get end effector info from TCP context
       const position = getCurrentEndEffectorPoint(robotId);
       const orientation = getCurrentEndEffectorOrientation(robotId);
-      // const endEffectorLink = getEndEffectorLink ? getEndEffectorLink(robotId) : null;
-      // const hasTCP = !!(endEffectorLink && endEffectorLink.children && endEffectorLink.children.length > 0);
 
       // Record frame (only timestamp and jointValues)
       const frame = {
@@ -912,9 +910,18 @@ export const TrajectoryProvider = ({ children }) => {
       });
     };
 
-    const unsubscribe = EventBus.on('robot:joints-changed', handleJointChange);
-    return () => unsubscribe();
-  }, [isRecording, robotId, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation, getEndEffectorLink]);
+    // Register the callback with JointContext
+    if (jointContext && typeof jointContext.registerTrajectoryCallback === 'function') {
+      jointContext.registerTrajectoryCallback(handleJointChange);
+    }
+
+    // Cleanup: unregister if possible
+    return () => {
+      if (jointContext && typeof jointContext.unregisterTrajectoryCallback === 'function') {
+        jointContext.unregisterTrajectoryCallback(handleJointChange);
+      }
+    };
+  }, [isRecording, robotId, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation, jointContext]);
 
   // Scan trajectories on mount and when robot changes
   useEffect(() => {
