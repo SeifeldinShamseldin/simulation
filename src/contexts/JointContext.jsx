@@ -825,21 +825,13 @@ export const JointProvider = ({ children }) => {
     const success = ensureJointAngleSync(robot, jointName, value);
     
     if (success) {
-      // ALWAYS use UI state, NEVER read from robot
-      let currentUiJoints = robotJointValues.get(robotId) || {};
+      // CRITICAL FIX: Use UI state instead of robot values!
+      // This preserves other joint values that were previously set
+      const currentUiJoints = robotJointValues.get(robotId) || {};
       
-      // If this is the first time setting any joint, initialize all to 0
-      if (Object.keys(currentUiJoints).length === 0) {
-        const joints = robotJoints.get(robotId) || [];
-        joints.forEach(joint => {
-          currentUiJoints[joint.name] = 0;
-        });
-        debugJoint(`Initialized UI state with zeros for ${robotId}`);
-      }
-      
-      // Update only the joint being changed
+      // MANUALLY UPDATE the value we just set
       const updatedJoints = {
-        ...currentUiJoints,  // Keep ALL previous UI values
+        ...currentUiJoints,  // Keep all previous UI values
         [jointName]: value   // Update only this joint
       };
       
@@ -851,7 +843,7 @@ export const JointProvider = ({ children }) => {
     }
     
     return false;
-  }, [findRobotWithFallbacks, robotJointValues, robotJoints, ensureJointAngleSync, receiveJoints]);
+  }, [findRobotWithFallbacks, robotJointValues, ensureJointAngleSync, receiveJoints]);
 
   // Refactored: setJointValues now uses receiveJoints for all notifications
   const setJointValues = useCallback((robotId, values, source = 'manual') => {
