@@ -5,7 +5,6 @@ import { useCallback, useMemo, useContext } from 'react';
 import { JointContext } from '../JointContext';
 import { useRobotManager, useRobotSelection } from './useRobotManager';
 import { useRobotContext } from '../RobotContext';
-import { useAnimationContext } from '../AnimationContext';
 import EventBus from '../../utils/EventBus';
 
 // Helper to use Joint context
@@ -33,9 +32,6 @@ export const useJoints = (robotIdOverride = null) => {
   const { getRobot, isRobotLoaded } = useRobotManager();
   const { isRobotReady } = useRobotContext();
   
-  // Get animation state
-  const animationContext = useAnimationContext();
-  
   // Determine which robot ID to use
   const robotId = robotIdOverride || contextRobotId;
   
@@ -50,7 +46,7 @@ export const useJoints = (robotIdOverride = null) => {
     return jointContext.getJointInfo(robotId);
   }, [robotId, jointContext]);
   
-  // Get joint values for target robot
+  // Get joint values
   const jointValues = useMemo(() => {
     if (!robotId) return {};
     return jointContext.getJointValues(robotId);
@@ -59,15 +55,13 @@ export const useJoints = (robotIdOverride = null) => {
   // Get animation state for target robot
   const isAnimating = useMemo(() => {
     if (!robotId) return false;
-    return jointContext.isRobotAnimating(robotId) || animationContext.isAnimating;
-  }, [robotId, jointContext, animationContext]);
+    return jointContext.isRobotAnimating(robotId);
+  }, [robotId, jointContext]);
   
   const animationProgress = useMemo(() => {
     if (!robotId) return 0;
-    const jointProgress = jointContext.getAnimationProgress(robotId);
-    const globalProgress = animationContext.progress || animationContext.animationProgress || 0;
-    return Math.max(jointProgress, globalProgress);
-  }, [robotId, jointContext, animationContext]);
+    return jointContext.getAnimationProgress(robotId);
+  }, [robotId, jointContext]);
   
   // Check if robot has joints
   const hasJoints = useMemo(() => {

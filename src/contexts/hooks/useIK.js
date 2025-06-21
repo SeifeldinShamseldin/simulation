@@ -1,14 +1,23 @@
 // src/contexts/hooks/useIK.js
 // Complete facade hook that aggregates all IK-related functionality
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useContext } from 'react';
 import { useIKContext } from '../IKContext';
 import { useRobotManager, useRobotSelection } from './useRobotManager';
 import { useJoints } from './useJoints';
 import { useTCP } from './useTCP';
-import { useAnimationContext } from '../AnimationContext';
+import { JointContext } from '../JointContext';
 import EventBus from '../../utils/EventBus';
 import * as THREE from 'three';
+
+// Helper to use Joint context
+const useJointContext = () => {
+  const context = useContext(JointContext);
+  if (!context) {
+    throw new Error('useJointContext must be used within JointProvider');
+  }
+  return context;
+};
 
 /**
  * Utility function to convert quaternion to Euler angles
@@ -79,6 +88,9 @@ export const useIK = (robotIdOverride = null) => {
   const { activeId: contextRobotId } = useRobotSelection();
   const { getRobot, isRobotLoaded } = useRobotManager();
   
+  // Get joint context for animation state
+  const jointContext = useJointContext();
+  
   // Determine which robot ID to use
   const robotId = robotIdOverride || contextRobotId;
   
@@ -97,8 +109,8 @@ export const useIK = (robotIdOverride = null) => {
     tool: { offset: tcpOffset }
   } = tcp;
   
-  // Get animation state
-  const { isAnimating: contextAnimating } = useAnimationContext();
+  // Get animation state from joint context
+  const isAnimating = robotId ? jointContext.isRobotAnimating(robotId) : false;
   
   // Robot state helpers
   const hasJoints = robot && robot.joints && Object.keys(robot.joints).length > 0;
@@ -121,7 +133,7 @@ export const useIK = (robotIdOverride = null) => {
       return { success: false, error: 'Robot not ready' };
     }
     
-    if (contextAnimating || ikContext.isAnimating) {
+    if (isAnimating || ikContext.isAnimating) {
       console.warn('[useIK] Cannot execute IK - animation in progress');
       return { success: false, error: 'Animation in progress' };
     }
@@ -160,7 +172,7 @@ export const useIK = (robotIdOverride = null) => {
       });
       return { success: false, error: error.message };
     }
-  }, [canOperate, contextAnimating, ikContext, robotId]);
+  }, [canOperate, isAnimating, ikContext, robotId]);
   
   // Move to target position with current settings
   const moveToTarget = useCallback(async (animate = true) => {
@@ -319,8 +331,8 @@ export const useIK = (robotIdOverride = null) => {
     
     // Animation state
     animation: {
-      isAnimating: ikContext.isAnimating || contextAnimating,
-      progress: ikContext.animationProgressValue || 0
+      isAnimating: isAnimating || ikContext.isAnimating,
+      progress: robotId ? jointContext.getAnimationProgress(robotId) : 0
     },
     
     // TCP state
@@ -335,18 +347,18 @@ export const useIK = (robotIdOverride = null) => {
       motionProfiles,
       positionIncrements: getPositionIncrements(),
       rotationIncrements: getRotationIncrements(),
-      canExecute: canOperate && !ikContext.isAnimating && !contextAnimating
+      canExecute: canOperate && !ikContext.isAnimating && !isAnimating
     },
     
     // Status helpers
     status: {
-      message: ikContext.isAnimating ? 'Executing IK...' :
-               contextAnimating ? 'Animation in progress' :
+      message: isAnimating ? 'Executing IK...' :
+               isAnimating ? 'Animation in progress' :
                !hasValidEndEffector ? 'No valid end effector' :
                !isReady ? 'IK not ready' :
                'Ready',
       isReady: canOperate,
-      isBusy: ikContext.isAnimating || contextAnimating
+      isBusy: isAnimating || ikContext.isAnimating
     }
   };
 };

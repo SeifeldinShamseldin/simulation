@@ -1,6 +1,7 @@
 // src/contexts/hooks/useTrajectory.js
 // Complete facade hook that aggregates all trajectory-related functionality
 
+import { useContext } from 'react';
 import { 
   useTrajectoryContext,
   useTrajectoryRecording as useContextRecording,
@@ -13,8 +14,17 @@ import { useRobotContext } from '../RobotContext';
 import { useRobotManager, useRobotSelection } from './useRobotManager';
 import { useJoints } from './useJoints';
 import { useTCP } from './useTCP';
-import { useAnimationContext } from '../AnimationContext';
+import { JointContext } from '../JointContext';
 import EventBus from '../../utils/EventBus';
+
+// Helper to use Joint context
+const useJointContext = () => {
+  const context = useContext(JointContext);
+  if (!context) {
+    throw new Error('useJointContext must be used within JointProvider');
+  }
+  return context;
+};
 
 /**
  * Complete trajectory hook that provides all functionality needed for trajectory operations
@@ -31,6 +41,9 @@ export const useTrajectory = (robotIdOverride = null) => {
   const { activeId: contextRobotId } = useRobotSelection();
   const { getRobot, isRobotLoaded, categories, getRobotById } = useRobotManager();
   const { getRobotTrajectories: getAllRobotTrajectories } = useRobotContext();
+  
+  // Get joint context for animation state
+  const jointContext = useJointContext();
   
   // Determine which robot ID to use
   const robotId = robotIdOverride || trajectoryContext.robotId || contextRobotId;
@@ -53,8 +66,8 @@ export const useTrajectory = (robotIdOverride = null) => {
     tool: { offset: tcpOffset }
   } = tcp;
   
-  // Get animation state
-  const { isAnimating } = useAnimationContext();
+  // Get animation state from joint context
+  const isAnimating = robotId ? jointContext.isRobotAnimating(robotId) : false;
   
   // Get specialized trajectory hooks
   const recording = useContextRecording();
