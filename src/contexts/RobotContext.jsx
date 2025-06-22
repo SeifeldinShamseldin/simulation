@@ -525,6 +525,7 @@ const getRobot = useCallback((robotId) => {
   // Method 1: Direct lookup in loadedRobots
   const robotData = robots.get(robotId);
   if (robotData) {
+    console.log(`[RobotContext] Found robot ${robotId} in loadedRobots`);
     return robotData.robot || robotData.model || robotData;
   }
   
@@ -534,6 +535,7 @@ const getRobot = useCallback((robotId) => {
   // Check if any loaded robot has this base ID
   for (const [key, data] of robots.entries()) {
     if (key.startsWith(baseRobotId + '_') || data.baseId === baseRobotId) {
+      console.log(`[RobotContext] Found robot by base ID ${baseRobotId} -> ${key}`);
       return data.robot || data.model || data;
     }
   }
@@ -547,6 +549,7 @@ const getRobot = useCallback((robotId) => {
     // Try to find the loaded instance
     for (const [key, data] of robots.entries()) {
       if (key === workspaceRobot.id) {
+        console.log(`[RobotContext] Found robot via workspace ${workspaceRobot.id}`);
         return data.robot || data.model || data;
       }
     }

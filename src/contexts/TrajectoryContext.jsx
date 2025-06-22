@@ -653,12 +653,6 @@ export const TrajectoryProvider = ({ children }) => {
     // Pre-animation to first frame (always use helper)
     if (enablePreAnimation && trajectory.frames.length > 0) {
       try {
-        // Stop any ongoing animations first to prevent conflicts
-        jointContext.stopAnimation(robotId);
-        
-        // Small delay to ensure animations are fully stopped
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
         await preAnimateToFirstFrame(
           trajectory,
           robotId,
@@ -678,7 +672,7 @@ export const TrajectoryProvider = ({ children }) => {
         if (trajectory.endEffectorPath && trajectory.endEffectorPath.length > 0) {
           createTrajectoryVisualization(trajectory);
         }
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 500));
       } catch (error) {
         console.error('[TrajectoryContext] Pre-animation failed:', error);
       }
@@ -868,19 +862,21 @@ export const TrajectoryProvider = ({ children }) => {
     let lastFrameTime = 0;
     const FRAME_THROTTLE_MS = 16; // ~60fps
 
-    // Define the callback to register with JointContext
-    const handleJointChange = (changedRobotId, jointValues) => {
-      if (changedRobotId !== robotId) return;
+    const handleJointChange = (data) => {
+      if (data.robotId !== robotId) return;
 
       const currentTime = Date.now();
       if (currentTime - lastFrameTime < FRAME_THROTTLE_MS) return;
       lastFrameTime = currentTime;
 
       const elapsed = currentTime - recordingStartTimeRef.current;
+      const jointValues = data.values || data.joints || {};
 
       // Get end effector info from TCP context
       const position = getCurrentEndEffectorPoint(robotId);
       const orientation = getCurrentEndEffectorOrientation(robotId);
+      // const endEffectorLink = getEndEffectorLink ? getEndEffectorLink(robotId) : null;
+      // const hasTCP = !!(endEffectorLink && endEffectorLink.children && endEffectorLink.children.length > 0);
 
       // Record frame (only timestamp and jointValues)
       const frame = {
@@ -910,18 +906,9 @@ export const TrajectoryProvider = ({ children }) => {
       });
     };
 
-    // Register the callback with JointContext
-    if (jointContext && typeof jointContext.registerTrajectoryCallback === 'function') {
-      jointContext.registerTrajectoryCallback(handleJointChange);
-    }
-
-    // Cleanup: unregister if possible
-    return () => {
-      if (jointContext && typeof jointContext.unregisterTrajectoryCallback === 'function') {
-        jointContext.unregisterTrajectoryCallback(handleJointChange);
-      }
-    };
-  }, [isRecording, robotId, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation, jointContext]);
+    const unsubscribe = EventBus.on('robot:joints-changed', handleJointChange);
+    return () => unsubscribe();
+  }, [isRecording, robotId, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation, getEndEffectorLink]);
 
   // Scan trajectories on mount and when robot changes
   useEffect(() => {

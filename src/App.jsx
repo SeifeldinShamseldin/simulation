@@ -26,12 +26,14 @@ const RobotPanel = ({ onClose, viewerRef }) => {
   const { setActive: setActiveRobotId } = useRobotSelection();
 
   const handleRobotSelected = (robotId) => {
+    console.log('[App] Robot selected for controls:', robotId);
     setActiveRobotId(robotId);
     setSelectedRobotId(robotId);
     setShowControls(true);
   };
 
   const handleBackToRobots = () => {
+    console.log('[App] Going back to robot selection');
     setShowControls(false);
   };
 
@@ -93,17 +95,19 @@ const AppContent = () => {
   const viewerRef = useRef(null);
 
   useEffect(() => {
-    console.log('Active panel changed:', activePanel);
+    console.log('[App] Active panel changed:', activePanel);
   }, [activePanel]);
 
   useEffect(() => {
     if (viewerRef.current) {
+      console.log('[App] Setting viewer instance');
       setViewerInstance(viewerRef.current);
       window.viewerInstance = viewerRef.current;
     }
   }, [setViewerInstance]);
 
   const handlePanelToggle = (panel) => {
+    console.log('[App] Panel toggle requested:', panel);
     setActivePanel(activePanel === panel ? null : panel);
   };
 
@@ -118,6 +122,8 @@ const AppContent = () => {
   };
 
   const hasPanel = activePanel && activePanel !== 'world';
+  
+  console.log('[App] Render state:', { activePanel, panelWidth, hasPanel });
 
   return (
     <div className="app-wrapper">

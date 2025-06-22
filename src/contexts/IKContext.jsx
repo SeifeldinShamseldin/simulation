@@ -4,7 +4,6 @@ import * as THREE from 'three';
 import { useRobotSelection, useRobotManagement } from './hooks/useRobotManager';
 import { useTCPContext } from './TCPContext';
 import EventBus from '../utils/EventBus';
-import { useJointContext } from './JointContext';
 
 const IKContext = createContext(null);
 
@@ -18,8 +17,6 @@ export const IKProvider = ({ children }) => {
     hasToolAttached,
     recalculateEndEffector
   } = useTCPContext();
-
-  const jointContext = useJointContext();
 
   // State
   const [targetPosition, setTargetPosition] = useState({ x: 0, y: 0, z: 0 });
@@ -37,7 +34,6 @@ export const IKProvider = ({ children }) => {
   // Refs
   const solversRef = useRef({});
   const isReady = useRef(false);
-  const jointCallbackRef = useRef(null);
 
   // ========== FETCH AVAILABLE SOLVERS FROM SERVER ==========
   useEffect(() => {
@@ -130,44 +126,49 @@ export const IKProvider = ({ children }) => {
         position: position || { x: 0, y: 0, z: 0 },
         orientation: orientation || { x: 0, y: 0, z: 0, w: 1 }
       });
+      
+      console.log(`[IK] Updated end effector data for ${activeRobotId}:`, {
+        position,
+        orientation,
+        hasTCP: hasToolAttached(activeRobotId)
+      });
     };
 
     // Initial update
     updateEndEffectorData();
 
-    // Listen only for tool attachment/removal changes
-    const handleToolChange = (data) => {
+    // Listen for TCP changes
+    const handleTCPUpdate = (data) => {
       if (data.robotId === activeRobotId) {
-        // Small delay to ensure tool is properly attached/removed
-        setTimeout(() => {
-          updateEndEffectorData();
-        }, 50);
+        console.log('[IK] TCP update detected, refreshing end effector data');
+        updateEndEffectorData();
       }
     };
 
     const handleJointChange = (data) => {
-      if (data.robotId === activeRobotId && data.source !== 'trajectory-playback') {
-        // Only update end effector for non-trajectory joint changes
-        // Small delay to ensure joints are updated
+      if (data.robotId === activeRobotId) {
+        // Recalculate end effector after joint changes
         setTimeout(() => {
+          recalculateEndEffector(activeRobotId);
           updateEndEffectorData();
         }, 10);
       }
     };
 
-    // Don't listen to tcp:endeffector-updated to avoid circular updates
-    const unsubscribeTool = EventBus.on('tcp:tool-attached', handleToolChange);
-    const unsubscribeRemove = EventBus.on('tcp:tool-removed', handleToolChange);
+    const unsubscribeTCP = EventBus.on('tcp:endeffector-updated', handleTCPUpdate);
+    const unsubscribeTool = EventBus.on('tcp:tool-attached', handleTCPUpdate);
+    const unsubscribeRemove = EventBus.on('tcp:tool-removed', handleTCPUpdate);
     const unsubscribeJoint = EventBus.on('robot:joint-changed', handleJointChange);
     const unsubscribeJoints = EventBus.on('robot:joints-changed', handleJointChange);
 
     return () => {
+      unsubscribeTCP();
       unsubscribeTool();
       unsubscribeRemove();
       unsubscribeJoint();
       unsubscribeJoints();
     };
-  }, [activeRobotId, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation]);
+  }, [activeRobotId, getCurrentEndEffectorPoint, getCurrentEndEffectorOrientation, hasToolAttached, recalculateEndEffector]);
 
   // ========== ANIMATION COMPLETE HANDLER ==========
   useEffect(() => {
@@ -293,28 +294,24 @@ export const IKProvider = ({ children }) => {
           }
         };
         
-        console.log('[IK] activeRobotId:', activeRobotId);
-        console.log('[IK] About to move joints for robotId:', activeRobotId, 'values:', jointValues);
         // Send to Joint Context with motion profile options
-        if (options.animate !== false) {
-          await jointContext.animateToJointValues(
-            activeRobotId,
-            jointValues,
-            {
-              duration: options.duration || 1000,
-              motionProfile: options.motionProfile || 'trapezoidal',
-              jointConstraints: options.jointConstraints || defaultJointConstraints,
-              animationSpeed: options.animationSpeed || 1.0,
-              onProgress: options.onProgress,
-            }
-          );
-        } else {
-          jointContext.setJointValues(activeRobotId, jointValues, 'ik');
-        }
-        
-        if (jointCallbackRef.current) {
-          jointCallbackRef.current(activeRobotId, jointValues);
-        }
+        EventBus.emit('ik:joint-values-calculated', {
+          robotId: activeRobotId,
+          jointValues,
+          animate: options.animate !== false,
+          duration: options.duration || 1000,
+          // NEW: Pass motion profile options
+          motionProfile: options.motionProfile || 'trapezoidal',
+          jointConstraints: options.jointConstraints || defaultJointConstraints,
+          animationSpeed: options.animationSpeed || 1.0,
+          onProgress: (progressData) => {
+            // Optional: emit progress for UI updates
+            EventBus.emit('ik:animation-progress', {
+              robotId: activeRobotId,
+              ...progressData
+            });
+          }
+        });
         
         return true;
       } else {
@@ -374,10 +371,6 @@ export const IKProvider = ({ children }) => {
     return {};
   }, []);
 
-  const registerJointCallback = (cb) => {
-    jointCallbackRef.current = cb;
-  };
-
   // ========== CONTEXT VALUE ==========
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(() => ({
@@ -401,8 +394,7 @@ export const IKProvider = ({ children }) => {
     isReady: isReady.current,
     hasValidEndEffector: currentEndEffector.position.x !== 0 || 
                         currentEndEffector.position.y !== 0 || 
-                        currentEndEffector.position.z !== 0,
-    registerJointCallback,
+                        currentEndEffector.position.z !== 0
   }), [
     targetPosition,
     targetOrientation,
@@ -417,8 +409,7 @@ export const IKProvider = ({ children }) => {
     executeIK,
     stopAnimation,
     configureSolver,
-    getSolverSettings,
-    registerJointCallback,
+    getSolverSettings
   ]);
 
   return (

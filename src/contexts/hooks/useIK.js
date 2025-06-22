@@ -6,9 +6,18 @@ import { useIKContext } from '../IKContext';
 import { useRobotManager, useRobotSelection } from './useRobotManager';
 import { useJoints } from './useJoints';
 import { useTCP } from './useTCP';
-import { useJointContext } from '../JointContext';
+import { JointContext } from '../JointContext';
 import EventBus from '../../utils/EventBus';
 import * as THREE from 'three';
+
+// Helper to use Joint context
+const useJointContext = () => {
+  const context = useContext(JointContext);
+  if (!context) {
+    throw new Error('useJointContext must be used within JointProvider');
+  }
+  return context;
+};
 
 /**
  * Utility function to convert quaternion to Euler angles
