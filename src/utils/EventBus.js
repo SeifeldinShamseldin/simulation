@@ -124,4 +124,18 @@ class EventBus {
 }
 
 const eventBus = new EventBus();
+
+// Remove or comment out noisy console logs for production cleanliness
+// const originalOn = eventBus.on;
+// eventBus.on = function(event, handler) {
+//   console.log('[EventBus] on:', event, handler, 'instance:', eventBus);
+//   return originalOn.call(this, event, handler);
+// };
+
+// const originalEmit = eventBus.emit;
+// eventBus.emit = function(event, payload) {
+//   console.log('[EventBus] emit:', event, payload, 'instance:', eventBus);
+//   return originalEmit.call(this, event, payload);
+// };
+
 export default eventBus;

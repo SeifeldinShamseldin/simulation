@@ -213,11 +213,10 @@ export const RobotProvider = ({ children }) => {
       timeoutId = setManagedTimeout(() => {
         if (!initializedRef.current) {
           setError('Viewer did not respond to scene request in time.');
-          EventBus.off(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, handleSceneResponse);
-          const initError = new Error('Viewer response timeout.');
-          loadQueueRef.current.forEach(req => req.reject(initError));
-          loadQueueRef.current = [];
-          initializedRef.current = true;
+          // DO NOT set initializedRef.current = true
+          // DO NOT clear the queue
+          // Optionally, you can re-emit the scene request here to retry, or just keep waiting for the event
+          // EventBus.emit(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, { requestId });
         }
       }, 5000);
     };

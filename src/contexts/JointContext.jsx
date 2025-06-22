@@ -1,9 +1,8 @@
 // src/contexts/JointContext.jsx - Simplified for direct joint control
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import EventBus from '../utils/EventBus';
 import { RobotEvents, JointEvents } from './dataTransfer';
-
-export const JointContext = createContext();
+import { JointContext } from './JointContext.js';
 
 export const JointProvider = ({ children }) => {
   const [robotJoints, setRobotJoints] = useState(new Map());
@@ -61,7 +60,7 @@ export const JointProvider = ({ children }) => {
       }
       
       return {};
-    } catch (error) {
+    } catch {
       return {};
     }
   }, [findRobotWithFallbacks]);
@@ -352,8 +351,9 @@ export const JointProvider = ({ children }) => {
 
   // Cleanup
   useEffect(() => {
+    const registry = robotRegistryRef.current;
     return () => {
-      robotRegistryRef.current.clear();
+      registry.clear();
     };
   }, []);
 
@@ -385,5 +385,3 @@ export const useJointContext = () => {
   }
   return context;
 };
-
-export default JointContext;

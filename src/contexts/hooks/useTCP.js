@@ -1,18 +1,18 @@
 // src/contexts/hooks/useTCP.js
-// Complete facade hook that aggregates all TCP-related functionality
+// Clean facade hook for TCP and End Effector functionality
 
 import { useCallback, useState, useEffect, useMemo, useContext } from 'react';
 import TCPContext from '../TCPContext';
 import { useRobotManager, useRobotSelection } from './useRobotManager';
-import { useJoints } from './useJoints';
 import EventBus from '../../utils/EventBus';
+import { EndEffectorEvents } from '../dataTransfer';
 
 /**
- * Complete TCP hook that provides all functionality needed for TCP operations
- * Acts as a facade to aggregate data from multiple contexts
+ * Complete TCP and End Effector hook
+ * Provides real-time end effector data that is always up to date
  * 
  * @param {string|null} robotIdOverride - Optional robot ID to override context
- * @returns {Object} Complete TCP API with all necessary data and functions
+ * @returns {Object} Complete TCP and End Effector API
  */
 export const useTCP = (robotIdOverride = null) => {
   // Get core TCP context
@@ -21,58 +21,7 @@ export const useTCP = (robotIdOverride = null) => {
   // Handle case where context is not available
   if (!tcpContext) {
     console.warn('[useTCP] TCPContext not available');
-    return {
-      robotId: null,
-      robot: null,
-      isReady: false,
-      hasJoints: false,
-      canOperate: false,
-      tool: {
-        current: null,
-        info: null,
-        hasTool: false,
-        isVisible: false,
-        transforms: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } },
-        offset: { x: 0, y: 0, z: 0 }
-      },
-      tools: {
-        available: [],
-        isLoading: false,
-        error: null,
-        getById: () => null
-      },
-      operations: {
-        attach: async () => {},
-        remove: async () => {},
-        setTransform: () => {},
-        toggleVisibility: () => {},
-        resetTransforms: () => {},
-        scaleUniform: () => {},
-        refresh: async () => {},
-        clearError: () => {}
-      },
-      endEffector: {
-        position: { x: 0, y: 0, z: 0 },
-        orientation: { x: 0, y: 0, z: 0, w: 1 },
-        hasValid: false,
-        isUsing: false,
-        type: null,
-        state: () => ({ position: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 }, hasValid: false })
-      },
-      system: {
-        isInitialized: false,
-        isUpdating: false,
-        lastUpdateTime: null,
-        canAttach: false,
-        canTransform: false,
-        isDisabled: true
-      },
-      utils: {
-        recalculateEndEffector: () => null,
-        getCurrentEndEffectorPoint: () => ({ x: 0, y: 0, z: 0 }),
-        getCurrentEndEffectorOrientation: () => ({ x: 0, y: 0, z: 0, w: 1 })
-      }
-    };
+    return createEmptyState();
   }
   
   // Get robot-related data
@@ -85,215 +34,111 @@ export const useTCP = (robotIdOverride = null) => {
   // Get robot instance and state
   const robot = robotId ? getRobot(robotId) : null;
   const isRobotReady = robotId ? isRobotLoaded(robotId) : false;
-  const isReady = isRobotReady;
   
-  // Get joint control functions
-  const { getJointValues } = useJoints(robotId);
+  // Local state for real-time end effector tracking
+  const [endEffectorState, setEndEffectorState] = useState({
+    position: { x: 0, y: 0, z: 0 },
+    orientation: { x: 0, y: 0, z: 0, w: 1 },
+    hasTCP: false,
+    tcpOffset: null,
+    toolDimensions: null,
+    lastUpdate: null,
+    source: null
+  });
   
-  // Local state for UI feedback
-  const [lastUpdateTime, setLastUpdateTime] = useState(null);
-  const [isUpdating, setIsUpdating] = useState(false);
-  
-  // Robot state helpers
-  const hasJoints = robot && robot.joints && Object.keys(robot.joints).length > 0;
-  const canOperate = isReady && hasJoints && robotId;
-  
-  // Get tool by ID helper
-  const getToolById = useCallback((toolId) => {
-    if (!toolId || !tcpContext.availableTools) return null;
-    return tcpContext.availableTools.find(tool => tool.id === toolId) || null;
-  }, [tcpContext.availableTools]);
+  // Listen for end effector updates
+  useEffect(() => {
+    if (!robotId) return;
+    
+    const handleEndEffectorUpdate = (data) => {
+      if (data.robotId === robotId) {
+        const newState = {
+          position: data.position,
+          orientation: data.orientation,
+          hasTCP: data.hasTCP,
+          tcpOffset: data.tcpOffset || null,
+          toolDimensions: data.toolDimensions || null,
+          lastUpdate: data.timestamp,
+          source: data.source
+        };
+        
+        setEndEffectorState(newState);
+        
+        // Always log end effector updates
+        console.log(`[useTCP] End Effector Updated for ${robotId}:`, {
+          position: `(${data.position.x.toFixed(3)}, ${data.position.y.toFixed(3)}, ${data.position.z.toFixed(3)})`,
+          orientation: `(${data.orientation.x.toFixed(3)}, ${data.orientation.y.toFixed(3)}, ${data.orientation.z.toFixed(3)}, ${data.orientation.w.toFixed(3)})`,
+          hasTCP: data.hasTCP,
+          source: data.source
+        });
+      }
+    };
+    
+    // Subscribe to end effector updates
+    const unsubscribe = EventBus.on(EndEffectorEvents.UPDATED, handleEndEffectorUpdate);
+    
+    // Request initial state
+    EventBus.emit(EndEffectorEvents.Commands.GET_STATE, {
+      robotId,
+      requestId: `init-${Date.now()}`
+    });
+
+    // Poll for latest end effector state every 100ms
+    const interval = setInterval(() => {
+      EventBus.emit(EndEffectorEvents.Commands.GET_STATE, {
+        robotId,
+        requestId: `poll-${Date.now()}`
+      });
+    }, 100);
+    
+    return () => {
+      unsubscribe();
+      clearInterval(interval);
+    };
+  }, [robotId]);
   
   // Get current tool info
-  const currentToolInfo = useMemo(() => {
-    if (!robotId || !tcpContext.attachedTools) return null;
-    const toolData = tcpContext.attachedTools.get(robotId);
-    if (!toolData) return null;
-    return getToolById(toolData.toolId);
-  }, [robotId, tcpContext.attachedTools, getToolById]);
-  
-  // Get current tool data
   const currentTool = useMemo(() => {
     if (!robotId || !tcpContext.attachedTools) return null;
     return tcpContext.attachedTools.get(robotId);
   }, [robotId, tcpContext.attachedTools]);
   
-  // Enhanced attach tool with validation
-  const attachToolWithValidation = useCallback(async (toolId) => {
-    if (!canOperate) {
-      console.warn('[useTCP] Cannot attach tool - robot not ready');
-      throw new Error('Robot not ready');
-    }
-    
+  // Tool operations
+  const attachTool = useCallback(async (toolId) => {
     if (!robotId) {
-      console.warn('[useTCP] Cannot attach tool - no robot ID');
       throw new Error('No robot selected');
     }
     
-    setIsUpdating(true);
-    
-    try {
-      EventBus.emit('tcp:attaching-tool', { robotId, toolId });
-      await tcpContext.attachTool(robotId, toolId);
-      
-      setLastUpdateTime(new Date().toLocaleTimeString());
-      EventBus.emit('tcp:tool-attached', { 
-        robotId, 
-        toolId
-      });
-      
-      return true;
-    } catch (error) {
-      EventBus.emit('tcp:attach-error', { robotId, toolId, error });
-      throw error;
-    } finally {
-      setTimeout(() => setIsUpdating(false), 500);
-    }
-  }, [canOperate, robotId, tcpContext]);
+    console.log(`[useTCP] Attaching tool ${toolId} to ${robotId}`);
+    await tcpContext.attachTool(robotId, toolId);
+  }, [robotId, tcpContext]);
   
-  // Enhanced remove tool with validation
-  const removeToolWithValidation = useCallback(async () => {
+  const removeTool = useCallback(async () => {
     if (!robotId || !currentTool) {
       console.warn('[useTCP] No tool to remove');
       return;
     }
     
-    setIsUpdating(true);
-    
-    try {
-      EventBus.emit('tcp:removing-tool', { robotId });
-      await tcpContext.removeTool(robotId);
-      
-      setLastUpdateTime(new Date().toLocaleTimeString());
-      EventBus.emit('tcp:tool-removed', { robotId });
-    } catch (error) {
-      EventBus.emit('tcp:remove-error', { robotId, error });
-      throw error;
-    } finally {
-      setTimeout(() => setIsUpdating(false), 500);
-    }
+    console.log(`[useTCP] Removing tool from ${robotId}`);
+    await tcpContext.removeTool(robotId);
   }, [robotId, currentTool, tcpContext]);
   
-  // Enhanced set transform with validation
-  const setToolTransformWithValidation = useCallback((transforms) => {
+  const setToolTransform = useCallback((transforms) => {
     if (!robotId || !currentTool) {
       console.warn('[useTCP] No tool to transform');
       return;
     }
     
-    setIsUpdating(true);
+    console.log(`[useTCP] Setting tool transform for ${robotId}:`, transforms);
     tcpContext.setToolTransform(robotId, transforms);
-    setLastUpdateTime(new Date().toLocaleTimeString());
-    
-    EventBus.emit('tcp:tool-transform-changed', {
-      robotId,
-      transforms
-    });
-    
-    setTimeout(() => setIsUpdating(false), 200);
   }, [robotId, currentTool, tcpContext]);
   
-  // Toggle visibility with feedback
-  const toggleToolVisibility = useCallback(() => {
-    if (!robotId || !currentTool) return;
-    
-    setIsUpdating(true);
-    const newVisibility = !currentTool.visible;
-    tcpContext.setToolVisibility(robotId, newVisibility);
-    
-    EventBus.emit('tcp:visibility-changed', {
-      robotId,
-      visible: newVisibility
-    });
-    
-    setTimeout(() => setIsUpdating(false), 200);
-  }, [robotId, currentTool, tcpContext]);
-  
-  // Reset transforms with feedback
-  const resetTransformsWithFeedback = useCallback(() => {
-    if (!robotId || !currentTool) return;
-    
-    setIsUpdating(true);
-    const defaultTransforms = {
-      position: { x: 0, y: 0, z: 0 },
-      rotation: { x: 0, y: 0, z: 0 },
-      scale: { x: 1, y: 1, z: 1 }
-    };
-    tcpContext.setToolTransform(robotId, defaultTransforms);
-    setLastUpdateTime(new Date().toLocaleTimeString());
-    
-    EventBus.emit('tcp:transforms-reset', { robotId });
-    
-    setTimeout(() => setIsUpdating(false), 200);
-  }, [robotId, currentTool, tcpContext]);
-  
-  // Scale uniform with feedback
-  const scaleUniformWithFeedback = useCallback((scale) => {
-    if (!robotId || !currentTool) return;
-    
-    setIsUpdating(true);
-    const newTransforms = {
-      ...currentTool.transforms,
-      scale: { x: scale, y: scale, z: scale }
-    };
-    tcpContext.setToolTransform(robotId, newTransforms);
-    setLastUpdateTime(new Date().toLocaleTimeString());
-    
-    EventBus.emit('tcp:scale-applied', { robotId, scale });
-    
-    setTimeout(() => setIsUpdating(false), 200);
-  }, [robotId, currentTool, tcpContext]);
-  
-  // Refresh tools with loading state
-  const refreshToolsWithLoading = useCallback(async () => {
-    setIsUpdating(true);
-    
-    try {
-      await tcpContext.loadAvailableTools();
-      setLastUpdateTime(new Date().toLocaleTimeString());
-      EventBus.emit('tcp:tools-refreshed', { robotId });
-    } catch (error) {
-      EventBus.emit('tcp:refresh-error', { robotId, error });
-      throw error;
-    } finally {
-      setTimeout(() => setIsUpdating(false), 500);
-    }
-  }, [tcpContext, robotId]);
-  
-  // Get end effector state
-  const getEndEffectorState = useCallback(() => {
-    if (!robotId) {
-      return {
-        position: { x: 0, y: 0, z: 0 },
-        orientation: { x: 0, y: 0, z: 0, w: 1 },
-        hasValid: false
-      };
-    }
-    
-    return {
-      position: tcpContext.getCurrentEndEffectorPoint?.(robotId) || { x: 0, y: 0, z: 0 },
-      orientation: tcpContext.getCurrentEndEffectorOrientation?.(robotId) || { x: 0, y: 0, z: 0, w: 1 },
-      hasValid: true
-    };
-  }, [robotId, tcpContext]);
-  
-  // Listen for TCP events
-  useEffect(() => {
+  // Force recalculate end effector
+  const recalculateEndEffector = useCallback(() => {
     if (!robotId) return;
     
-    const handleTCPEvent = (data) => {
-      if (data.robotId === robotId) {
-        setLastUpdateTime(new Date().toLocaleTimeString());
-      }
-    };
-    
-    const unsubscribes = [
-      EventBus.on('tcp:tool-attached', handleTCPEvent),
-      EventBus.on('tcp:tool-removed', handleTCPEvent),
-      EventBus.on('tcp:tool-transform-changed', handleTCPEvent)
-    ];
-    
-    return () => unsubscribes.forEach(unsub => unsub());
+    console.log(`[useTCP] Force recalculating end effector for ${robotId}`);
+    EventBus.emit(EndEffectorEvents.Commands.RECALCULATE, { robotId });
   }, [robotId]);
   
   // Return complete API
@@ -301,72 +146,109 @@ export const useTCP = (robotIdOverride = null) => {
     // Robot state
     robotId,
     robot,
-    isReady,
-    hasJoints,
-    canOperate,
+    isReady: isRobotReady && tcpContext.isInitialized,
     
     // Tool state
     tool: {
       current: currentTool,
-      info: currentToolInfo,
       hasTool: !!currentTool,
       isVisible: currentTool?.visible ?? false,
       transforms: currentTool?.transforms || {
         position: { x: 0, y: 0, z: 0 },
         rotation: { x: 0, y: 0, z: 0 },
         scale: { x: 1, y: 1, z: 1 }
-      },
-      offset: currentTool?.transforms?.position || { x: 0, y: 0, z: 0 }
+      }
     },
     
     // Available tools
     tools: {
       available: tcpContext.availableTools || [],
       isLoading: tcpContext.isLoading,
-      error: tcpContext.error,
-      getById: getToolById
+      refresh: tcpContext.loadAvailableTools
     },
     
     // Tool operations
     operations: {
-      attach: attachToolWithValidation,
-      remove: removeToolWithValidation,
-      setTransform: setToolTransformWithValidation,
-      toggleVisibility: toggleToolVisibility,
-      resetTransforms: resetTransformsWithFeedback,
-      scaleUniform: scaleUniformWithFeedback,
-      refresh: refreshToolsWithLoading,
-      clearError: tcpContext.clearError
+      attach: attachTool,
+      remove: removeTool,
+      setTransform: setToolTransform,
+      setVisibility: (visible) => robotId ? tcpContext.setToolVisibility(robotId, visible) : null,
+      resetTransforms: () => setToolTransform({
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 }
+      }),
+      toggleVisibility: () => robotId && currentTool ? tcpContext.setToolVisibility(robotId, !currentTool.visible) : null,
+      scaleUniform: (scale) => robotId && currentTool ? setToolTransform({
+        ...currentTool.transforms,
+        scale: { x: scale, y: scale, z: scale }
+      }) : null,
+      clearError: tcpContext.clearError || (() => {})
     },
     
-    // End effector state
-    endEffector: {
-      position: tcpContext.getCurrentEndEffectorPoint?.(robotId) || { x: 0, y: 0, z: 0 },
-      orientation: tcpContext.getCurrentEndEffectorOrientation?.(robotId) || { x: 0, y: 0, z: 0, w: 1 },
-      hasValid: !!robotId,
-      isUsing: !!currentTool,
-      type: currentTool ? 'tcp' : 'robot',
-      state: getEndEffectorState()
-    },
-    
-    // System state
+    // System state for UI
     system: {
-      isInitialized: tcpContext.isInitialized,
-      isUpdating,
-      lastUpdateTime,
-      canAttach: canOperate && !currentTool && !isUpdating,
-      canTransform: !!currentTool && !isUpdating,
-      isDisabled: tcpContext.isLoading || !tcpContext.isInitialized || isUpdating
+      isUpdating: tcpContext.isUpdating ?? false,
+      isInitialized: tcpContext.isInitialized ?? false,
+      isDisabled: tcpContext.isLoading || !tcpContext.isInitialized,
+      lastUpdateTime: endEffectorState.lastUpdate,
     },
     
-    // Utility functions
-    utils: {
-      recalculateEndEffector: () => robotId ? tcpContext.recalculateEndEffector?.(robotId) : null,
-      getCurrentEndEffectorPoint: () => robotId ? tcpContext.getCurrentEndEffectorPoint?.(robotId) : { x: 0, y: 0, z: 0 },
-      getCurrentEndEffectorOrientation: () => robotId ? tcpContext.getCurrentEndEffectorOrientation?.(robotId) : { x: 0, y: 0, z: 0, w: 1 }
+    // End effector state (ALWAYS UP TO DATE)
+    endEffector: {
+      ...endEffectorState,
+      isValid: !!robotId,
+      recalculate: recalculateEndEffector
     }
   };
 };
+
+// Helper to create empty state when context is not available
+function createEmptyState() {
+  return {
+    robotId: null,
+    robot: null,
+    isReady: false,
+    tool: {
+      current: null,
+      hasTool: false,
+      isVisible: false,
+      transforms: { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 }, scale: { x: 1, y: 1, z: 1 } }
+    },
+    tools: {
+      available: [],
+      isLoading: false,
+      refresh: async () => {}
+    },
+    operations: {
+      attach: async () => {},
+      remove: async () => {},
+      setTransform: () => {},
+      setVisibility: () => {},
+      resetTransforms: () => {},
+      toggleVisibility: () => {},
+      scaleUniform: () => {},
+      clearError: () => {}
+    },
+    system: {
+      isUpdating: false,
+      isInitialized: false,
+      isDisabled: true,
+      lastUpdateTime: null,
+    },
+    endEffector: {
+      position: { x: 0, y: 0, z: 0 },
+      orientation: { x: 0, y: 0, z: 0, w: 1 },
+      hasTCP: false,
+      tcpOffset: null,
+      toolDimensions: null,
+      lastUpdate: null,
+      source: null,
+      isValid: false,
+      recalculate: () => {}
+    }
+  };
+}
 
 // Export as default
 export default useTCP;

@@ -53,7 +53,7 @@ class OptimizedTCPManager {
             this.robotRegistry.set(robotId, robot);
             return robot;
           }
-        } catch (error) { /* Continue to next method */ }
+        } catch { /* Continue to next method */ }
       }
       
       // Method 2: robots Map
@@ -757,10 +757,12 @@ class OptimizedTCPManager {
     
     // Get tool dimensions if TCP is attached (cached)
     let toolDimensions = null;
+    let tcpOffset = null;
     if (hasTCP) {
       const toolData = this.attachedTools.get(robotId);
       if (toolData && toolData.toolContainer) {
         toolDimensions = toolData.dimensions || this.calculateToolDimensions(toolData.toolContainer);
+        tcpOffset = this.calculateToolTipOffset(toolData.toolContainer);
       }
     }
     
@@ -771,12 +773,32 @@ class OptimizedTCPManager {
     this._endEffectorCache.set(cacheKey, result);
     this._lastUpdateTime.set(robotId, now);
     
+    // Emit legacy TCP event
     EventBus.emit(DataTransfer.EVENT_TCP_ENDEFFECTOR_UPDATED, {
       robotId,
       endEffectorPoint: finalPosition,
       endEffectorOrientation: finalOrientation,
       hasTCP,
       toolDimensions
+    });
+    
+    // ALWAYS emit the new END_EFFECTOR event for consistent updates
+    EventBus.emit(DataTransfer.EndEffectorEvents.UPDATED, {
+      robotId,
+      position: finalPosition,
+      orientation: finalOrientation,
+      hasTCP,
+      tcpOffset,
+      toolDimensions,
+      source: 'recalculate',
+      timestamp: now
+    });
+    
+    console.log(`[TCP] End effector updated for ${robotId}:`, {
+      position: finalPosition,
+      orientation: finalOrientation,
+      hasTCP,
+      tcpOffset
     });
     
     return result;
@@ -831,18 +853,30 @@ export const TCPProvider = ({ children }) => {
   const [availableTools, setAvailableTools] = useState([]);
   const [attachedTools, setAttachedTools] = useState(new Map());
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
 
   // Initialize TCP Manager via EventBus
   useEffect(() => {
-    const requestId = `tcp-scene-${Date.now()}`;
-    let timeoutId;
+    let retryTimeoutId;
+    let currentRequestId = null;
+    let didRespond = false;
 
+    // Helper to reset TCP state on viewer disposal
+    const resetTCP = () => {
+      if (retryTimeoutId) clearTimeout(retryTimeoutId);
+      setIsInitialized(false);
+      tcpManagerRef.current = null;
+      // Optionally clear attached tools, available tools, etc.
+      setAttachedTools(new Map());
+      setAvailableTools([]);
+    };
+
+    // Define handler at effect scope
     const handleSceneResponse = (response) => {
-      if (response.requestId === requestId) {
-        clearTimeout(timeoutId);
+      if (response.requestId === currentRequestId) {
+        didRespond = true;
+        clearTimeout(retryTimeoutId);
         EventBus.off(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
-        
+
         if (response.success && response.payload?.getSceneSetup) {
           const sceneSetup = response.payload.getSceneSetup();
           if (sceneSetup) {
@@ -851,38 +885,52 @@ export const TCPProvider = ({ children }) => {
             }
             tcpManagerRef.current.initialize(sceneSetup, null);
             setIsInitialized(true);
-            setError(null);
             console.log('[TCPContext] Initialized via EventBus');
           }
         } else {
-          setError('Failed to get scene setup from viewer');
+          console.error('Failed to get scene setup from viewer');
         }
       }
     };
 
-    const requestScene = () => {
-      console.log('[TCPContext] Requesting scene via EventBus...');
-      EventBus.on(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
-      EventBus.emit(DataTransfer.EVENT_TCP_NEEDS_SCENE, { requestId });
-      
-      timeoutId = setTimeout(() => {
-        EventBus.off(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
-        setError('Viewer did not respond to scene request');
-      }, 5000);
+    const requestSceneWithRetry = () => {
+      currentRequestId = `tcp-scene-${Date.now()}`;
+      didRespond = false;
+
+      const tryRequest = () => {
+        if (didRespond) return;
+        console.log('[TCPContext] Emitting tcp:needs-scene', DataTransfer.EVENT_TCP_NEEDS_SCENE, { requestId: currentRequestId });
+        EventBus.on(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
+        EventBus.emit(DataTransfer.EVENT_TCP_NEEDS_SCENE, { requestId: currentRequestId });
+
+        retryTimeoutId = setTimeout(() => {
+          EventBus.off(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
+          if (!didRespond) {
+            console.warn('Viewer did not respond to scene request, retrying...');
+            tryRequest(); // Retry
+          }
+        }, 2000); // Retry every 2 seconds
+      };
+
+      tryRequest();
     };
 
     // Listen for viewer ready event
     const handleViewerReady = () => {
-      requestScene();
+      console.log('[TCPContext] Received EVENT_VIEWER_READY', DataTransfer.EVENT_VIEWER_READY);
+      requestSceneWithRetry();
+    };
+
+    // Listen for viewer disposed event
+    const handleViewerDisposed = () => {
+      resetTCP();
     };
 
     EventBus.on(DataTransfer.EVENT_VIEWER_READY, handleViewerReady);
-
-    // Request scene immediately in case viewer is already ready
-    requestScene();
+    EventBus.on(DataTransfer.EVENT_VIEWER_DISPOSED, handleViewerDisposed);
 
     return () => {
-      if (timeoutId) clearTimeout(timeoutId);
+      if (retryTimeoutId) clearTimeout(retryTimeoutId);
       EventBus.off(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
       EventBus.off(DataTransfer.EVENT_VIEWER_READY, handleViewerReady);
     };
@@ -893,11 +941,10 @@ export const TCPProvider = ({ children }) => {
     if (!tcpManagerRef.current || !isInitialized) return;
     try {
       setIsLoading(true);
-      setError(null);
       const tools = await tcpManagerRef.current.scanAvailableTools();
       setAvailableTools(tools);
     } catch (err) {
-      setError(`Failed to load tools: ${err.message}`);
+      console.error(`Failed to load tools: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -937,6 +984,47 @@ export const TCPProvider = ({ children }) => {
       }
     };
 
+    // Handle GET_STATE polling for end effector
+    const handleGetState = (data) => {
+      const { robotId, requestId } = data;
+      const position = tcpManager.getFinalEndEffectorPosition(robotId);
+      const orientation = tcpManager.getFinalEndEffectorOrientation(robotId);
+      const hasTCP = tcpManager.attachedTools.has(robotId);
+      let toolDimensions = null;
+      let tcpOffset = null;
+      if (hasTCP) {
+        const toolData = tcpManager.attachedTools.get(robotId);
+        if (toolData && toolData.toolContainer) {
+          toolDimensions = toolData.dimensions || tcpManager.calculateToolDimensions(toolData.toolContainer);
+          tcpOffset = tcpManager.calculateToolTipOffset(toolData.toolContainer);
+        }
+      }
+      const now = Date.now();
+      // Emit the latest state as an update event
+      EventBus.emit(DataTransfer.EndEffectorEvents.UPDATED, {
+        robotId,
+        position,
+        orientation,
+        hasTCP,
+        tcpOffset,
+        toolDimensions,
+        source: 'get-state',
+        timestamp: now
+      });
+      // Optionally, emit a response event if you want request/response pattern
+      if (requestId) {
+        EventBus.emit(DataTransfer.EndEffectorEvents.Responses.STATE, {
+          robotId,
+          position,
+          orientation,
+          hasTCP,
+          tcpOffset,
+          toolDimensions,
+          requestId
+        });
+      }
+    };
+
     // Subscribe to events
     const unsubscribes = [
       EventBus.on('robot:registered', handleRobotEvent),
@@ -954,7 +1042,8 @@ export const TCPProvider = ({ children }) => {
       }),
       EventBus.on('robot:joint-changed', handleJointChange),
       EventBus.on('robot:joints-changed', handleJointChange),
-      EventBus.on(DataTransfer.EVENT_TCP_FORCE_RECALCULATE, handleForceRecalculate)
+      EventBus.on(DataTransfer.EVENT_TCP_FORCE_RECALCULATE, handleForceRecalculate),
+      EventBus.on(DataTransfer.EndEffectorEvents.Commands.GET_STATE, handleGetState)
     ];
 
     return () => unsubscribes.forEach(unsub => unsub());
@@ -968,7 +1057,6 @@ export const TCPProvider = ({ children }) => {
     
     try {
       setIsLoading(true);
-      setError(null);
       
       await tcpManagerRef.current.attachTool(robotId, toolId);
       
@@ -984,7 +1072,7 @@ export const TCPProvider = ({ children }) => {
       
       return true;
     } catch (err) {
-      setError(`Error attaching tool: ${err.message}`);
+      console.error(`Error attaching tool: ${err.message}`);
       throw err;
     } finally {
       setIsLoading(false);
@@ -1003,7 +1091,7 @@ export const TCPProvider = ({ children }) => {
         return newMap;
       });
     } catch (err) {
-      setError(`Error removing tool: ${err.message}`);
+      console.error(`Error removing tool: ${err.message}`);
       throw err;
     } finally {
       setIsLoading(false);
@@ -1026,7 +1114,7 @@ export const TCPProvider = ({ children }) => {
         return newMap;
       });
     } catch (err) {
-      setError(`Error setting transform: ${err.message}`);
+      console.error(`Error setting transform: ${err.message}`);
     }
   }, []);
 
@@ -1046,7 +1134,7 @@ export const TCPProvider = ({ children }) => {
         return newMap;
       });
     } catch (err) {
-      setError(`Error setting visibility: ${err.message}`);
+      console.error(`Error setting visibility: ${err.message}`);
     }
   }, []);
 
@@ -1093,7 +1181,6 @@ export const TCPProvider = ({ children }) => {
     availableTools,
     attachedTools,
     isLoading,
-    error,
     isInitialized,
     
     // Tool Management
@@ -1114,12 +1201,11 @@ export const TCPProvider = ({ children }) => {
     getRobotEndEffectorOrientation,
     
     // Utils
-    clearError: () => setError(null)
+    clearError: () => {}
   }), [
     availableTools,
     attachedTools,
     isLoading,
-    error,
     isInitialized,
     loadAvailableTools,
     attachTool,

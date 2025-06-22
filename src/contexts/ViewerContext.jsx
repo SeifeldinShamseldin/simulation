@@ -161,6 +161,7 @@ export const ViewerProvider = ({ children }) => {
     });
     
     EventBus.emit('viewer:initialized', { sceneSetup });
+    console.log('[ViewerContext] Emitting EVENT_VIEWER_READY', DataTransfer.EVENT_VIEWER_READY);
     EventBus.emit(DataTransfer.EVENT_VIEWER_READY);
     
     return sceneSetup;
@@ -424,6 +425,7 @@ export const ViewerProvider = ({ children }) => {
   // ========== EVENTBUS: Respond to tcp:needs-scene requests ==========
   useEffect(() => {
     const handleTCPSceneRequest = (request) => {
+      console.log('[ViewerContext] Received tcp:needs-scene', { isViewerReady, sceneSetup: !!sceneSetupRef.current, request });
       if (isViewerReady && sceneSetupRef.current) {
         EventBus.emit(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, {
           success: true,

@@ -10,7 +10,7 @@ import { RobotProvider } from './contexts/RobotContext'; // Unified context
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { TCPProvider } from './contexts/TCPContext';
-import { JointProvider } from './contexts/JointContext';
+import { JointProvider } from './contexts/JointContext.jsx';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobotManager';
 import { CameraProvider } from './contexts/CameraContext';

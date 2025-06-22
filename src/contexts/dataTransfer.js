@@ -752,121 +752,6 @@ export const IKEvents = {
 };
 
 // ============================================
-// TRAJECTORY EVENTS
-// ============================================
-/**
- * Trajectory playback and recording events namespace
- * 
- * Handles trajectory playback control and recording.
- * Primary consumers: TrajectoryContext, UI components
- * 
- * @namespace TrajectoryEvents
- */
-export const TrajectoryEvents = {
-  Commands: {
-    /**
-     * Start playing trajectory
-     * PAYLOAD: {
-     *   robotId: string,
-     *   trajectoryId: string,
-     *   loop?: boolean,
-     *   speed?: number
-     * }
-     */
-    PLAY: 'trajectory:command:play',
-    
-    /**
-     * Pause trajectory playback
-     * PAYLOAD: { robotId: string }
-     */
-    PAUSE: 'trajectory:command:pause',
-    
-    /**
-     * Stop trajectory playback
-     * PAYLOAD: { robotId: string }
-     */
-    STOP: 'trajectory:command:stop',
-    
-    /**
-     * Start recording trajectory
-     * PAYLOAD: {
-     *   robotId: string,
-     *   name?: string
-     * }
-     */
-    RECORD_START: 'trajectory:command:record-start',
-    
-    /**
-     * Stop recording trajectory
-     * PAYLOAD: {
-     *   robotId: string,
-     *   save?: boolean
-     * }
-     */
-    RECORD_STOP: 'trajectory:command:record-stop'
-  },
-  
-  /**
-   * Trajectory playback started
-   * PAYLOAD: {
-   *   robotId: string,
-   *   trajectoryId: string,
-   *   totalFrames: number,
-   *   duration: number
-   * }
-   */
-  PLAYING: 'trajectory:playing',
-  
-  /**
-   * Trajectory playback paused
-   * PAYLOAD: {
-   *   robotId: string,
-   *   currentFrame: number,
-   *   progress: number     // 0-1
-   * }
-   */
-  PAUSED: 'trajectory:paused',
-  
-  /**
-   * Trajectory playback stopped
-   * PAYLOAD: { robotId: string }
-   */
-  STOPPED: 'trajectory:stopped',
-  
-  /**
-   * Frame update during playback
-   * PAYLOAD: {
-   *   robotId: string,
-   *   currentFrame: number,
-   *   totalFrames: number,
-   *   progress: number,
-   *   jointValues: Object
-   * }
-   */
-  FRAME_UPDATE: 'trajectory:frame-update',
-  
-  /**
-   * Recording started
-   * PAYLOAD: {
-   *   robotId: string,
-   *   startTime: number
-   * }
-   */
-  RECORDING_STARTED: 'trajectory:recording-started',
-  
-  /**
-   * Recording stopped
-   * PAYLOAD: {
-   *   robotId: string,
-   *   duration: number,
-   *   frameCount: number,
-   *   trajectoryId?: string  // If saved
-   * }
-   */
-  RECORDING_STOPPED: 'trajectory:recording-stopped'
-};
-
-// ============================================
 // ENVIRONMENT EVENTS
 // ============================================
 /**
@@ -1168,6 +1053,93 @@ export const TCPEvents = {
 };
 
 // ============================================
+// END EFFECTOR EVENTS
+// ============================================
+/**
+ * End Effector events namespace
+ * 
+ * Dedicated namespace for end effector state management.
+ * Ensures end effector is always up to date regardless of TCP attachment.
+ * Primary consumers: Any component needing real-time end effector data
+ * 
+ * @namespace EndEffectorEvents
+ */
+export const EndEffectorEvents = {
+  /**
+   * End effector state updated (always emitted on any change)
+   * EMITTED BY: TCPContext, JointContext
+   * LISTENED BY: Any component needing end effector data
+   * PAYLOAD: {
+   *   robotId: string,
+   *   position: {x,y,z},           // World position
+   *   orientation: {x,y,z,w},      // World quaternion
+   *   hasTCP: boolean,             // Whether TCP tool is attached
+   *   tcpOffset?: {x,y,z},         // TCP offset if attached
+   *   toolDimensions?: {x,y,z},    // Tool dimensions if TCP attached
+   *   source: string,              // 'joint-change', 'tcp-attach', 'tcp-transform', etc.
+   *   timestamp: number            // Update timestamp
+   * }
+   */
+  UPDATED: 'endeffector:updated',
+  
+  /**
+   * Request current end effector state
+   * EMITTED BY: Any component
+   * LISTENED BY: TCPContext
+   * PAYLOAD: {
+   *   robotId: string,
+   *   requestId: string
+   * }
+   * RESPONSE: EndEffectorEvents.Responses.STATE
+   */
+  Commands: {
+    GET_STATE: 'endeffector:command:get-state',
+    
+    /**
+     * Force recalculation of end effector
+     * EMITTED BY: Any component
+     * LISTENED BY: TCPContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   requestId?: string
+     * }
+     */
+    RECALCULATE: 'endeffector:command:recalculate'
+  },
+  
+  /**
+   * Response events
+   */
+  Responses: {
+    /**
+     * Response to get end effector state
+     * PAYLOAD: {
+     *   robotId: string,
+     *   position: {x,y,z},
+     *   orientation: {x,y,z,w},
+     *   hasTCP: boolean,
+     *   tcpOffset?: {x,y,z},
+     *   toolDimensions?: {x,y,z},
+     *   requestId: string
+     * }
+     */
+    STATE: 'endeffector:response:state'
+  },
+  
+  /**
+   * End effector tracking started for robot
+   * PAYLOAD: { robotId: string }
+   */
+  TRACKING_STARTED: 'endeffector:tracking-started',
+  
+  /**
+   * End effector tracking stopped for robot
+   * PAYLOAD: { robotId: string }
+   */
+  TRACKING_STOPPED: 'endeffector:tracking-stopped'
+};
+
+// ============================================
 // CAMERA EVENTS
 // ============================================
 /**
@@ -1294,19 +1266,6 @@ export const EVENT_JOINT_RESET_RESPONSE = JointEvents.Responses.RESET;
 export const EVENT_IK_SOLVE = IKEvents.Commands.SOLVE;
 export const EVENT_IK_SOLUTION_FOUND = IKEvents.SOLUTION_FOUND;
 export const EVENT_IK_NO_SOLUTION = IKEvents.NO_SOLUTION;
-
-// Trajectory Events
-export const EVENT_TRAJECTORY_PLAY = TrajectoryEvents.Commands.PLAY;
-export const EVENT_TRAJECTORY_PAUSE = TrajectoryEvents.Commands.PAUSE;
-export const EVENT_TRAJECTORY_STOP = TrajectoryEvents.Commands.STOP;
-export const EVENT_TRAJECTORY_PLAYING = TrajectoryEvents.PLAYING;
-export const EVENT_TRAJECTORY_PAUSED = TrajectoryEvents.PAUSED;
-export const EVENT_TRAJECTORY_STOPPED = TrajectoryEvents.STOPPED;
-export const EVENT_TRAJECTORY_FRAME_UPDATE = TrajectoryEvents.FRAME_UPDATE;
-export const EVENT_TRAJECTORY_RECORD_START = TrajectoryEvents.Commands.RECORD_START;
-export const EVENT_TRAJECTORY_RECORD_STOP = TrajectoryEvents.Commands.RECORD_STOP;
-export const EVENT_TRAJECTORY_RECORDING_STARTED = TrajectoryEvents.RECORDING_STARTED;
-export const EVENT_TRAJECTORY_RECORDING_STOPPED = TrajectoryEvents.RECORDING_STOPPED;
 
 // Environment Events
 export const EVENT_ENVIRONMENT_OBJECT_SPAWNED = EnvironmentEvents.OBJECT_SPAWNED;

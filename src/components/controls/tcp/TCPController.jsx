@@ -148,13 +148,6 @@ const TCPController = React.memo(({ viewerRef }) => {
         )}
       </h3>
       
-      {/* Update Status */}
-      {system.lastUpdateTime && (
-        <div className="controls-text-muted controls-small controls-mb-2">
-          Last updated: {system.lastUpdateTime}
-        </div>
-      )}
-      
       {/* Initialization Status */}
       {!system.isInitialized && (
         <div className="controls-alert controls-alert-warning controls-mb-3">
