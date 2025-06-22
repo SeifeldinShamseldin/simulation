@@ -3,13 +3,18 @@ import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
+// Filter out globals with leading/trailing whitespace
+const cleanBrowserGlobals = Object.fromEntries(
+  Object.entries(globals.browser).filter(([key]) => key.trim() === key)
+)
+
 export default [
   { ignores: ['dist'] },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {
       ecmaVersion: 2020,
-      globals: globals.browser,
+      globals: cleanBrowserGlobals,
       parserOptions: {
         ecmaVersion: 'latest',
         ecmaFeatures: { jsx: true },

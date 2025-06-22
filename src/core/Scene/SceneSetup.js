@@ -1,4 +1,4 @@
-// src/core/Scene/SceneSetup.js - SCENE SETUP WITH MINIMAL PHYSICS (human only)
+// src/core/Scene/SceneSetup.js - OPTIMIZED VERSION
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
@@ -8,9 +8,12 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader';
 import EventBus from '../../utils/EventBus';
 
+// Debug flag
+const DEBUG = process.env.NODE_ENV === 'development';
+const log = DEBUG ? console.log : () => {};
+
 /**
- * SceneSetup class - Handles core 3D scene with minimal physics for humans only
- * Physics is limited to human movement and interaction
+ * Optimized SceneSetup class with proper resource management
  */
 class SceneSetup {
   constructor(container, options = {}, camera) {
@@ -19,39 +22,43 @@ class SceneSetup {
     
     // Validate container
     if (!container || !container.appendChild) {
-      throw new Error('SceneSetup: container must be a valid DOM element with appendChild method');
+      throw new Error('SceneSetup: container must be a valid DOM element');
     }
     
-    // Merge options with defaults
+    // Configuration
     this.backgroundColor = options.backgroundColor || '#f5f5f5';
     this.enableShadows = options.enableShadows !== undefined ? options.enableShadows : true;
     this.ambientColor = options.ambientColor || '#8ea0a8';
     this.upAxis = options.upAxis || '+Z';
     
-    // Dynamic environment system
+    // Resource management
     this.environmentObjects = new Map();
-    this.objectLoaders = this.initializeLoaders();
-    this.defaultMaterial = new THREE.MeshPhongMaterial({
-      color: 0x888888,
-      shininess: 100,
-      specular: 0x222222
-    });
+    this.objectLoaders = null; // Lazy initialization
+    this.defaultMaterial = null; // Lazy initialization
+    this.animationFrameId = null;
+    this.isDisposed = false;
+    
+    // Performance optimization
+    this.resizeTimeout = null;
+    this.lastFrameTime = 0;
+    this.targetFPS = 60;
+    this.frameInterval = 1000 / this.targetFPS;
     
     // Initialize scene components
     this.initScene();
     this.initRenderer();
-    this.initLights();
     this.initControls();
     this.initHumanPhysics();
     
-    // Add the renderer to the container
+    // Add renderer to container
     this.container.appendChild(this.renderer.domElement);
     
     // Start render loop
     this.startRenderLoop();
     
-    // Handle window resize
-    window.addEventListener('resize', this.handleResize.bind(this));
+    // Bind and add resize listener
+    this.boundHandleResize = this.handleResize.bind(this);
+    window.addEventListener('resize', this.boundHandleResize);
     this.handleResize();
   }
   
@@ -60,47 +67,41 @@ class SceneSetup {
    */
   initScene() {
     this.scene = new THREE.Scene();
-    // Only create robot root here; background/fog/lights are handled by WorldContext
     this.robotRoot = new THREE.Object3D();
+    this.robotRoot.name = 'RobotRoot';
     this.scene.add(this.robotRoot);
   }
   
   /**
-   * Initialize the renderer
+   * Initialize the renderer with optimized settings
    */
   initRenderer() {
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: true,
-      preserveDrawingBuffer: true
+      powerPreference: 'high-performance',
+      stencil: false,
+      depth: true
     });
     
     this.renderer.setClearColor(0xffffff, 0);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap at 2 for performance
     this.renderer.setSize(1, 1); // Will be resized
     
     // Configure shadows if enabled
     if (this.enableShadows) {
       this.renderer.shadowMap.enabled = true;
       this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      this.renderer.shadowMap.autoUpdate = false; // Manual update for performance
     }
     
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    
-    // High quality settings
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.2;
   }
   
   /**
-   * Initialize lights
-   */
-  initLights() {
-    // No-op: lights are now handled by WorldContext
-  }
-  
-  /**
-   * Initialize orbit controls
+   * Initialize orbit controls with optimizations
    */
   initControls() {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -112,35 +113,36 @@ class SceneSetup {
     this.controls.minDistance = 0.5;
     this.controls.maxDistance = 50;
     
-    // Emit camera updates when controls change
-    this.controls.addEventListener('change', () => {
+    // Store the change listener for cleanup
+    this.controlsChangeHandler = () => {
       EventBus.emit('scene:camera-moved', {
         position: this.camera.position.toArray(),
         target: this.controls.target.toArray()
       });
-    });
+    };
+    
+    this.controls.addEventListener('change', this.controlsChangeHandler);
   }
   
   /**
-   * Initialize minimal physics world for humans only
+   * Initialize minimal physics world for humans
    */
   initHumanPhysics() {
-    // Create minimal physics world for human movement
     this.world = new CANNON.World();
     this.world.gravity.set(0, -9.82, 0);
     this.world.broadphase = new CANNON.NaiveBroadphase();
     this.world.solver.iterations = 10;
     
-    // Create ground material for human interaction
-    this.groundMaterial = new CANNON.Material('ground');
+    // Use fixed timestep for consistent physics
+    this.world.defaultContactMaterial.friction = 0.4;
+    this.world.defaultContactMaterial.restitution = 0.3;
     
-    // Create physics ground body for humans to walk on
-    const groundShape = new CANNON.Box(
-      new CANNON.Vec3(500, 0.1, 500) // 1000x1000 units
-    );
+    // Create ground
+    this.groundMaterial = new CANNON.Material('ground');
+    const groundShape = new CANNON.Box(new CANNON.Vec3(500, 0.1, 500));
     
     this.groundBody = new CANNON.Body({
-      mass: 0, // Static body
+      mass: 0,
       shape: groundShape,
       material: this.groundMaterial,
       position: new CANNON.Vec3(0, -0.1, 0)
@@ -150,64 +152,112 @@ class SceneSetup {
   }
   
   /**
-   * Initialize object loaders
+   * Lazy initialize object loaders
    */
-  initializeLoaders() {
-    return {
-      gltf: new GLTFLoader(),
-      stl: new STLLoader(),
-      obj: new OBJLoader(),
-      mtl: new MTLLoader()
-    };
+  getObjectLoaders() {
+    if (!this.objectLoaders) {
+      const loadingManager = new THREE.LoadingManager();
+      
+      loadingManager.onStart = () => {
+        EventBus.emit('scene:loading-start');
+      };
+      
+      loadingManager.onLoad = () => {
+        EventBus.emit('scene:loading-complete');
+      };
+      
+      loadingManager.onError = (url) => {
+        console.error('Error loading:', url);
+        EventBus.emit('scene:loading-error', { url });
+      };
+      
+      this.objectLoaders = {
+        gltf: new GLTFLoader(loadingManager),
+        stl: new STLLoader(loadingManager),
+        obj: new OBJLoader(loadingManager),
+        mtl: new MTLLoader(loadingManager)
+      };
+    }
+    return this.objectLoaders;
   }
   
   /**
-   * Update human physics simulation
+   * Get default material (lazy initialization)
    */
-  updateHumanPhysics(deltaTime = 1/60) {
-    if (!this.world) return;
-    
-    // Step physics world for human movement
-    this.world.step(deltaTime);
+  getDefaultMaterial() {
+    if (!this.defaultMaterial) {
+      this.defaultMaterial = new THREE.MeshPhongMaterial({
+        color: 0x888888,
+        shininess: 100,
+        specular: 0x222222
+      });
+    }
+    return this.defaultMaterial;
   }
   
   /**
-   * Start the render loop
+   * Optimized render loop with FPS limiting
    */
   startRenderLoop() {
-    const animate = () => {
-      requestAnimationFrame(animate);
+    const animate = (currentTime) => {
+      if (this.isDisposed) return;
       
-      // Update human physics
-      this.updateHumanPhysics();
+      this.animationFrameId = requestAnimationFrame(animate);
       
-      // Update controls BEFORE rendering
-      if (this.controls && (this.controls.enabled === undefined || this.controls.enabled)) {
+      // FPS limiting
+      const deltaTime = currentTime - this.lastFrameTime;
+      if (deltaTime < this.frameInterval) return;
+      
+      this.lastFrameTime = currentTime - (deltaTime % this.frameInterval);
+      
+      // Update physics with fixed timestep
+      if (this.world) {
+        this.world.step(1/60);
+      }
+      
+      // Update controls
+      if (this.controls?.enabled !== false) {
         this.controls.update();
       }
       
-      // Single render call
+      // Update shadow map if needed
+      if (this.enableShadows && this.renderer.shadowMap.needsUpdate) {
+        this.renderer.shadowMap.needsUpdate = false;
+      }
+      
+      // Render
       if (this.renderer && this.scene && this.camera) {
         this.renderer.render(this.scene, this.camera);
       }
     };
     
-    animate();
+    animate(0);
   }
   
   /**
-   * Handle window resize
+   * Debounced resize handler
    */
   handleResize() {
-    if (!this.container || !this.camera || !this.renderer) return;
+    if (this.resizeTimeout) {
+      clearTimeout(this.resizeTimeout);
+    }
     
-    const width = this.container.clientWidth;
-    const height = this.container.clientHeight;
-    
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
-    
-    this.renderer.setSize(width, height);
+    this.resizeTimeout = setTimeout(() => {
+      if (!this.container || !this.camera || !this.renderer || this.isDisposed) return;
+      
+      const width = this.container.clientWidth;
+      const height = this.container.clientHeight;
+      
+      // Only update if size actually changed
+      if (this.renderer.domElement.width !== width || 
+          this.renderer.domElement.height !== height) {
+        this.camera.aspect = width / height;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(width, height);
+        
+        EventBus.emit('scene:resized', { width, height });
+      }
+    }, 150); // 150ms debounce
   }
   
   /**
@@ -217,22 +267,24 @@ class SceneSetup {
     if (!up) up = '+Z';
     
     up = up.toUpperCase();
-    const sign = up.replace(/[^-+]/g, '')[0] || '+';
+    const sign = up.includes('-') ? -1 : 1;
     const axis = up.replace(/[^XYZ]/gi, '')[0] || 'Z';
     
     const PI = Math.PI;
     const HALFPI = PI / 2;
     
-    // Reset rotation
     this.robotRoot.rotation.set(0, 0, 0);
     
-    // Apply rotation based on the up axis
-    if (axis === 'X') {
-      this.robotRoot.rotation.set(0, 0, sign === '+' ? HALFPI : -HALFPI);
-    } else if (axis === 'Z') {
-      this.robotRoot.rotation.set(sign === '+' ? -HALFPI : HALFPI, 0, 0);
-    } else if (axis === 'Y') {
-      this.robotRoot.rotation.set(sign === '+' ? 0 : PI, 0, 0);
+    switch (axis) {
+      case 'X':
+        this.robotRoot.rotation.z = sign * HALFPI;
+        break;
+      case 'Y':
+        this.robotRoot.rotation.x = sign === 1 ? 0 : PI;
+        break;
+      case 'Z':
+        this.robotRoot.rotation.x = sign * -HALFPI;
+        break;
     }
   }
   
@@ -246,56 +298,61 @@ class SceneSetup {
   }
   
   /**
-   * Set shadows enabled/disabled
+   * Toggle shadows
    */
   setShadows(enabled) {
     this.enableShadows = enabled;
     if (this.renderer) {
       this.renderer.shadowMap.enabled = enabled;
+      if (enabled) {
+        this.renderer.shadowMap.needsUpdate = true;
+      }
     }
   }
   
   /**
-   * Focus camera on an object
+   * Focus camera on object with smooth transition
    */
   focusOnObject(object, paddingMultiplier = 1.0) {
     if (!object || !this.camera || !this.controls) return;
     
-    // Calculate bounding box
     const box = new THREE.Box3().setFromObject(object);
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
     
-    // Calculate distance based on object size
     const maxDim = Math.max(size.x, size.y, size.z);
     const distance = maxDim * paddingMultiplier * 2;
     
-    // Set camera position
-    this.camera.position.copy(center);
-    this.camera.position.z += distance;
+    // Set new position
+    const newPosition = center.clone();
+    newPosition.z += distance;
     
-    // Set controls target
-    this.controls.target.copy(center);
-    this.controls.update();
+    // Smooth transition
+    const startPosition = this.camera.position.clone();
+    const startTarget = this.controls.target.clone();
+    let progress = 0;
+    
+    const animateFocus = () => {
+      progress += 0.05;
+      if (progress >= 1) {
+        this.camera.position.copy(newPosition);
+        this.controls.target.copy(center);
+        this.controls.update();
+        return;
+      }
+      
+      this.camera.position.lerpVectors(startPosition, newPosition, progress);
+      this.controls.target.lerpVectors(startTarget, center, progress);
+      this.controls.update();
+      
+      requestAnimationFrame(animateFocus);
+    };
+    
+    animateFocus();
   }
   
   /**
-   * Load table (placeholder - to be implemented)
-   */
-  async loadTable() {
-    console.warn('[SceneSetup] loadTable method not implemented');
-    return false;
-  }
-  
-  /**
-   * Set table visibility (placeholder - to be implemented)
-   */
-  setTableVisible(visible) {
-    console.warn('[SceneSetup] setTableVisible method not implemented');
-  }
-  
-  /**
-   * Load an environment object
+   * Load environment object with error handling
    */
   async loadEnvironmentObject(config) {
     const {
@@ -307,26 +364,35 @@ class SceneSetup {
     } = config;
     
     const extension = path.split('.').pop().toLowerCase();
-    const id = config.id || `env_object_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const id = config.id || `env_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     try {
+      const loaders = this.getObjectLoaders();
       let object;
       
       switch (extension) {
         case 'gltf':
         case 'glb':
-          const gltf = await this.objectLoaders.gltf.loadAsync(path);
+          const gltf = await loaders.gltf.loadAsync(path);
           object = gltf.scene;
+          
+          // Optimize GLTF animations if present
+          if (gltf.animations && gltf.animations.length > 0) {
+            const mixer = new THREE.AnimationMixer(object);
+            object.userData.mixer = mixer;
+            object.userData.animations = gltf.animations;
+          }
           break;
           
         case 'stl':
-          const geometry = await this.objectLoaders.stl.loadAsync(path);
-          const stlMaterial = material || this.defaultMaterial;
+          const geometry = await loaders.stl.loadAsync(path);
+          geometry.computeVertexNormals(); // Ensure proper lighting
+          const stlMaterial = material || this.getDefaultMaterial();
           object = new THREE.Mesh(geometry, stlMaterial);
           break;
           
         case 'obj':
-          object = await this.objectLoaders.obj.loadAsync(path);
+          object = await loaders.obj.loadAsync(path);
           if (material) {
             object.traverse((child) => {
               if (child.isMesh) child.material = material;
@@ -343,11 +409,17 @@ class SceneSetup {
       object.rotation.set(rotation.x, rotation.y, rotation.z);
       object.scale.set(scale.x, scale.y, scale.z);
       
-      // Enable shadows
+      // Optimize for rendering
       object.traverse((child) => {
         if (child.isMesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
+          child.castShadow = this.enableShadows;
+          child.receiveShadow = this.enableShadows;
+          child.frustumCulled = true;
+          
+          // Optimize geometry if possible
+          if (child.geometry && !child.geometry.attributes.normal) {
+            child.geometry.computeVertexNormals();
+          }
         }
       });
       
@@ -355,95 +427,78 @@ class SceneSetup {
       this.scene.add(object);
       this.environmentObjects.set(id, object);
       
+      // Update shadow map if needed
+      if (this.enableShadows) {
+        this.renderer.shadowMap.needsUpdate = true;
+      }
+      
       EventBus.emit('scene:object-loaded', { id, object, config });
       
       return { id, object };
       
     } catch (error) {
       console.error(`Failed to load environment object: ${path}`, error);
+      EventBus.emit('scene:object-load-error', { path, error });
       throw error;
     }
   }
   
   /**
-   * Load multiple environment objects
-   */
-  async loadEnvironmentObjects(objectConfigs, options = {}) {
-    const { layout = 'none', spacing = 2, centerOffset = { x: 0, y: 0, z: 0 } } = options;
-    const results = [];
-    
-    for (let i = 0; i < objectConfigs.length; i++) {
-      const config = { ...objectConfigs[i] };
-      
-      // Apply layout if specified
-      if (layout !== 'none' && !config.position) {
-        const radius = spacing * Math.sqrt(objectConfigs.length);
-        
-        switch (layout) {
-          case 'circle':
-            const angle = (i / objectConfigs.length) * Math.PI * 2;
-            config.position = {
-              x: centerOffset.x + Math.cos(angle) * radius,
-              y: centerOffset.y,
-              z: centerOffset.z + Math.sin(angle) * radius
-            };
-            break;
-          case 'grid':
-            const cols = Math.ceil(Math.sqrt(objectConfigs.length));
-            const row = Math.floor(i / cols);
-            const col = i % cols;
-            config.position = {
-              x: centerOffset.x + (col - cols / 2) * spacing,
-              y: centerOffset.y,
-              z: centerOffset.z + (row - cols / 2) * spacing
-            };
-            break;
-          case 'random':
-            config.position = {
-              x: centerOffset.x + (Math.random() - 0.5) * radius * 2,
-              y: centerOffset.y,
-              z: centerOffset.z + (Math.random() - 0.5) * radius * 2
-            };
-            break;
-        }
-      }
-      
-      try {
-        const object = await this.loadEnvironmentObject(config);
-        results.push(object);
-      } catch (error) {
-        console.error(`Failed to load object: ${config.path}`, error);
-      }
-    }
-    
-    return results;
-  }
-
-  /**
-   * Remove an environment object
+   * Remove environment object with proper cleanup
    */
   removeEnvironmentObject(id) {
     const object = this.environmentObjects.get(id);
-    if (object) {
-      // Remove from scene
-      this.scene.remove(object);
-      
-      // Dispose of resources
-      object.traverse((child) => {
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) {
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material.dispose();
-          }
-        }
-      });
-      
-      this.environmentObjects.delete(id);
-      
-      EventBus.emit('scene:object-removed', { id });
+    if (!object) return;
+    
+    // Stop animations if present
+    if (object.userData.mixer) {
+      object.userData.mixer.stopAllAction();
+      object.userData.mixer = null;
     }
+    
+    // Remove from scene
+    this.scene.remove(object);
+    
+    // Dispose resources
+    object.traverse((child) => {
+      if (child.geometry) {
+        child.geometry.dispose();
+      }
+      if (child.material) {
+        if (Array.isArray(child.material)) {
+          child.material.forEach(m => {
+            this.disposeMaterial(m);
+          });
+        } else {
+          this.disposeMaterial(child.material);
+        }
+      }
+    });
+    
+    this.environmentObjects.delete(id);
+    EventBus.emit('scene:object-removed', { id });
+  }
+  
+  /**
+   * Properly dispose material and its textures
+   */
+  disposeMaterial(material) {
+    if (!material) return;
+    
+    // Dispose textures
+    const textureProperties = [
+      'map', 'lightMap', 'bumpMap', 'normalMap', 
+      'specularMap', 'envMap', 'alphaMap', 'aoMap',
+      'emissiveMap', 'metalnessMap', 'roughnessMap'
+    ];
+    
+    textureProperties.forEach(prop => {
+      if (material[prop]) {
+        material[prop].dispose();
+      }
+    });
+    
+    material.dispose();
   }
   
   /**
@@ -455,80 +510,93 @@ class SceneSetup {
   }
   
   /**
-   * Get environment object by ID
-   */
-  getEnvironmentObject(id) {
-    return this.environmentObjects.get(id);
-  }
-  
-  /**
-   * Get all environment objects
-   */
-  getAllEnvironmentObjects() {
-    return Array.from(this.environmentObjects.entries()).map(([id, object]) => ({
-      id,
-      object
-    }));
-  }
-  
-  /**
-   * Update environment object transform
-   */
-  updateEnvironmentObject(id, updates) {
-    const object = this.environmentObjects.get(id);
-    if (!object) return;
-    
-    if (updates.position) {
-      object.position.set(
-        updates.position.x ?? object.position.x,
-        updates.position.y ?? object.position.y,
-        updates.position.z ?? object.position.z
-      );
-    }
-    
-    if (updates.rotation) {
-      object.rotation.set(
-        updates.rotation.x ?? object.rotation.x,
-        updates.rotation.y ?? object.rotation.y,
-        updates.rotation.z ?? object.rotation.z
-      );
-    }
-    
-    if (updates.scale) {
-      object.scale.set(
-        updates.scale.x ?? object.scale.x,
-        updates.scale.y ?? object.scale.y,
-        updates.scale.z ?? object.scale.z
-      );
-    }
-    
-    EventBus.emit('scene:object-updated', { id, updates });
-  }
-  
-  /**
-   * Dispose of all resources
+   * Complete disposal of all resources
    */
   dispose() {
-    // Clear environment objects
-    this.clearEnvironmentObjects();
+    log('[SceneSetup] Disposing all resources');
     
-    // Dispose of renderer
-    this.renderer.dispose();
+    this.isDisposed = true;
     
-    // Remove from container
-    if (this.renderer.domElement.parentElement) {
-      this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
+    // Cancel animation frame
+    if (this.animationFrameId) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+    
+    // Clear timeouts
+    if (this.resizeTimeout) {
+      clearTimeout(this.resizeTimeout);
     }
     
     // Remove event listeners
-    window.removeEventListener('resize', this.handleResize);
+    window.removeEventListener('resize', this.boundHandleResize);
     
-    // Clear human physics
+    if (this.controls) {
+      this.controls.removeEventListener('change', this.controlsChangeHandler);
+      this.controls.dispose();
+    }
+    
+    // Clear environment objects
+    this.clearEnvironmentObjects();
+    
+    // Dispose default material
+    if (this.defaultMaterial) {
+      this.defaultMaterial.dispose();
+    }
+    
+    // Dispose loaders
+    if (this.objectLoaders) {
+      // Loaders don't have dispose methods, but clear references
+      this.objectLoaders = null;
+    }
+    
+    // Clear physics world
     if (this.world) {
       while (this.world.bodies.length > 0) {
         this.world.removeBody(this.world.bodies[0]);
       }
+      this.world = null;
     }
+    
+    // Dispose renderer
+    if (this.renderer) {
+      this.renderer.dispose();
+      this.renderer.forceContextLoss();
+      
+      if (this.renderer.domElement.parentElement) {
+        this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
+      }
+    }
+    
+    // Clear all references
+    this.scene = null;
+    this.camera = null;
+    this.renderer = null;
+    this.controls = null;
+    this.robotRoot = null;
+    this.container = null;
+    
+    EventBus.emit('scene:disposed');
+  }
+  
+  /**
+   * Placeholder methods for compatibility
+   */
+  async loadTable() {
+    console.warn('[SceneSetup] loadTable not implemented');
+    return false;
+  }
+  
+  setTableVisible(visible) {
+    console.warn('[SceneSetup] setTableVisible not implemented');
+  }
+  
+  /**
+   * Update FPS target
+   */
+  setTargetFPS(fps) {
+    this.targetFPS = Math.max(1, Math.min(120, fps));
+    this.frameInterval = 1000 / this.targetFPS;
   }
 }
 

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
 import { useViewer } from './ViewerContext';
-import { useRobotSelection } from './hooks/useRobotManager';
+import { useRobotContext } from './RobotContext';
 import URDFLoader from '../core/Loader/URDFLoader';
 import MeshLoader from '../core/Loader/MeshLoader';
 import EventBus from '../utils/EventBus';
@@ -805,7 +805,8 @@ class OptimizedTCPManager {
 }
 
 export const TCPProvider = ({ children }) => {
-  const { isViewerReady, getSceneSetup, getRobotManager } = useViewer();
+  const { isViewerReady, getSceneSetup } = useViewer();
+  const robotManager = useRobotContext();
   const tcpManagerRef = useRef(null);
   
   // State
@@ -819,21 +820,17 @@ export const TCPProvider = ({ children }) => {
   useEffect(() => {
     if (isViewerReady) {
       const sceneSetup = getSceneSetup();
-      const robotManager = getRobotManager();
-      
       if (sceneSetup && robotManager) {
         if (!tcpManagerRef.current) {
           tcpManagerRef.current = new OptimizedTCPManager();
         }
-        
         tcpManagerRef.current.initialize(sceneSetup, robotManager);
         setIsInitialized(true);
         setError(null);
-        
         loadAvailableTools();
       }
     }
-  }, [isViewerReady, getSceneSetup, getRobotManager]);
+  }, [isViewerReady, getSceneSetup, robotManager]);
 
   // Event handlers
   useEffect(() => {

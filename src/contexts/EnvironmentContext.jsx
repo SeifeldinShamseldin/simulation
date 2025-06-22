@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { useViewer } from './ViewerContext';
+import { useRobotContext } from './RobotContext';
 import humanManager from '../components/Environment/Human/HumanController';
 import EventBus from '../utils/EventBus';
 import useCamera from './hooks/useCamera';
@@ -10,7 +11,8 @@ import useCamera from './hooks/useCamera';
 const EnvironmentContext = createContext(null);
 
 export const EnvironmentProvider = ({ children }) => {
-  const { isViewerReady, getSceneSetup, getRobotManager } = useViewer();
+  const { isViewerReady, getSceneSetup } = useViewer();
+  const robotManager = useRobotContext();
   
   // State
   const [categories, setCategories] = useState([]);
@@ -42,9 +44,9 @@ export const EnvironmentProvider = ({ children }) => {
   useEffect(() => {
     if (isViewerReady) {
       sceneSetupRef.current = getSceneSetup();
-      robotManagerRef.current = getRobotManager();
+      robotManagerRef.current = robotManager;
     }
-  }, [isViewerReady, getSceneSetup, getRobotManager]);
+  }, [isViewerReady, getSceneSetup, robotManager]);
 
   // ========== MERGED SCENE FUNCTIONS FROM useScene.js ==========
 

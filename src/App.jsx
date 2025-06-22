@@ -6,14 +6,11 @@ import Robot from './components/robot/Robot';
 import Environment from './components/Environment/Environment';
 import Navbar from './components/Navbar/Navbar';
 import ResizablePanel from './components/common/ResizablePanel';
-import TrajectoryLineVisualizer from './components/controls/recordmap/TrajectoryLineVisualizer';
 import { RobotProvider } from './contexts/RobotContext'; // Unified context
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
-import { IKProvider } from './contexts/IKContext';
 import { TCPProvider } from './contexts/TCPContext';
 import { JointProvider } from './contexts/JointContext';
-import { TrajectoryProvider } from './contexts/TrajectoryContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobotManager';
 import { CameraProvider } from './contexts/CameraContext';
@@ -91,7 +88,7 @@ const RobotPanel = ({ onClose, viewerRef }) => {
 const AppContent = () => {
   const [activePanel, setActivePanel] = useState(null);
   const [panelWidth, setPanelWidth] = useState(400);
-  const { setViewerInstance } = useViewer();
+  const { initializeViewer } = useViewer();
   const viewerRef = useRef(null);
 
   useEffect(() => {
@@ -100,11 +97,11 @@ const AppContent = () => {
 
   useEffect(() => {
     if (viewerRef.current) {
-      console.log('[App] Setting viewer instance');
-      setViewerInstance(viewerRef.current);
+      console.log('[App] Initializing viewer');
+      initializeViewer(viewerRef.current);
       window.viewerInstance = viewerRef.current;
     }
-  }, [setViewerInstance]);
+  }, [initializeViewer]);
 
   const handlePanelToggle = (panel) => {
     console.log('[App] Panel toggle requested:', panel);
@@ -187,7 +184,6 @@ const AppContent = () => {
             backgroundColor="#e6f2ff"
             enableShadows={true}
           />
-          <TrajectoryLineVisualizer />
         </div>
 
         {/* World Panel - Overlay */}
@@ -210,13 +206,9 @@ const App = () => {
           <EnvironmentProvider>
             <TCPProvider>
               <JointProvider>
-                <TrajectoryProvider>
-                  <IKProvider>
-                    <WorldProvider>
-                      <AppContent />
-                    </WorldProvider>
-                  </IKProvider>
-                </TrajectoryProvider>
+                <WorldProvider>
+                  <AppContent />
+                </WorldProvider>
               </JointProvider>
             </TCPProvider>
           </EnvironmentProvider>

@@ -52,17 +52,6 @@ export const useJoints = (robotIdOverride = null) => {
     return jointContext.getJointValues(robotId);
   }, [robotId, jointContext]);
   
-  // Get animation state for target robot
-  const isAnimating = useMemo(() => {
-    if (!robotId) return false;
-    return jointContext.isRobotAnimating(robotId);
-  }, [robotId, jointContext]);
-  
-  const animationProgress = useMemo(() => {
-    if (!robotId) return 0;
-    return jointContext.getAnimationProgress(robotId);
-  }, [robotId, jointContext]);
-  
   // Check if robot has joints
   const hasJoints = useMemo(() => {
     return jointInfo.length > 0;
@@ -172,12 +161,6 @@ export const useJoints = (robotIdOverride = null) => {
     return true;
   }, [robotId, isRobotReadyForControl, jointContext]);
   
-  // Stop animation
-  const stopAnimation = useCallback(() => {
-    if (!robotId) return;
-    jointContext.stopAnimation(robotId);
-  }, [robotId, jointContext]);
-  
   // Get all joint names
   const getAllJointNames = useCallback(() => {
     return jointInfo.map(joint => joint.name);
@@ -229,10 +212,10 @@ export const useJoints = (robotIdOverride = null) => {
     hasMovableJoints,
     movableJoints,
     
-    // Animation state
-    isAnimating,
-    animationProgress,
-    progress: animationProgress, // Alias for compatibility
+    // Animation state - REMOVED
+    isAnimating: false, // Always false
+    animationProgress: 0, // Always 0
+    progress: 0, // Alias for compatibility
     
     // Joint operations
     getJointValue,
@@ -241,7 +224,7 @@ export const useJoints = (robotIdOverride = null) => {
     setJointValue,
     setJointValues,
     resetJoints,
-    stopAnimation,
+    stopAnimation: () => {}, // No-op
     
     // Joint queries
     getMovableJoints,
@@ -249,20 +232,8 @@ export const useJoints = (robotIdOverride = null) => {
     getJointType,
     isJointMovable,
     
-    // Utility
-    debugJoint,
-    
-    // Status helpers
-    status: {
-      message: isAnimating ? `Animating... ${Math.round(animationProgress * 100)}%` :
-               !isRobotReadyForControl ? 'Robot Loading...' :
-               !hasJoints ? 'No joints' :
-               !hasMovableJoints ? 'No movable joints' :
-               'Ready',
-      canControl: isRobotReadyForControl && !isAnimating && hasMovableJoints,
-      jointCount: jointInfo.length,
-      movableCount: movableJoints.length
-    }
+    // Debug
+    debugJoint
   };
 };
 

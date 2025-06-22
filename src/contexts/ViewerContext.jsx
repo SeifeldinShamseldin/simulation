@@ -4,8 +4,8 @@ import * as THREE from 'three';
 import SceneSetup from '../core/Scene/SceneSetup';
 import { PointerURDFDragControls } from '../core/Loader/URDFControls';
 import EventBus from '../utils/EventBus';
-import { useCameraContext } from './CameraContext';
 import useCamera from './hooks/useCamera';
+import * as DataTransfer from './dataTransfer';
 
 const ViewerContext = createContext(null);
 
@@ -161,6 +161,7 @@ export const ViewerProvider = ({ children }) => {
     });
     
     EventBus.emit('viewer:initialized', { sceneSetup });
+    EventBus.emit(DataTransfer.EVENT_VIEWER_READY);
     
     return sceneSetup;
   }, [viewerConfig, camera]);
@@ -396,6 +397,29 @@ export const ViewerProvider = ({ children }) => {
       dispose();
     };
   }, [dispose]);
+  
+  // ========== EVENTBUS: Respond to robot:needs-scene requests ==========
+  useEffect(() => {
+    const handleSceneRequest = (request) => {
+      if (isViewerReady && sceneSetupRef.current) {
+        EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
+          success: true,
+          requestId: request.requestId,
+          payload: {
+            getSceneSetup: () => sceneSetupRef.current
+          }
+        });
+      } else {
+        EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
+          success: false,
+          requestId: request.requestId,
+          error: 'Viewer not initialized.'
+        });
+      }
+    };
+    EventBus.on(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
+    return () => EventBus.off(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
+  }, [isViewerReady]);
   
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(() => ({
