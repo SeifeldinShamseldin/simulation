@@ -7,6 +7,7 @@ import { useRobotContext } from './RobotContext';
 import humanManager from '../components/Environment/Human/HumanController';
 import EventBus from '../utils/EventBus';
 import useCamera from './hooks/useCamera';
+import * as DataTransfer from './dataTransfer';
 
 const EnvironmentContext = createContext(null);
 
@@ -82,7 +83,7 @@ export const EnvironmentProvider = ({ children }) => {
         ...metadata
       };
       
-      EventBus.emit('scene:object-registered', { type, id, object, metadata });
+      EventBus.emit(DataTransfer.EVENT_SCENE_OBJECT_REGISTERED, { type, id, object, metadata });
       console.log(`Registered ${type} object: ${id}`);
     } catch (error) {
       console.error('Error registering object:', error);
@@ -124,7 +125,7 @@ export const EnvironmentProvider = ({ children }) => {
         return newRegistries;
       });
       
-      EventBus.emit('scene:object-unregistered', { type, id });
+      EventBus.emit(DataTransfer.EVENT_SCENE_OBJECT_UNREGISTERED, { type, id });
       console.log(`Unregistered ${type} object: ${id}`);
     } catch (error) {
       console.error('Error unregistering object:', error);
@@ -173,7 +174,7 @@ export const EnvironmentProvider = ({ children }) => {
         return newPositions;
       });
       
-      EventBus.emit('human:removed', { id: instanceId });
+      EventBus.emit(DataTransfer.EVENT_HUMAN_REMOVED, { id: instanceId });
       return;
     }
     
@@ -251,9 +252,7 @@ export const EnvironmentProvider = ({ children }) => {
     object.updateMatrix();
     object.updateMatrixWorld(true);
     
-    sceneSetup.updateEnvironmentObject(instanceId, updates);
-    
-    EventBus.emit('scene:object-updated', { type: 'environment', id: instanceId, updates });
+    EventBus.emit(DataTransfer.EVENT_SCENE_OBJECT_UPDATED, { type: 'environment', id: instanceId, updates });
   }, []);
 
   // Smart placement calculation (from useSmartPlacement)
@@ -441,21 +440,21 @@ export const EnvironmentProvider = ({ children }) => {
 
   // Listen for human events
   useEffect(() => {
-    const unsubscribeSpawned = EventBus.on('human:spawned', (data) => {
+    const unsubscribeSpawned = EventBus.on(DataTransfer.EVENT_HUMAN_SPAWNED, (data) => {
       setSpawnedHumans(prev => [...prev, data]);
       if (data.isActive) {
         setSelectedHuman(data.id);
       }
     });
     
-    const unsubscribeRemoved = EventBus.on('human:removed', (data) => {
+    const unsubscribeRemoved = EventBus.on(DataTransfer.EVENT_HUMAN_REMOVED, (data) => {
       setSpawnedHumans(prev => prev.filter(h => h.id !== data.id));
       if (selectedHuman === data.id) {
         setSelectedHuman(null);
       }
     });
     
-    const unsubscribeSelected = EventBus.on('human:selected', (data) => {
+    const unsubscribeSelected = EventBus.on(DataTransfer.EVENT_HUMAN_SELECTED, (data) => {
       setSelectedHuman(data.id);
     });
 
@@ -474,7 +473,7 @@ export const EnvironmentProvider = ({ children }) => {
     };
 
     spawnedHumans.forEach(human => {
-      const unsubscribe = EventBus.on(`human:position-update:${human.id}`, handlePositionUpdate(human.id));
+      const unsubscribe = EventBus.on(DataTransfer.createHumanPositionEventName(human.id), handlePositionUpdate(human.id));
       unsubscribePositions.push(unsubscribe);
     });
     
@@ -507,7 +506,7 @@ export const EnvironmentProvider = ({ children }) => {
       }
     };
     
-    const unsubscribe = EventBus.on('world:fully-loaded', handleWorldFullyLoaded);
+    const unsubscribe = EventBus.on(DataTransfer.EVENT_WORLD_FULLY_LOADED, handleWorldFullyLoaded);
     return () => unsubscribe();
   }, []);
 
@@ -615,7 +614,7 @@ export const EnvironmentProvider = ({ children }) => {
         if (result) {
           const { id, human } = result;
           
-          const unsubscribe = EventBus.on(`human:position-update:${id}`, (data) => {
+          const unsubscribe = EventBus.on(DataTransfer.createHumanPositionEventName(id), (data) => {
             if (data.position) {
               setHumanPositions(prev => ({
                 ...prev,
@@ -649,7 +648,7 @@ export const EnvironmentProvider = ({ children }) => {
           setSuccessMessage('Human spawned! Click "Move Human" to control.');
           setTimeout(() => setSuccessMessage(''), 5000);
           
-          EventBus.emit('human:spawned', {
+          EventBus.emit(DataTransfer.EVENT_HUMAN_SPAWNED, {
             id: id,
             name: objectConfig.name,
             isActive: false

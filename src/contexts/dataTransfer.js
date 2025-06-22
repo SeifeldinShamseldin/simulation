@@ -1118,57 +1118,133 @@ export const EVENT_ENVIRONMENT_OBJECT_REMOVED = 'environment:object-removed';
  */
 export const EVENT_ENVIRONMENT_OBJECT_SELECTED = 'environment:object-selected';
 
-// ============================================
-// CAMERA CONTEXT
-// ============================================
+// --- SCENE EVENTS ---
 
 /**
- * EVENT: camera:position-changed
- * EMITTED BY: CameraContext
+ * EVENT: scene:object-registered
+ * EMITTED BY: EnvironmentContext
+ * LISTENED BY: Debug tools, UI components
+ * 
+ * PURPOSE: Object registered with scene
+ * WHEN: Object added to scene registry
+ * 
+ * PAYLOAD: {
+ *   type: String,      // 'robots', 'environment', 'trajectories', 'humans', 'custom'
+ *   id: String,
+ *   object: Object,
+ *   metadata: Object
+ * }
+ */
+export const EVENT_SCENE_OBJECT_REGISTERED = 'scene:object-registered';
+
+/**
+ * EVENT: scene:object-unregistered
+ * EMITTED BY: EnvironmentContext
+ * LISTENED BY: Debug tools, UI components
+ * 
+ * PURPOSE: Object removed from scene registry
+ * WHEN: Object removed from scene
+ * 
+ * PAYLOAD: {
+ *   type: String,
+ *   id: String
+ * }
+ */
+export const EVENT_SCENE_OBJECT_UNREGISTERED = 'scene:object-unregistered';
+
+/**
+ * EVENT: scene:object-updated
+ * EMITTED BY: EnvironmentContext
  * LISTENED BY: UI components
  * 
- * PURPOSE: Camera position updated
- * WHEN: Camera moves
+ * PURPOSE: Scene object properties updated
+ * WHEN: Object position/rotation/scale changed
  * 
  * PAYLOAD: {
- *   position: Object,     // { x, y, z }
- *   target: Object,       // { x, y, z }
- *   zoom: Number
+ *   type: String,
+ *   id: String,
+ *   updates: Object    // { position?, rotation?, scale?, visible? }
  * }
  */
-export const EVENT_CAMERA_POSITION_CHANGED = 'camera:position-changed';
+export const EVENT_SCENE_OBJECT_UPDATED = 'scene:object-updated';
+
+// --- HUMAN EVENTS ---
 
 /**
- * EVENT: camera:command:focus
- * EMITTED BY: Any component
- * LISTENED BY: CameraContext
+ * EVENT: human:spawned
+ * EMITTED BY: EnvironmentContext, HumanController
+ * LISTENED BY: EnvironmentContext, UI components
  * 
- * PURPOSE: Focus camera on object
- * WHEN: Component wants to focus camera
+ * PURPOSE: Human character spawned in scene
+ * WHEN: Human added to environment
  * 
  * PAYLOAD: {
- *   target: Object|String,  // Object3D or object ID
- *   distance?: Number,
- *   duration?: Number
+ *   id: String,
+ *   name: String,
+ *   isActive: Boolean
  * }
  */
-export const EVENT_CAMERA_FOCUS = 'camera:command:focus';
+export const EVENT_HUMAN_SPAWNED = 'human:spawned';
 
 /**
- * EVENT: camera:command:reset
- * EMITTED BY: Any component
- * LISTENED BY: CameraContext
+ * EVENT: human:removed
+ * EMITTED BY: EnvironmentContext, HumanController
+ * LISTENED BY: EnvironmentContext, UI components
  * 
- * PURPOSE: Reset camera to default position
- * WHEN: User clicks reset camera
+ * PURPOSE: Human character removed from scene
+ * WHEN: Human deleted
  * 
- * PAYLOAD: {} // No payload needed
+ * PAYLOAD: {
+ *   id: String
+ * }
  */
-export const EVENT_CAMERA_RESET = 'camera:command:reset';
+export const EVENT_HUMAN_REMOVED = 'human:removed';
+
+/**
+ * EVENT: human:selected
+ * EMITTED BY: HumanController
+ * LISTENED BY: EnvironmentContext
+ * 
+ * PURPOSE: Human character selected
+ * WHEN: User clicks on human
+ * 
+ * PAYLOAD: {
+ *   id: String
+ * }
+ */
+export const EVENT_HUMAN_SELECTED = 'human:selected';
+
+/**
+ * EVENT: human:position-update:{id}
+ * EMITTED BY: HumanController
+ * LISTENED BY: EnvironmentContext
+ * 
+ * PURPOSE: Human position updated
+ * WHEN: Human moves
+ * 
+ * PAYLOAD: {
+ *   position: Array    // [x, y, z]
+ * }
+ * 
+ * NOTE: {id} is replaced with the actual human ID
+ */
+export const EVENT_HUMAN_POSITION_UPDATE = 'human:position-update';
 
 // ============================================
 // WORLD CONTEXT
 // ============================================
+
+/**
+ * EVENT: world:reset
+ * EMITTED BY: WorldContext
+ * LISTENED BY: UI components
+ * 
+ * PURPOSE: World reset to defaults
+ * WHEN: User resets world
+ * 
+ * PAYLOAD: none
+ */
+export const EVENT_WORLD_RESET = 'world:reset';
 
 /**
  * EVENT: world:gravity-changed
@@ -1183,6 +1259,22 @@ export const EVENT_CAMERA_RESET = 'camera:command:reset';
  * }
  */
 export const EVENT_WORLD_GRAVITY_CHANGED = 'world:gravity-changed';
+
+/**
+ * EVENT: world:fully-loaded
+ * EMITTED BY: WorldAPI, SceneSetup
+ * LISTENED BY: EnvironmentContext
+ * 
+ * PURPOSE: World scene fully loaded with all objects
+ * WHEN: Scene loading complete
+ * 
+ * PAYLOAD: {
+ *   environment: Array,    // Environment objects
+ *   robots: Array,        // Robot objects
+ *   timestamp: Number
+ * }
+ */
+export const EVENT_WORLD_FULLY_LOADED = 'world:fully-loaded';
 
 /**
  * EVENT: world:grid-toggled
@@ -1398,3 +1490,12 @@ export const createEmitter = (eventName) => {
 export const createListener = (eventName) => {
   return (handler) => EventBus.on(eventName, handler);
 };
+
+/**
+ * Utility to generate the event name for human position updates
+ * @param {string} id - Human ID
+ * @returns {string} Event name for position update
+ */
+export function createHumanPositionEventName(id) {
+  return `human:position-update:${id}`;
+}

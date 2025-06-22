@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useCallback, useRef, useEff
 import * as THREE from 'three';
 import { useViewer } from './ViewerContext';
 import EventBus from '../utils/EventBus';
+import * as DataTransfer from './dataTransfer';
 
 const WorldContext = createContext(null);
 
@@ -97,7 +98,7 @@ export const WorldProvider = ({ children }) => {
 
     worldInitializedRef.current = true;
     setIsWorldReady(true);
-    EventBus.emit('world:ready', { ground, gridHelper });
+    EventBus.emit(DataTransfer.EVENT_WORLD_READY, { ground, gridHelper });
     return true;
   }, [viewerContext]);
   
@@ -107,7 +108,7 @@ export const WorldProvider = ({ children }) => {
     if (groundRef.current?.material) {
       groundRef.current.material.color.set(color);
       setWorldConfig(prev => ({ ...prev, groundColor: color }));
-      EventBus.emit('world:ground-color-changed', { color });
+      EventBus.emit(DataTransfer.EVENT_WORLD_GROUND_COLOR_CHANGED, { color });
     }
   }, []);
   
@@ -123,7 +124,7 @@ export const WorldProvider = ({ children }) => {
       }
       
       setWorldConfig(prev => ({ ...prev, groundOpacity: clampedOpacity }));
-      EventBus.emit('world:ground-opacity-changed', { opacity: clampedOpacity });
+      EventBus.emit(DataTransfer.EVENT_WORLD_GROUND_OPACITY_CHANGED, { opacity: clampedOpacity });
     }
   }, [worldConfig.showGrid]);
   
@@ -136,7 +137,7 @@ export const WorldProvider = ({ children }) => {
       });
       
       setWorldConfig(prev => ({ ...prev, ...updates }));
-      EventBus.emit('world:ground-material-changed', updates);
+      EventBus.emit(DataTransfer.EVENT_WORLD_GROUND_MATERIAL_CHANGED, updates);
     }
   }, []);
   
@@ -145,7 +146,7 @@ export const WorldProvider = ({ children }) => {
       const shouldShow = show ?? !gridHelperRef.current.visible;
       gridHelperRef.current.visible = shouldShow;
       setWorldConfig(prev => ({ ...prev, showGrid: shouldShow }));
-      EventBus.emit('world:grid-toggled', { visible: shouldShow });
+      EventBus.emit(DataTransfer.EVENT_WORLD_GRID_TOGGLED, { visible: shouldShow });
     }
   }, []);
   
@@ -154,7 +155,7 @@ export const WorldProvider = ({ children }) => {
       const shouldShow = show ?? !groundRef.current.visible;
       groundRef.current.visible = shouldShow;
       setWorldConfig(prev => ({ ...prev, showGround: shouldShow }));
-      EventBus.emit('world:ground-toggled', { visible: shouldShow });
+      EventBus.emit(DataTransfer.EVENT_WORLD_GROUND_TOGGLED, { visible: shouldShow });
     }
   }, []);
   
@@ -186,7 +187,7 @@ export const WorldProvider = ({ children }) => {
     gridHelperRef.current = gridHelper;
     
     setWorldConfig(prev => ({ ...prev, ...updates }));
-    EventBus.emit('world:grid-updated', updates);
+    EventBus.emit(DataTransfer.EVENT_WORLD_GRID_UPDATED, updates);
   }, [viewerContext, worldConfig]);
   
   // ========== WORLD STATE ==========
@@ -236,7 +237,7 @@ export const WorldProvider = ({ children }) => {
       setWorldState({ config: DEFAULT_WORLD_CONFIG });
     }
     
-    EventBus.emit('world:reset');
+    EventBus.emit(DataTransfer.EVENT_WORLD_RESET);
   }, [setWorldState]);
   
   // ========== CLEANUP ==========

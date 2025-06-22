@@ -245,14 +245,6 @@ class HumanController {
       return;
     }
 
-    // Debug log for movement state
-    console.log('Movement state:', {
-      enabled: this.movementEnabled,
-      keysPressed: this.keysPressed,
-      velocity: this.body.velocity,
-      position: this.model.position
-    });
-
     // Only process movement if enabled
     if (!this.movementEnabled) {
       // If movement disabled, ensure idle animation
