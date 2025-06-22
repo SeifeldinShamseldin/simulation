@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import * as THREE from 'three';
 import EventBus from '../utils/EventBus';
 import URDFLoader from '../core/Loader/URDFLoader';
-import * as DataTransfer from './dataTransfer.js';
+import * as DataTransfer from './dataTransfer';
 
 // Debug flag - set to false in production
 const DEBUG = process.env.NODE_ENV === 'development';

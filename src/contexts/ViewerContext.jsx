@@ -5,7 +5,7 @@ import SceneSetup from '../core/Scene/SceneSetup';
 import { PointerURDFDragControls } from '../core/Loader/URDFControls';
 import EventBus from '../utils/EventBus';
 import useCamera from './hooks/useCamera';
-import * as DataTransfer from './dataTransfer.js';
+import * as DataTransfer from './dataTransfer';
 
 const ViewerContext = createContext(null);
 

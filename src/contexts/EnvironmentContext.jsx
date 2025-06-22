@@ -252,6 +252,8 @@ export const EnvironmentProvider = ({ children }) => {
     object.updateMatrix();
     object.updateMatrixWorld(true);
     
+    sceneSetup.updateEnvironmentObject(instanceId, updates);
+    
     EventBus.emit(DataTransfer.EVENT_SCENE_OBJECT_UPDATED, { type: 'environment', id: instanceId, updates });
   }, []);
 

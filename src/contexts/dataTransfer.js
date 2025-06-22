@@ -1,1445 +1,1303 @@
 // src/contexts/dataTransfer.js
-// GLOBAL EventBus Contract & Shared Utilities
-//
-// This file documents all EventBus events used across contexts.
-// Each context section is independent and shows:
-// - What events it EMITS (outgoing data)
-// - What events it LISTENS TO (incoming data)
-//
-// Usage:
-//   import * as DataTransfer from './dataTransfer';
-//   EventBus.emit(DataTransfer.EVENT_ROBOT_LOADED, payload);
+/**
+ * MODULAR EventBus Contract - Centralized Event Architecture
+ * 
+ * This file defines all EventBus events used across the application, organized into
+ * modular namespaces. Each namespace represents a specific domain/context and can be
+ * imported and extended independently.
+ * 
+ * ARCHITECTURE:
+ * - Each context (Robot, Viewer, TCP, etc.) has its own event namespace
+ * - Events are categorized as: System Events, State Events, Commands, and Responses
+ * - Legacy exports are maintained for backward compatibility
+ * - Utility functions help with common event patterns
+ * 
+ * USAGE PATTERNS:
+ * 
+ * 1. Import specific namespaces:
+ *    import { RobotEvents, TCPEvents } from './dataTransfer';
+ * 
+ * 2. Emit events:
+ *    EventBus.emit(RobotEvents.LOADED, { robotId, robot });
+ * 
+ * 3. Listen to events:
+ *    EventBus.on(RobotEvents.Commands.MOVE_JOINT, (payload) => {
+ *      console.log(payload.robotId, payload.jointName, payload.value);
+ *    });
+ * 
+ * 4. Command/Response pattern:
+ *    createRequest(JointEvents.Commands.GET_VALUES, 
+ *      { robotId: 'ur5_001' }, 
+ *      (response) => console.log(response.values)
+ *    );
+ * 
+ * 5. Extend namespaces:
+ *    RobotEvents.MY_CUSTOM_EVENT = 'robot:my-custom-event';
+ * 
+ * @module dataTransfer
+ */
+
+import EventBus from '../utils/EventBus';
 
 // ============================================
-// ROBOT CONTEXT
+// ROBOT EVENTS
 // ============================================
-
-// --- EVENTS EMITTED BY ROBOT CONTEXT ---
-
 /**
- * EVENT: robot:needs-scene
- * EMITTED BY: RobotContext
- * LISTENED BY: ViewerContext
+ * Robot-related events namespace
  * 
- * PURPOSE: Request access to the 3D scene from ViewerContext
- * WHEN: On RobotContext initialization when it needs to load robots
+ * Handles all robot lifecycle, state changes, joint control, and workspace management.
+ * Primary consumers: RobotContext, JointContext, UI Components
  * 
- * PAYLOAD: {
- *   requestId: String  // Unique ID to match request/response
- * }
+ * @namespace RobotEvents
  */
-export const EVENT_ROBOT_NEEDS_SCENE = 'robot:needs-scene';
-
-/**
- * EVENT: robot:loaded
- * EMITTED BY: RobotContext
- * LISTENED BY: JointContext, ViewerContext, UI components, others
- * 
- * PURPOSE: Announce that a robot has been successfully loaded
- * WHEN: After a robot URDF is loaded and added to the scene
- * 
- * PAYLOAD: {
- *   robotId: String,      // Unique identifier for the robot
- *   robotName: String,    // Display name of the robot
- *   robot: Object,        // THREE.js robot object with joints
- *   manufacturer: String, // Robot manufacturer
- *   position: Object      // { x, y, z } position in scene
- * }
- */
-export const EVENT_ROBOT_LOADED = 'robot:loaded';
-
-/**
- * EVENT: robot:unloaded
- * EMITTED BY: RobotContext
- * LISTENED BY: JointContext, ViewerContext, others
- * 
- * PURPOSE: Announce that a robot has been removed from the scene
- * WHEN: When unloadRobot() is called
- * 
- * PAYLOAD: {
- *   robotId: String  // ID of the robot that was unloaded
- * }
- */
-export const EVENT_ROBOT_UNLOADED = 'robot:unloaded';
-
-/**
- * EVENT: robot:active-changed
- * EMITTED BY: RobotContext
- * LISTENED BY: JointContext, UI components
- * 
- * PURPOSE: Notify when the active robot selection changes
- * WHEN: When setActiveRobotId() is called
- * 
- * PAYLOAD: {
- *   robotId: String,     // ID of the newly active robot (or null)
- *   robot: Object        // Robot object (or null)
- * }
- */
-export const EVENT_ROBOT_ACTIVE_CHANGED = 'robot:active-changed';
-
-/**
- * EVENT: robot:joints-changed
- * EMITTED BY: RobotContext, JointContext
- * LISTENED BY: JointContext, UI components, TrajectoryContext
- * 
- * PURPOSE: Notify when robot joint values have been updated
- * WHEN: After setJointValues() successfully updates joints
- * 
- * PAYLOAD: {
- *   robotId: String,        // ID of the robot
- *   robotName: String,      // Name of the robot
- *   values: Object,         // { jointName: value, ... }
- *   source: String          // 'manual', 'ik', 'trajectory', etc.
- * }
- */
-export const EVENT_ROBOT_JOINTS_CHANGED = 'robot:joints-changed';
-
-/**
- * EVENT: robot:joint-changed
- * EMITTED BY: RobotContext, JointContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when a single joint value changes
- * WHEN: After setJointValue() updates a joint
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   robotName: String,
- *   jointName: String,
- *   value: Number,
- *   allValues: Object    // All current joint values
- * }
- */
-export const EVENT_ROBOT_JOINT_CHANGED = 'robot:joint-changed';
-
-/**
- * EVENT: robot:joints-reset
- * EMITTED BY: RobotContext
- * LISTENED BY: JointContext, UI components
- * 
- * PURPOSE: Notify when robot joints have been reset to zero
- * WHEN: After resetJoints() is called
- * 
- * PAYLOAD: {
- *   robotId: String,     // ID of the robot
- *   robotName: String    // Name of the robot
- * }
- */
-export const EVENT_ROBOT_JOINTS_RESET = 'robot:joints-reset';
-
-/**
- * EVENT: robot:removed
- * EMITTED BY: RobotContext
- * LISTENED BY: ViewerContext, others
- * 
- * PURPOSE: Notify when a robot is removed (unloaded)
- * WHEN: When removeRobot() is called
- * 
- * PAYLOAD: {
- *   robotId: String,     // ID of the removed robot
- *   robotName: String    // Name of the removed robot
- * }
- */
-export const EVENT_ROBOT_REMOVED = 'robot:removed';
-
-/**
- * EVENT: robot:workspace-updated
- * EMITTED BY: RobotContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when workspace robots list changes
- * WHEN: When robots are added/removed from workspace
- * 
- * PAYLOAD: {
- *   robots: Array,      // Current workspace robots
- *   action: String,     // 'add', 'remove', 'clear'
- *   robotId?: String    // Affected robot ID (if applicable)
- * }
- */
-export const EVENT_ROBOT_WORKSPACE_UPDATED = 'robot:workspace-updated';
-
-/**
- * EVENT: robot:discovery-complete
- * EMITTED BY: RobotContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when robot discovery/scanning is complete
- * WHEN: After discoverRobots() completes
- * 
- * PAYLOAD: {
- *   categories: Array,     // Robot categories
- *   robots: Array,         // All discovered robots
- *   count: Number         // Total robot count
- * }
- */
-export const EVENT_ROBOT_DISCOVERY_COMPLETE = 'robot:discovery-complete';
-
-/**
- * EVENT: robot:loading-state-changed
- * EMITTED BY: RobotContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when a robot's loading state changes
- * WHEN: During robot loading process
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   state: String,        // 'idle', 'loading', 'loaded', 'error'
- *   progress?: Number,    // Loading progress (0-1)
- *   error?: String       // Error message if state is 'error'
- * }
- */
-export const EVENT_ROBOT_LOADING_STATE_CHANGED = 'robot:loading-state-changed';
-
-/**
- * EVENT: robot:position-changed
- * EMITTED BY: RobotContext
- * LISTENED BY: UI components, collision detection
- * 
- * PURPOSE: Notify when robot position in scene changes
- * WHEN: When robot is moved/repositioned
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   position: Object,     // { x, y, z }
- *   rotation?: Object    // { x, y, z } euler angles
- * }
- */
-export const EVENT_ROBOT_POSITION_CHANGED = 'robot:position-changed';
-
-/**
- * EVENT: robot:tcp-attached
- * EMITTED BY: RobotContext/TCPContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when TCP tool is attached to robot
- * WHEN: When attachTCP() is called
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   toolId: String,
- *   toolData: Object     // Tool information
- * }
- */
-export const EVENT_ROBOT_TCP_ATTACHED = 'robot:tcp-attached';
-
-/**
- * EVENT: robot:tcp-detached
- * EMITTED BY: RobotContext/TCPContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when TCP tool is detached from robot
- * WHEN: When detachTCP() is called
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   toolId: String
- * }
- */
-export const EVENT_ROBOT_TCP_DETACHED = 'robot:tcp-detached';
-
-/**
- * EVENT: robot:registered
- * EMITTED BY: RobotContext
- * LISTENED BY: JointContext
- * 
- * PURPOSE: Register a robot instance for joint control
- * WHEN: After robot is fully loaded and validated
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   robotName: String,
- *   robot: Object
- * }
- */
-export const EVENT_ROBOT_REGISTERED = 'robot:registered';
-
-// --- GLOBAL CONTROL EVENTS (Can be emitted by any component) ---
-
-/**
- * EVENT: robot:command:move-joint
- * EMITTED BY: Any component/context
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Command to move a single robot joint
- * WHEN: Any component wants to move a robot joint
- * 
- * PAYLOAD: {
- *   robotId: String,      // Target robot ID
- *   jointName: String,    // Joint to move
- *   value: Number,        // Target angle (radians)
- *   duration?: Number,    // Animation duration (ms)
- *   easing?: String      // Easing function name
- * }
- * 
- * USAGE EXAMPLE:
- * EventBus.emit(DataTransfer.EVENT_MOVE_JOINT, {
- *   robotId: 'ur5_123',
- *   jointName: 'shoulder_pan_joint',
- *   value: 1.57,
- *   duration: 1000
- * });
- */
-export const EVENT_MOVE_JOINT = 'robot:command:move-joint';
-
-/**
- * EVENT: robot:command:move-joints
- * EMITTED BY: Any component/context
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Command to move multiple robot joints
- * WHEN: Any component wants to move multiple joints
- * 
- * PAYLOAD: {
- *   robotId: String,      // Target robot ID
- *   values: Object,       // { jointName: value, ... }
- *   duration?: Number,    // Animation duration (ms)
- *   simultaneous?: Boolean // Move all joints at once
- * }
- * 
- * USAGE EXAMPLE:
- * EventBus.emit(DataTransfer.EVENT_MOVE_JOINTS, {
- *   robotId: 'ur5_123',
- *   values: {
- *     'shoulder_pan_joint': 1.57,
- *     'shoulder_lift_joint': -0.5,
- *     'elbow_joint': 1.2
- *   },
- *   duration: 2000
- * });
- */
-export const EVENT_MOVE_JOINTS = 'robot:command:move-joints';
-
-/**
- * EVENT: robot:command:request-joints
- * EMITTED BY: Any component/context
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Request current joint values
- * WHEN: Component needs to know current joint positions
- * 
- * PAYLOAD: {
- *   robotId: String,      // Target robot ID
- *   requestId: String     // Unique request ID for response matching
- * }
- * 
- * RESPONSE EVENT: robot:response:joint-values
- */
-export const EVENT_REQUEST_JOINTS = 'robot:command:request-joints';
-
-/**
- * EVENT: robot:response:joint-values
- * EMITTED BY: RobotContext
- * LISTENED BY: Requesting component
- * 
- * PURPOSE: Response to joint values request
- * WHEN: In response to EVENT_REQUEST_JOINTS
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   requestId: String,    // Matching request ID
- *   values: Object,       // { jointName: value, ... }
- *   timestamp: Number     // When values were read
- * }
- */
-export const EVENT_RECEIVE_JOINTS = 'robot:response:joint-values';
-
-/**
- * EVENT: robot:command:load
- * EMITTED BY: Any component/context
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Command to load a robot
- * WHEN: Component wants to load a robot
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   urdfPath: String,
- *   options?: {
- *     position?: Object,    // { x, y, z }
- *     manufacturer?: String,
- *     requestId?: String   // For tracking request
- *   }
- * }
- */
-export const EVENT_COMMAND_LOAD_ROBOT = 'robot:command:load';
-
-/**
- * EVENT: robot:command:unload
- * EMITTED BY: Any component/context
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Command to unload a robot
- * WHEN: Component wants to unload a robot
- * 
- * PAYLOAD: {
- *   robotId: String
- * }
- */
-export const EVENT_COMMAND_UNLOAD_ROBOT = 'robot:command:unload';
-
-/**
- * EVENT: robot:command:set-active
- * EMITTED BY: Any component/context
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Command to set the active robot
- * WHEN: Component wants to change active robot
- * 
- * PAYLOAD: {
- *   robotId: String    // null to deactivate all
- * }
- */
-export const EVENT_COMMAND_SET_ACTIVE_ROBOT = 'robot:command:set-active';
-
-/**
- * EVENT: robot:command:reset-joints
- * EMITTED BY: Any component/context
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Command to reset robot joints to zero
- * WHEN: Component wants to reset robot pose
- * 
- * PAYLOAD: {
- *   robotId: String
- * }
- */
-export const EVENT_COMMAND_RESET_JOINTS = 'robot:command:reset-joints';
-
-/**
- * EVENT: robot:command:add-to-workspace
- * EMITTED BY: Any component/context
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Command to add robot to workspace
- * WHEN: User selects robot from catalog
- * 
- * PAYLOAD: {
- *   robotData: Object    // Robot catalog data
- * }
- */
-export const EVENT_COMMAND_ADD_TO_WORKSPACE = 'robot:command:add-to-workspace';
-
-/**
- * EVENT: robot:command:remove-from-workspace
- * EMITTED BY: Any component/context
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Command to remove robot from workspace
- * WHEN: User removes robot from workspace
- * 
- * PAYLOAD: {
- *   workspaceRobotId: String
- * }
- */
-export const EVENT_COMMAND_REMOVE_FROM_WORKSPACE = 'robot:command:remove-from-workspace';
-
-/**
- * EVENT: robot:command:discover
- * EMITTED BY: Any component/context
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Command to discover available robots
- * WHEN: UI needs to refresh robot catalog
- * 
- * PAYLOAD: {} // No payload needed
- */
-export const EVENT_COMMAND_DISCOVER_ROBOTS = 'robot:command:discover';
-
-/**
- * EVENT: robot:command:set-position
- * EMITTED BY: Any component/context
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Command to set robot position in scene
- * WHEN: Component wants to move robot
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   position: Object,     // { x, y, z }
- *   rotation?: Object    // { x, y, z } euler angles
- * }
- */
-export const EVENT_COMMAND_SET_ROBOT_POSITION = 'robot:command:set-position';
-
-// --- EVENTS LISTENED TO BY ROBOT CONTEXT ---
-
-/**
- * EVENT: viewer:ready
- * EMITTED BY: ViewerContext
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Signal that the viewer is initialized and ready
- * WHEN: After ViewerContext initializes the 3D scene
- * 
- * EXPECTED PAYLOAD: none
- * 
- * RESPONSE ACTION: RobotContext will emit robot:needs-scene
- */
-export const EVENT_VIEWER_READY = 'viewer:ready';
-
-/**
- * EVENT: viewer:here-is-the-scene
- * EMITTED BY: ViewerContext
- * LISTENED BY: RobotContext
- * 
- * PURPOSE: Provide scene access in response to robot:needs-scene
- * WHEN: In response to EVENT_ROBOT_NEEDS_SCENE request
- * 
- * EXPECTED PAYLOAD: {
- *   success: Boolean,          // Whether scene is available
- *   requestId: String,         // Matching request ID
- *   payload: {
- *     getSceneSetup: Function  // () => sceneSetup instance
- *   },
- *   error?: String            // Error message if success=false
- * }
- * 
- * RESPONSE ACTION: Initialize URDF loader and process queued robot loads
- */
-export const EVENT_VIEWER_HERE_IS_SCENE = 'viewer:here-is-the-scene';
+export const RobotEvents = {
+  // ========== System Events ==========
+  
+  /**
+   * Requests access to the 3D scene from ViewerContext
+   * EMITTED BY: RobotContext (on initialization)
+   * LISTENED BY: ViewerContext
+   * PAYLOAD: { requestId: string }
+   * RESPONSE: ViewerEvents.HERE_IS_SCENE
+   */
+  NEEDS_SCENE: 'robot:needs-scene',
+  
+  /**
+   * Robot successfully loaded and added to scene
+   * EMITTED BY: RobotContext
+   * LISTENED BY: JointContext, ViewerContext, UI components
+   * PAYLOAD: {
+   *   robotId: string,      // Unique identifier
+   *   robotName: string,    // Display name
+   *   robot: Object,        // THREE.js robot object
+   *   manufacturer: string, // Robot manufacturer
+   *   position: {x,y,z}     // Position in scene
+   * }
+   */
+  LOADED: 'robot:loaded',
+  
+  /**
+   * Robot removed from scene
+   * EMITTED BY: RobotContext
+   * LISTENED BY: JointContext, ViewerContext
+   * PAYLOAD: { robotId: string }
+   */
+  UNLOADED: 'robot:unloaded',
+  
+  /**
+   * Robot removed (alias for unloaded)
+   * EMITTED BY: RobotContext
+   * LISTENED BY: ViewerContext
+   * PAYLOAD: { robotId: string, robotName: string }
+   */
+  REMOVED: 'robot:removed',
+  
+  /**
+   * Robot registered for joint control
+   * EMITTED BY: RobotContext
+   * LISTENED BY: JointContext
+   * PAYLOAD: { robotId: string, robotName: string, robot: Object }
+   */
+  REGISTERED: 'robot:registered',
+  
+  // ========== State Events ==========
+  
+  /**
+   * Active robot selection changed
+   * EMITTED BY: RobotContext
+   * LISTENED BY: JointContext, UI components
+   * PAYLOAD: { robotId: string|null, robot: Object|null }
+   */
+  ACTIVE_CHANGED: 'robot:active-changed',
+  
+  /**
+   * Robot loading state changed
+   * EMITTED BY: RobotContext
+   * LISTENED BY: UI components
+   * PAYLOAD: {
+   *   robotId: string,
+   *   state: 'idle'|'loading'|'loaded'|'error',
+   *   progress?: number,    // 0-1
+   *   error?: string       // Error message if state is 'error'
+   * }
+   */
+  LOADING_STATE_CHANGED: 'robot:loading-state-changed',
+  
+  /**
+   * Robot position in scene changed
+   * EMITTED BY: RobotContext
+   * LISTENED BY: UI components, collision detection
+   * PAYLOAD: {
+   *   robotId: string,
+   *   position: {x,y,z},
+   *   rotation?: {x,y,z}   // Euler angles
+   * }
+   */
+  POSITION_CHANGED: 'robot:position-changed',
+  
+  // ========== Joint Events ==========
+  
+  /**
+   * Multiple joint values changed
+   * EMITTED BY: RobotContext, JointContext
+   * LISTENED BY: JointContext, UI components, TrajectoryContext
+   * PAYLOAD: {
+   *   robotId: string,
+   *   robotName: string,
+   *   values: Object,      // { jointName: value, ... }
+   *   source: string       // 'manual', 'ik', 'trajectory', etc.
+   * }
+   */
+  JOINTS_CHANGED: 'robot:joints-changed',
+  
+  /**
+   * Single joint value changed
+   * EMITTED BY: RobotContext, JointContext
+   * LISTENED BY: UI components
+   * PAYLOAD: {
+   *   robotId: string,
+   *   robotName: string,
+   *   jointName: string,
+   *   value: number,       // Radians
+   *   allValues: Object    // All current joint values
+   * }
+   */
+  JOINT_CHANGED: 'robot:joint-changed',
+  
+  /**
+   * Robot joints reset to zero
+   * EMITTED BY: RobotContext
+   * LISTENED BY: JointContext, UI components
+   * PAYLOAD: { robotId: string, robotName: string }
+   */
+  JOINTS_RESET: 'robot:joints-reset',
+  
+  // ========== Workspace Events ==========
+  
+  /**
+   * Workspace robots list changed
+   * EMITTED BY: RobotContext
+   * LISTENED BY: UI components
+   * PAYLOAD: {
+   *   robots: Array,       // Current workspace robots
+   *   action: string,      // 'add', 'remove', 'clear'
+   *   robotId?: string     // Affected robot ID
+   * }
+   */
+  WORKSPACE_UPDATED: 'robot:workspace-updated',
+  
+  /**
+   * Robot discovery/scanning complete
+   * EMITTED BY: RobotContext
+   * LISTENED BY: UI components
+   * PAYLOAD: {
+   *   categories: Array,   // Robot categories
+   *   robots: Array,       // All discovered robots
+   *   count: number        // Total robot count
+   * }
+   */
+  DISCOVERY_COMPLETE: 'robot:discovery-complete',
+  
+  // ========== TCP Events ==========
+  
+  /**
+   * TCP tool attached to robot
+   * EMITTED BY: RobotContext/TCPContext
+   * LISTENED BY: UI components
+   * PAYLOAD: {
+   *   robotId: string,
+   *   toolId: string,
+   *   toolData: Object     // Tool information
+   * }
+   */
+  TCP_ATTACHED: 'robot:tcp-attached',
+  
+  /**
+   * TCP tool detached from robot
+   * EMITTED BY: RobotContext/TCPContext
+   * LISTENED BY: UI components
+   * PAYLOAD: { robotId: string, toolId: string }
+   */
+  TCP_DETACHED: 'robot:tcp-detached',
+  
+  // ========== Commands (Requests) ==========
+  Commands: {
+    /**
+     * Move a single robot joint
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   jointName: string,
+     *   value: number,       // Target angle in radians
+     *   duration?: number,   // Animation duration (ms)
+     *   easing?: string      // Easing function name
+     * }
+     * EXAMPLE:
+     *   EventBus.emit(RobotEvents.Commands.MOVE_JOINT, {
+     *     robotId: 'ur5_123',
+     *     jointName: 'shoulder_pan_joint',
+     *     value: 1.57,
+     *     duration: 1000
+     *   });
+     */
+    MOVE_JOINT: 'robot:command:move-joint',
+    
+    /**
+     * Move multiple robot joints
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   values: Object,          // { jointName: value, ... }
+     *   duration?: number,       // Animation duration (ms)
+     *   simultaneous?: boolean   // Move all joints at once
+     * }
+     */
+    MOVE_JOINTS: 'robot:command:move-joints',
+    
+    /**
+     * Request current joint values
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: { robotId: string, requestId: string }
+     * RESPONSE: RobotEvents.Responses.JOINT_VALUES
+     */
+    REQUEST_JOINTS: 'robot:command:request-joints',
+    
+    /**
+     * Load a robot
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   urdfPath: string,
+     *   options?: {
+     *     position?: {x,y,z},
+     *     manufacturer?: string,
+     *     requestId?: string
+     *   }
+     * }
+     */
+    LOAD: 'robot:command:load',
+    
+    /**
+     * Unload a robot
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: { robotId: string }
+     */
+    UNLOAD: 'robot:command:unload',
+    
+    /**
+     * Set the active robot
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: { robotId: string|null }
+     */
+    SET_ACTIVE: 'robot:command:set-active',
+    
+    /**
+     * Reset robot joints to zero
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: { robotId: string }
+     */
+    RESET_JOINTS: 'robot:command:reset-joints',
+    
+    /**
+     * Add robot to workspace
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: { robotData: Object }
+     */
+    ADD_TO_WORKSPACE: 'robot:command:add-to-workspace',
+    
+    /**
+     * Remove robot from workspace
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: { workspaceRobotId: string }
+     */
+    REMOVE_FROM_WORKSPACE: 'robot:command:remove-from-workspace',
+    
+    /**
+     * Discover available robots
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: {}
+     */
+    DISCOVER: 'robot:command:discover',
+    
+    /**
+     * Set robot position in scene
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   position: {x,y,z},
+     *   rotation?: {x,y,z}
+     * }
+     */
+    SET_POSITION: 'robot:command:set-position'
+  },
+  
+  // ========== Responses ==========
+  Responses: {
+    /**
+     * Response to joint values request
+     * EMITTED BY: RobotContext
+     * LISTENED BY: Requesting component
+     * PAYLOAD: {
+     *   robotId: string,
+     *   requestId: string,
+     *   values: Object,      // { jointName: value, ... }
+     *   timestamp: number
+     * }
+     */
+    JOINT_VALUES: 'robot:response:joint-values'
+  }
+};
 
 // ============================================
-// VIEWER CONTEXT
+// VIEWER EVENTS
 // ============================================
-
-// --- EVENTS EMITTED BY VIEWER CONTEXT ---
-
 /**
- * EVENT: viewer:initialized
- * EMITTED BY: ViewerContext
- * LISTENED BY: UI components, debugging tools
+ * Viewer and 3D scene events namespace
  * 
- * PURPOSE: Detailed initialization complete notification
- * WHEN: After initializeViewer() completes
+ * Handles scene initialization, configuration, drag controls, and table management.
+ * Primary consumers: ViewerContext, RobotContext, TCPContext
  * 
- * PAYLOAD: {
- *   sceneSetup: Object  // The SceneSetup instance
- * }
+ * @namespace ViewerEvents
  */
-export const EVENT_VIEWER_INITIALIZED = 'viewer:initialized';
-
-/**
- * EVENT: viewer:config-updated
- * EMITTED BY: ViewerContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when viewer configuration changes
- * WHEN: After updateViewerConfig() is called
- * 
- * PAYLOAD: {
- *   backgroundColor?: String,
- *   enableShadows?: Boolean,
- *   ambientColor?: String,
- *   upAxis?: String,
- *   highlightColor?: String
- * }
- */
-export const EVENT_VIEWER_CONFIG_UPDATED = 'viewer:config-updated';
-
-/**
- * EVENT: viewer:robot-loaded
- * EMITTED BY: ViewerContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when a robot is loaded via viewer
- * WHEN: After loadRobot() completes successfully
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   options: Object  // Loading options used
- * }
- */
-export const EVENT_VIEWER_ROBOT_LOADED = 'viewer:robot-loaded';
-
-/**
- * EVENT: viewer:robot-load-error
- * EMITTED BY: ViewerContext
- * LISTENED BY: Error handlers, UI components
- * 
- * PURPOSE: Notify when robot loading fails
- * WHEN: When loadRobot() encounters an error
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   error: Error     // The error object
- * }
- */
-export const EVENT_VIEWER_ROBOT_LOAD_ERROR = 'viewer:robot-load-error';
-
-/**
- * EVENT: viewer:joints-reset
- * EMITTED BY: ViewerContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when joints are reset via viewer
- * WHEN: After resetJoints() is called
- * 
- * PAYLOAD: {
- *   robotId: String
- * }
- */
-export const EVENT_VIEWER_JOINTS_RESET = 'viewer:joints-reset';
-
-/**
- * EVENT: viewer:resized
- * EMITTED BY: ViewerContext
- * LISTENED BY: UI components, camera controllers
- * 
- * PURPOSE: Notify when viewer dimensions change
- * WHEN: On window resize
- * 
- * PAYLOAD: {
- *   width: Number,
- *   height: Number
- * }
- */
-export const EVENT_VIEWER_RESIZED = 'viewer:resized';
-
-/**
- * EVENT: viewer:disposed
- * EMITTED BY: ViewerContext
- * LISTENED BY: Cleanup handlers
- * 
- * PURPOSE: Notify when viewer is being destroyed
- * WHEN: On dispose() or unmount
- * 
- * PAYLOAD: none
- */
-export const EVENT_VIEWER_DISPOSED = 'viewer:disposed';
-
-// --- DRAG CONTROL EVENTS ---
-
-/**
- * EVENT: viewer:drag-start
- * EMITTED BY: ViewerContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when joint dragging starts
- * WHEN: User starts dragging a joint
- * 
- * PAYLOAD: {
- *   joint: Object  // The joint being dragged
- * }
- */
-export const EVENT_VIEWER_DRAG_START = 'viewer:drag-start';
-
-/**
- * EVENT: viewer:drag-end
- * EMITTED BY: ViewerContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when joint dragging ends
- * WHEN: User releases a dragged joint
- * 
- * PAYLOAD: {
- *   joint: Object  // The joint that was dragged
- * }
- */
-export const EVENT_VIEWER_DRAG_END = 'viewer:drag-end';
-
-/**
- * EVENT: viewer:joint-hover
- * EMITTED BY: ViewerContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when hovering over a joint
- * WHEN: Mouse enters a draggable joint
- * 
- * PAYLOAD: {
- *   joint: Object  // The joint being hovered
- * }
- */
-export const EVENT_VIEWER_JOINT_HOVER = 'viewer:joint-hover';
-
-/**
- * EVENT: viewer:joint-unhover
- * EMITTED BY: ViewerContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when leaving a joint hover
- * WHEN: Mouse leaves a draggable joint
- * 
- * PAYLOAD: {
- *   joint: Object  // The joint no longer hovered
- * }
- */
-export const EVENT_VIEWER_JOINT_UNHOVER = 'viewer:joint-unhover';
-
-// --- TABLE EVENTS ---
-
-/**
- * EVENT: viewer:table-loaded
- * EMITTED BY: ViewerContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when table model is loaded
- * WHEN: After loadTable() completes
- * 
- * PAYLOAD: none
- */
-export const EVENT_VIEWER_TABLE_LOADED = 'viewer:table-loaded';
-
-/**
- * EVENT: viewer:table-toggled
- * EMITTED BY: ViewerContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Notify when table visibility changes
- * WHEN: After toggleTable() is called
- * 
- * PAYLOAD: {
- *   visible: Boolean  // New visibility state
- * }
- */
-export const EVENT_VIEWER_TABLE_TOGGLED = 'viewer:table-toggled';
+export const ViewerEvents = {
+  /**
+   * Viewer initialized and ready
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: RobotContext, TCPContext
+   * PAYLOAD: none
+   */
+  READY: 'viewer:ready',
+  
+  /**
+   * Detailed initialization complete
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: UI components, debugging tools
+   * PAYLOAD: { sceneSetup: Object }
+   */
+  INITIALIZED: 'viewer:initialized',
+  
+  /**
+   * Scene access response
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: RobotContext
+   * PAYLOAD: {
+   *   success: boolean,
+   *   requestId: string,
+   *   payload: { getSceneSetup: Function },
+   *   error?: string
+   * }
+   */
+  HERE_IS_SCENE: 'viewer:here-is-the-scene',
+  
+  /**
+   * Scene access response for TCP
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: TCPContext
+   * PAYLOAD: Same as HERE_IS_SCENE
+   */
+  TCP_SCENE_RESPONSE: 'viewer:tcp-scene-response',
+  
+  /**
+   * Viewer configuration updated
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: UI components
+   * PAYLOAD: {
+   *   backgroundColor?: string,
+   *   enableShadows?: boolean,
+   *   ambientColor?: string,
+   *   upAxis?: string,
+   *   highlightColor?: string
+   * }
+   */
+  CONFIG_UPDATED: 'viewer:config-updated',
+  
+  /**
+   * Viewer dimensions changed
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: UI components, camera controllers
+   * PAYLOAD: { width: number, height: number }
+   */
+  RESIZED: 'viewer:resized',
+  
+  /**
+   * Viewer being destroyed
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: Cleanup handlers
+   * PAYLOAD: none
+   */
+  DISPOSED: 'viewer:disposed',
+  
+  /**
+   * Robot loaded via viewer
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: UI components
+   * PAYLOAD: { robotId: string, options: Object }
+   */
+  ROBOT_LOADED: 'viewer:robot-loaded',
+  
+  /**
+   * Robot loading failed
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: Error handlers
+   * PAYLOAD: { robotId: string, error: Error }
+   */
+  ROBOT_LOAD_ERROR: 'viewer:robot-load-error',
+  
+  /**
+   * Joints reset via viewer
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: UI components
+   * PAYLOAD: { robotId: string }
+   */
+  JOINTS_RESET: 'viewer:joints-reset',
+  
+  // ========== Drag Control Events ==========
+  
+  /**
+   * Joint dragging started
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: UI components
+   * PAYLOAD: { joint: Object }
+   */
+  DRAG_START: 'viewer:drag-start',
+  
+  /**
+   * Joint dragging ended
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: UI components
+   * PAYLOAD: { joint: Object }
+   */
+  DRAG_END: 'viewer:drag-end',
+  
+  /**
+   * Hovering over joint
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: UI components
+   * PAYLOAD: { joint: Object }
+   */
+  JOINT_HOVER: 'viewer:joint-hover',
+  
+  /**
+   * Left joint hover
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: UI components
+   * PAYLOAD: { joint: Object }
+   */
+  JOINT_UNHOVER: 'viewer:joint-unhover',
+  
+  // ========== Table Events ==========
+  
+  /**
+   * Table model loaded
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: UI components
+   * PAYLOAD: none
+   */
+  TABLE_LOADED: 'viewer:table-loaded',
+  
+  /**
+   * Table visibility changed
+   * EMITTED BY: ViewerContext
+   * LISTENED BY: UI components
+   * PAYLOAD: { visible: boolean }
+   */
+  TABLE_TOGGLED: 'viewer:table-toggled'
+};
 
 // ============================================
-// JOINT CONTEXT (Event-driven contract)
+// JOINT EVENTS
 // ============================================
-
 /**
- * EVENT: joint:command:set-value
- * EMITTED BY: Any component/context
- * LISTENED BY: JointContext
- *
- * PURPOSE: Command to set a single joint value
- * WHEN: Any component wants to set a joint value
- *
- * PAYLOAD: {
- *   robotId: String,
- *   jointName: String,
- *   value: Number,
- *   requestId?: String // Optional, for response matching
- * }
- *
- * RESPONSE EVENT: joint:response:set-value
+ * Joint control events namespace
+ * 
+ * Handles direct joint value manipulation with command/response pattern.
+ * Primary consumers: JointContext, IKContext, TrajectoryContext
+ * 
+ * @namespace JointEvents
  */
-export const EVENT_JOINT_SET_VALUE = 'joint:command:set-value';
-
-/**
- * EVENT: joint:response:set-value
- * EMITTED BY: JointContext
- * LISTENED BY: Requesting component
- *
- * PURPOSE: Response to set joint value command
- * WHEN: After setting joint value
- *
- * PAYLOAD: {
- *   robotId: String,
- *   jointName: String,
- *   value: Number,
- *   success: Boolean,
- *   requestId?: String
- * }
- */
-export const EVENT_JOINT_SET_VALUE_RESPONSE = 'joint:response:set-value';
-
-/**
- * EVENT: joint:command:set-values
- * EMITTED BY: Any component/context
- * LISTENED BY: JointContext
- *
- * PURPOSE: Command to set multiple joint values
- * WHEN: Any component wants to set multiple joint values
- *
- * PAYLOAD: {
- *   robotId: String,
- *   values: Object, // { jointName: value, ... }
- *   requestId?: String
- * }
- *
- * RESPONSE EVENT: joint:response:set-values
- */
-export const EVENT_JOINT_SET_VALUES = 'joint:command:set-values';
-
-/**
- * EVENT: joint:response:set-values
- * EMITTED BY: JointContext
- * LISTENED BY: Requesting component
- *
- * PURPOSE: Response to set multiple joint values
- * WHEN: After setting joint values
- *
- * PAYLOAD: {
- *   robotId: String,
- *   values: Object, // { jointName: value, ... }
- *   success: Boolean,
- *   requestId?: String
- * }
- */
-export const EVENT_JOINT_SET_VALUES_RESPONSE = 'joint:response:set-values';
-
-/**
- * EVENT: joint:command:get-values
- * EMITTED BY: Any component/context
- * LISTENED BY: JointContext
- *
- * PURPOSE: Request current joint values
- * WHEN: Any component needs current joint values
- *
- * PAYLOAD: {
- *   robotId: String,
- *   requestId: String // Required for response matching
- * }
- *
- * RESPONSE EVENT: joint:response:get-values
- */
-export const EVENT_JOINT_GET_VALUES = 'joint:command:get-values';
-
-/**
- * EVENT: joint:response:get-values
- * EMITTED BY: JointContext
- * LISTENED BY: Requesting component
- *
- * PURPOSE: Response to get joint values request
- * WHEN: After reading joint values
- *
- * PAYLOAD: {
- *   robotId: String,
- *   values: Object, // { jointName: value, ... }
- *   requestId: String
- * }
- */
-export const EVENT_JOINT_GET_VALUES_RESPONSE = 'joint:response:get-values';
-
-/**
- * EVENT: joint:command:reset
- * EMITTED BY: Any component/context
- * LISTENED BY: JointContext
- *
- * PURPOSE: Command to reset all joints to zero
- * WHEN: Any component wants to reset robot joints
- *
- * PAYLOAD: {
- *   robotId: String,
- *   requestId?: String
- * }
- *
- * RESPONSE EVENT: joint:response:reset
- */
-export const EVENT_JOINT_RESET = 'joint:command:reset';
-
-/**
- * EVENT: joint:response:reset
- * EMITTED BY: JointContext
- * LISTENED BY: Requesting component
- *
- * PURPOSE: Response to reset joints command
- * WHEN: After resetting joints
- *
- * PAYLOAD: {
- *   robotId: String,
- *   success: Boolean,
- *   requestId?: String
- * }
- */
-export const EVENT_JOINT_RESET_RESPONSE = 'joint:response:reset';
+export const JointEvents = {
+  // ========== Commands ==========
+  Commands: {
+    /**
+     * Set single joint value
+     * EMITTED BY: Any component
+     * LISTENED BY: JointContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   jointName: string,
+     *   value: number,
+     *   requestId?: string
+     * }
+     * RESPONSE: JointEvents.Responses.SET_VALUE
+     */
+    SET_VALUE: 'joint:command:set-value',
+    
+    /**
+     * Set multiple joint values
+     * EMITTED BY: Any component
+     * LISTENED BY: JointContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   values: Object,      // { jointName: value, ... }
+     *   requestId?: string
+     * }
+     * RESPONSE: JointEvents.Responses.SET_VALUES
+     */
+    SET_VALUES: 'joint:command:set-values',
+    
+    /**
+     * Get current joint values
+     * EMITTED BY: Any component
+     * LISTENED BY: JointContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   requestId: string    // Required
+     * }
+     * RESPONSE: JointEvents.Responses.GET_VALUES
+     */
+    GET_VALUES: 'joint:command:get-values',
+    
+    /**
+     * Reset all joints to zero
+     * EMITTED BY: Any component
+     * LISTENED BY: JointContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   requestId?: string
+     * }
+     * RESPONSE: JointEvents.Responses.RESET
+     */
+    RESET: 'joint:command:reset'
+  },
+  
+  // ========== Responses ==========
+  Responses: {
+    /**
+     * Response to set single joint value
+     * PAYLOAD: {
+     *   robotId: string,
+     *   jointName: string,
+     *   value: number,
+     *   success: boolean,
+     *   requestId?: string
+     * }
+     */
+    SET_VALUE: 'joint:response:set-value',
+    
+    /**
+     * Response to set multiple joint values
+     * PAYLOAD: {
+     *   robotId: string,
+     *   values: Object,
+     *   success: boolean,
+     *   requestId?: string
+     * }
+     */
+    SET_VALUES: 'joint:response:set-values',
+    
+    /**
+     * Response to get joint values
+     * PAYLOAD: {
+     *   robotId: string,
+     *   values: Object,
+     *   requestId: string
+     * }
+     */
+    GET_VALUES: 'joint:response:get-values',
+    
+    /**
+     * Response to reset joints
+     * PAYLOAD: {
+     *   robotId: string,
+     *   success: boolean,
+     *   requestId?: string
+     * }
+     */
+    RESET: 'joint:response:reset'
+  }
+};
 
 // ============================================
-// IK CONTEXT
+// IK EVENTS
 // ============================================
-
 /**
- * EVENT: ik:command:solve
- * EMITTED BY: Any component
- * LISTENED BY: IKContext
+ * Inverse Kinematics events namespace
  * 
- * PURPOSE: Request IK solution for target position
- * WHEN: Component needs IK calculation
+ * Handles IK solver requests and results.
+ * Primary consumers: IKContext, UI components
  * 
- * PAYLOAD: {
- *   robotId: String,
- *   targetPosition: Object,    // { x, y, z }
- *   targetOrientation?: Object, // Quaternion or euler
- *   requestId?: String
- * }
+ * @namespace IKEvents
  */
-export const EVENT_IK_SOLVE = 'ik:command:solve';
-
-/**
- * EVENT: ik:solution-found
- * EMITTED BY: IKContext
- * LISTENED BY: UI components, requesting component
- * 
- * PURPOSE: IK solution calculated
- * WHEN: After IK solver finds solution
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   requestId?: String,
- *   solution: Object,     // Joint values
- *   iterations: Number,
- *   error: Number
- * }
- */
-export const EVENT_IK_SOLUTION_FOUND = 'ik:solution-found';
-
-/**
- * EVENT: ik:no-solution
- * EMITTED BY: IKContext
- * LISTENED BY: UI components, requesting component
- * 
- * PURPOSE: IK solver couldn't find solution
- * WHEN: Target is unreachable
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   requestId?: String,
- *   reason: String,
- *   lastError: Number
- * }
- */
-export const EVENT_IK_NO_SOLUTION = 'ik:no-solution';
-
-// ============================================
-// TRAJECTORY CONTEXT
-// ============================================
-
-/**
- * EVENT: trajectory:command:play
- * EMITTED BY: Any component
- * LISTENED BY: TrajectoryContext
- * 
- * PURPOSE: Start playing a trajectory
- * WHEN: User clicks play on trajectory
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   trajectoryId: String,
- *   loop?: Boolean,
- *   speed?: Number
- * }
- */
-export const EVENT_TRAJECTORY_PLAY = 'trajectory:command:play';
-
-/**
- * EVENT: trajectory:command:pause
- * EMITTED BY: Any component
- * LISTENED BY: TrajectoryContext
- * 
- * PURPOSE: Pause trajectory playback
- * WHEN: User clicks pause
- * 
- * PAYLOAD: {
- *   robotId: String
- * }
- */
-export const EVENT_TRAJECTORY_PAUSE = 'trajectory:command:pause';
-
-/**
- * EVENT: trajectory:command:stop
- * EMITTED BY: Any component
- * LISTENED BY: TrajectoryContext
- * 
- * PURPOSE: Stop trajectory playback
- * WHEN: User clicks stop
- * 
- * PAYLOAD: {
- *   robotId: String
- * }
- */
-export const EVENT_TRAJECTORY_STOP = 'trajectory:command:stop';
-
-/**
- * EVENT: trajectory:playing
- * EMITTED BY: TrajectoryContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Trajectory playback started
- * WHEN: Trajectory begins playing
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   trajectoryId: String,
- *   totalFrames: Number,
- *   duration: Number
- * }
- */
-export const EVENT_TRAJECTORY_PLAYING = 'trajectory:playing';
-
-/**
- * EVENT: trajectory:paused
- * EMITTED BY: TrajectoryContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Trajectory playback paused
- * WHEN: Trajectory is paused
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   currentFrame: Number,
- *   progress: Number     // 0-1
- * }
- */
-export const EVENT_TRAJECTORY_PAUSED = 'trajectory:paused';
-
-/**
- * EVENT: trajectory:stopped
- * EMITTED BY: TrajectoryContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Trajectory playback stopped
- * WHEN: Trajectory is stopped
- * 
- * PAYLOAD: {
- *   robotId: String
- * }
- */
-export const EVENT_TRAJECTORY_STOPPED = 'trajectory:stopped';
-
-/**
- * EVENT: trajectory:frame-update
- * EMITTED BY: TrajectoryContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Current frame changed during playback
- * WHEN: Every frame during playback
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   currentFrame: Number,
- *   totalFrames: Number,
- *   progress: Number,    // 0-1
- *   jointValues: Object  // Current joint positions
- * }
- */
-export const EVENT_TRAJECTORY_FRAME_UPDATE = 'trajectory:frame-update';
-
-/**
- * EVENT: trajectory:command:record-start
- * EMITTED BY: Any component
- * LISTENED BY: TrajectoryContext
- * 
- * PURPOSE: Start recording trajectory
- * WHEN: User starts recording
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   name?: String
- * }
- */
-export const EVENT_TRAJECTORY_RECORD_START = 'trajectory:command:record-start';
-
-/**
- * EVENT: trajectory:command:record-stop
- * EMITTED BY: Any component
- * LISTENED BY: TrajectoryContext
- * 
- * PURPOSE: Stop recording trajectory
- * WHEN: User stops recording
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   save?: Boolean    // Whether to save the recording
- * }
- */
-export const EVENT_TRAJECTORY_RECORD_STOP = 'trajectory:command:record-stop';
-
-/**
- * EVENT: trajectory:recording-started
- * EMITTED BY: TrajectoryContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Recording has started
- * WHEN: After record start command
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   startTime: Number
- * }
- */
-export const EVENT_TRAJECTORY_RECORDING_STARTED = 'trajectory:recording-started';
-
-/**
- * EVENT: trajectory:recording-stopped
- * EMITTED BY: TrajectoryContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Recording has stopped
- * WHEN: After record stop command
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   duration: Number,
- *   frameCount: Number,
- *   trajectoryId?: String  // If saved
- * }
- */
-export const EVENT_TRAJECTORY_RECORDING_STOPPED = 'trajectory:recording-stopped';
+export const IKEvents = {
+  Commands: {
+    /**
+     * Request IK solution
+     * EMITTED BY: Any component
+     * LISTENED BY: IKContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   targetPosition: {x,y,z},
+     *   targetOrientation?: Object,  // Quaternion or euler
+     *   requestId?: string
+     * }
+     */
+    SOLVE: 'ik:command:solve'
+  },
+  
+  /**
+   * IK solution found
+   * EMITTED BY: IKContext
+   * LISTENED BY: UI components
+   * PAYLOAD: {
+   *   robotId: string,
+   *   requestId?: string,
+   *   solution: Object,    // Joint values
+   *   iterations: number,
+   *   error: number
+   * }
+   */
+  SOLUTION_FOUND: 'ik:solution-found',
+  
+  /**
+   * IK solver couldn't find solution
+   * EMITTED BY: IKContext
+   * LISTENED BY: UI components
+   * PAYLOAD: {
+   *   robotId: string,
+   *   requestId?: string,
+   *   reason: string,
+   *   lastError: number
+   * }
+   */
+  NO_SOLUTION: 'ik:no-solution'
+};
 
 // ============================================
-// ENVIRONMENT CONTEXT
+// TRAJECTORY EVENTS
 // ============================================
-
 /**
- * EVENT: environment:object-spawned
- * EMITTED BY: EnvironmentContext
- * LISTENED BY: UI components
+ * Trajectory playback and recording events namespace
  * 
- * PURPOSE: Object added to environment
- * WHEN: User spawns object
+ * Handles trajectory playback control and recording.
+ * Primary consumers: TrajectoryContext, UI components
  * 
- * PAYLOAD: {
- *   objectId: String,
- *   type: String,
- *   position: Object,
- *   modelPath: String
- * }
+ * @namespace TrajectoryEvents
  */
-export const EVENT_ENVIRONMENT_OBJECT_SPAWNED = 'environment:object-spawned';
-
-/**
- * EVENT: environment:object-removed
- * EMITTED BY: EnvironmentContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Object removed from environment
- * WHEN: User deletes object
- * 
- * PAYLOAD: {
- *   objectId: String
- * }
- */
-export const EVENT_ENVIRONMENT_OBJECT_REMOVED = 'environment:object-removed';
-
-/**
- * EVENT: environment:object-selected
- * EMITTED BY: EnvironmentContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Object selected in environment
- * WHEN: User clicks on object
- * 
- * PAYLOAD: {
- *   objectId: String,
- *   object: Object
- * }
- */
-export const EVENT_ENVIRONMENT_OBJECT_SELECTED = 'environment:object-selected';
-
-// --- SCENE EVENTS ---
-
-/**
- * EVENT: scene:object-registered
- * EMITTED BY: EnvironmentContext
- * LISTENED BY: Debug tools, UI components
- * 
- * PURPOSE: Object registered with scene
- * WHEN: Object added to scene registry
- * 
- * PAYLOAD: {
- *   type: String,      // 'robots', 'environment', 'trajectories', 'humans', 'custom'
- *   id: String,
- *   object: Object,
- *   metadata: Object
- * }
- */
-export const EVENT_SCENE_OBJECT_REGISTERED = 'scene:object-registered';
-
-/**
- * EVENT: scene:object-unregistered
- * EMITTED BY: EnvironmentContext
- * LISTENED BY: Debug tools, UI components
- * 
- * PURPOSE: Object removed from scene registry
- * WHEN: Object removed from scene
- * 
- * PAYLOAD: {
- *   type: String,
- *   id: String
- * }
- */
-export const EVENT_SCENE_OBJECT_UNREGISTERED = 'scene:object-unregistered';
-
-/**
- * EVENT: scene:object-updated
- * EMITTED BY: EnvironmentContext
- * LISTENED BY: UI components
- * 
- * PURPOSE: Scene object properties updated
- * WHEN: Object position/rotation/scale changed
- * 
- * PAYLOAD: {
- *   type: String,
- *   id: String,
- *   updates: Object    // { position?, rotation?, scale?, visible? }
- * }
- */
-export const EVENT_SCENE_OBJECT_UPDATED = 'scene:object-updated';
-
-// --- HUMAN EVENTS ---
-
-/**
- * EVENT: human:spawned
- * EMITTED BY: EnvironmentContext, HumanController
- * LISTENED BY: EnvironmentContext, UI components
- * 
- * PURPOSE: Human character spawned in scene
- * WHEN: Human added to environment
- * 
- * PAYLOAD: {
- *   id: String,
- *   name: String,
- *   isActive: Boolean
- * }
- */
-export const EVENT_HUMAN_SPAWNED = 'human:spawned';
-
-/**
- * EVENT: human:removed
- * EMITTED BY: EnvironmentContext, HumanController
- * LISTENED BY: EnvironmentContext, UI components
- * 
- * PURPOSE: Human character removed from scene
- * WHEN: Human deleted
- * 
- * PAYLOAD: {
- *   id: String
- * }
- */
-export const EVENT_HUMAN_REMOVED = 'human:removed';
-
-/**
- * EVENT: human:selected
- * EMITTED BY: HumanController
- * LISTENED BY: EnvironmentContext
- * 
- * PURPOSE: Human character selected
- * WHEN: User clicks on human
- * 
- * PAYLOAD: {
- *   id: String
- * }
- */
-export const EVENT_HUMAN_SELECTED = 'human:selected';
-
-/**
- * EVENT: human:position-update:{id}
- * EMITTED BY: HumanController
- * LISTENED BY: EnvironmentContext
- * 
- * PURPOSE: Human position updated
- * WHEN: Human moves
- * 
- * PAYLOAD: {
- *   position: Array    // [x, y, z]
- * }
- * 
- * NOTE: {id} is replaced with the actual human ID
- */
-export const EVENT_HUMAN_POSITION_UPDATE = 'human:position-update';
+export const TrajectoryEvents = {
+  Commands: {
+    /**
+     * Start playing trajectory
+     * PAYLOAD: {
+     *   robotId: string,
+     *   trajectoryId: string,
+     *   loop?: boolean,
+     *   speed?: number
+     * }
+     */
+    PLAY: 'trajectory:command:play',
+    
+    /**
+     * Pause trajectory playback
+     * PAYLOAD: { robotId: string }
+     */
+    PAUSE: 'trajectory:command:pause',
+    
+    /**
+     * Stop trajectory playback
+     * PAYLOAD: { robotId: string }
+     */
+    STOP: 'trajectory:command:stop',
+    
+    /**
+     * Start recording trajectory
+     * PAYLOAD: {
+     *   robotId: string,
+     *   name?: string
+     * }
+     */
+    RECORD_START: 'trajectory:command:record-start',
+    
+    /**
+     * Stop recording trajectory
+     * PAYLOAD: {
+     *   robotId: string,
+     *   save?: boolean
+     * }
+     */
+    RECORD_STOP: 'trajectory:command:record-stop'
+  },
+  
+  /**
+   * Trajectory playback started
+   * PAYLOAD: {
+   *   robotId: string,
+   *   trajectoryId: string,
+   *   totalFrames: number,
+   *   duration: number
+   * }
+   */
+  PLAYING: 'trajectory:playing',
+  
+  /**
+   * Trajectory playback paused
+   * PAYLOAD: {
+   *   robotId: string,
+   *   currentFrame: number,
+   *   progress: number     // 0-1
+   * }
+   */
+  PAUSED: 'trajectory:paused',
+  
+  /**
+   * Trajectory playback stopped
+   * PAYLOAD: { robotId: string }
+   */
+  STOPPED: 'trajectory:stopped',
+  
+  /**
+   * Frame update during playback
+   * PAYLOAD: {
+   *   robotId: string,
+   *   currentFrame: number,
+   *   totalFrames: number,
+   *   progress: number,
+   *   jointValues: Object
+   * }
+   */
+  FRAME_UPDATE: 'trajectory:frame-update',
+  
+  /**
+   * Recording started
+   * PAYLOAD: {
+   *   robotId: string,
+   *   startTime: number
+   * }
+   */
+  RECORDING_STARTED: 'trajectory:recording-started',
+  
+  /**
+   * Recording stopped
+   * PAYLOAD: {
+   *   robotId: string,
+   *   duration: number,
+   *   frameCount: number,
+   *   trajectoryId?: string  // If saved
+   * }
+   */
+  RECORDING_STOPPED: 'trajectory:recording-stopped'
+};
 
 // ============================================
-// WORLD CONTEXT
+// ENVIRONMENT EVENTS
 // ============================================
-
 /**
- * EVENT: world:reset
- * EMITTED BY: WorldContext
- * LISTENED BY: UI components
+ * Environment object events namespace
  * 
- * PURPOSE: World reset to defaults
- * WHEN: User resets world
+ * Handles spawning, removing, and selecting environment objects.
+ * Primary consumers: EnvironmentContext, UI components
  * 
- * PAYLOAD: none
+ * @namespace EnvironmentEvents
  */
-export const EVENT_WORLD_RESET = 'world:reset';
-
-/**
- * EVENT: world:gravity-changed
- * EMITTED BY: WorldContext
- * LISTENED BY: Physics systems
- * 
- * PURPOSE: Gravity setting changed
- * WHEN: User adjusts gravity
- * 
- * PAYLOAD: {
- *   gravity: Number      // -9.81, etc
- * }
- */
-export const EVENT_WORLD_GRAVITY_CHANGED = 'world:gravity-changed';
-
-/**
- * EVENT: world:fully-loaded
- * EMITTED BY: WorldAPI, SceneSetup
- * LISTENED BY: EnvironmentContext
- * 
- * PURPOSE: World scene fully loaded with all objects
- * WHEN: Scene loading complete
- * 
- * PAYLOAD: {
- *   environment: Array,    // Environment objects
- *   robots: Array,        // Robot objects
- *   timestamp: Number
- * }
- */
-export const EVENT_WORLD_FULLY_LOADED = 'world:fully-loaded';
-
-/**
- * EVENT: world:grid-toggled
- * EMITTED BY: WorldContext
- * LISTENED BY: ViewerContext
- * 
- * PURPOSE: Grid visibility toggled
- * WHEN: User toggles grid
- * 
- * PAYLOAD: {
- *   visible: Boolean
- * }
- */
-export const EVENT_WORLD_GRID_TOGGLED = 'world:grid-toggled';
+export const EnvironmentEvents = {
+  /**
+   * Object added to environment
+   * PAYLOAD: {
+   *   objectId: string,
+   *   type: string,
+   *   position: {x,y,z},
+   *   modelPath: string
+   * }
+   */
+  OBJECT_SPAWNED: 'environment:object-spawned',
+  
+  /**
+   * Object removed from environment
+   * PAYLOAD: { objectId: string }
+   */
+  OBJECT_REMOVED: 'environment:object-removed',
+  
+  /**
+   * Object selected in environment
+   * PAYLOAD: {
+   *   objectId: string,
+   *   object: Object
+   * }
+   */
+  OBJECT_SELECTED: 'environment:object-selected'
+};
 
 // ============================================
-// TCP CONTEXT
+// SCENE EVENTS
 // ============================================
-
-// --- EVENTS EMITTED BY TCP CONTEXT ---
-
 /**
- * EVENT: tcp:needs-scene
- * EMITTED BY: TCPContext
- * LISTENED BY: ViewerContext
+ * Scene registry events namespace
  * 
- * PURPOSE: Request access to the 3D scene from ViewerContext
- * WHEN: On TCPContext initialization when it needs scene setup
+ * Handles object registration/unregistration in scene.
+ * Primary consumers: EnvironmentContext, Debug tools
  * 
- * PAYLOAD: {
- *   requestId: String  // Unique ID to match request/response
- * }
+ * @namespace SceneEvents
  */
-export const EVENT_TCP_NEEDS_SCENE = 'tcp:needs-scene';
+export const SceneEvents = {
+  /**
+   * Object registered with scene
+   * PAYLOAD: {
+   *   type: string,      // 'robots', 'environment', 'trajectories', 'humans', 'custom'
+   *   id: string,
+   *   object: Object,
+   *   metadata: Object
+   * }
+   */
+  OBJECT_REGISTERED: 'scene:object-registered',
+  
+  /**
+   * Object removed from scene registry
+   * PAYLOAD: {
+   *   type: string,
+   *   id: string
+   * }
+   */
+  OBJECT_UNREGISTERED: 'scene:object-unregistered',
+  
+  /**
+   * Scene object properties updated
+   * PAYLOAD: {
+   *   type: string,
+   *   id: string,
+   *   updates: Object    // { position?, rotation?, scale?, visible? }
+   * }
+   */
+  OBJECT_UPDATED: 'scene:object-updated'
+};
 
+// ============================================
+// HUMAN EVENTS
+// ============================================
 /**
- * EVENT: tcp:tool-attached
- * EMITTED BY: TCPContext
- * LISTENED BY: UI components, RobotContext
+ * Human character events namespace
  * 
- * PURPOSE: Notify when TCP tool is attached to robot
- * WHEN: After successful tool attachment
+ * Handles human spawning, movement, and selection.
+ * Primary consumers: EnvironmentContext, HumanController
  * 
- * PAYLOAD: {
- *   robotId: String,
- *   toolId: String,
- *   toolName: String,      // Always "tcp"
- *   originalToolName: String,
- *   endEffectorPoint: Object,  // { x, y, z }
- *   toolDimensions: Object     // { x, y, z }
- * }
+ * @namespace HumanEvents
  */
-export const EVENT_TCP_TOOL_ATTACHED = 'tcp:tool-attached';
+export const HumanEvents = {
+  /**
+   * Human character spawned
+   * PAYLOAD: {
+   *   id: string,
+   *   name: string,
+   *   isActive: boolean
+   * }
+   */
+  SPAWNED: 'human:spawned',
+  
+  /**
+   * Human character removed
+   * PAYLOAD: { id: string }
+   */
+  REMOVED: 'human:removed',
+  
+  /**
+   * Human character selected
+   * PAYLOAD: { id: string }
+   */
+  SELECTED: 'human:selected',
+  
+  /**
+   * Generate position update event name for specific human
+   * @param {string} id - Human ID
+   * @returns {string} Event name
+   * @example
+   *   const eventName = HumanEvents.positionUpdate('human_123');
+   *   // Returns: 'human:position-update:human_123'
+   */
+  positionUpdate: (id) => `human:position-update:${id}`,
+  
+  /**
+   * Helper to create position event name
+   * @param {string} id - Human ID
+   * @returns {string} Event name
+   */
+  createPositionEventName: (id) => `human:position-update:${id}`
+};
 
+// ============================================
+// WORLD EVENTS
+// ============================================
 /**
- * EVENT: tcp:tool-removed
- * EMITTED BY: TCPContext
- * LISTENED BY: UI components
+ * World visualization events namespace
  * 
- * PURPOSE: Notify when TCP tool is removed
- * WHEN: After tool removal
+ * Handles world environment settings like grid, ground, gravity.
+ * Primary consumers: WorldContext, Physics systems
  * 
- * PAYLOAD: {
- *   robotId: String,
- *   toolId: String
- * }
+ * @namespace WorldEvents
  */
-export const EVENT_TCP_TOOL_REMOVED = 'tcp:tool-removed';
+export const WorldEvents = {
+  /**
+   * World initialization complete
+   * PAYLOAD: { ground: Object, gridHelper: Object }
+   */
+  READY: 'world:ready',
+  
+  /**
+   * World reset to defaults
+   * PAYLOAD: none
+   */
+  RESET: 'world:reset',
+  
+  /**
+   * World scene fully loaded
+   * PAYLOAD: {
+   *   environment: Array,
+   *   robots: Array,
+   *   timestamp: number
+   * }
+   */
+  FULLY_LOADED: 'world:fully-loaded',
+  
+  /**
+   * Gravity setting changed
+   * PAYLOAD: { gravity: number }
+   */
+  GRAVITY_CHANGED: 'world:gravity-changed',
+  
+  /**
+   * Grid visibility toggled
+   * PAYLOAD: { visible: boolean }
+   */
+  GRID_TOGGLED: 'world:grid-toggled',
+  
+  /**
+   * Grid appearance updated
+   * PAYLOAD: {
+   *   gridSize?: number,
+   *   gridDivisions?: number,
+   *   gridColor?: string,
+   *   gridCenterColor?: string,
+   *   gridHeight?: number
+   * }
+   */
+  GRID_UPDATED: 'world:grid-updated',
+  
+  /**
+   * Ground visibility toggled
+   * PAYLOAD: { visible: boolean }
+   */
+  GROUND_TOGGLED: 'world:ground-toggled',
+  
+  /**
+   * Ground color changed
+   * PAYLOAD: { color: string }
+   */
+  GROUND_COLOR_CHANGED: 'world:ground-color-changed',
+  
+  /**
+   * Ground opacity changed
+   * PAYLOAD: { opacity: number }
+   */
+  GROUND_OPACITY_CHANGED: 'world:ground-opacity-changed',
+  
+  /**
+   * Ground material properties changed
+   * PAYLOAD: {
+   *   roughness?: number,
+   *   metalness?: number
+   * }
+   */
+  GROUND_MATERIAL_CHANGED: 'world:ground-material-changed'
+};
 
+// ============================================
+// TCP EVENTS
+// ============================================
 /**
- * EVENT: tcp:tool-transformed
- * EMITTED BY: TCPContext
- * LISTENED BY: UI components
+ * Tool Center Point events namespace
  * 
- * PURPOSE: Notify when tool transform changes
- * WHEN: After setToolTransform
+ * Handles TCP tool attachment, transformation, and end effector updates.
+ * Primary consumers: TCPContext, IKContext
  * 
- * PAYLOAD: {
- *   robotId: String,
- *   toolId: String,
- *   transforms: Object,
- *   endEffectorPoint: Object,
- *   toolDimensions: Object
- * }
+ * @namespace TCPEvents
  */
-export const EVENT_TCP_TOOL_TRANSFORMED = 'tcp:tool-transformed';
+export const TCPEvents = {
+  /**
+   * Request scene access from ViewerContext
+   * PAYLOAD: { requestId: string }
+   * RESPONSE: ViewerEvents.TCP_SCENE_RESPONSE
+   */
+  NEEDS_SCENE: 'tcp:needs-scene',
+  
+  /**
+   * TCP tool attached to robot
+   * PAYLOAD: {
+   *   robotId: string,
+   *   toolId: string,
+   *   toolName: string,         // Always "tcp"
+   *   originalToolName: string,
+   *   endEffectorPoint: {x,y,z},
+   *   toolDimensions: {x,y,z}
+   * }
+   */
+  TOOL_ATTACHED: 'tcp:tool-attached',
+  
+  /**
+   * TCP tool removed
+   * PAYLOAD: {
+   *   robotId: string,
+   *   toolId: string
+   * }
+   */
+  TOOL_REMOVED: 'tcp:tool-removed',
+  
+  /**
+   * Tool transform changed
+   * PAYLOAD: {
+   *   robotId: string,
+   *   toolId: string,
+   *   transforms: Object,
+   *   endEffectorPoint: {x,y,z},
+   *   toolDimensions: {x,y,z}
+   * }
+   */
+  TOOL_TRANSFORMED: 'tcp:tool-transformed',
+  
+  /**
+   * Cross-context transform notification
+   * PAYLOAD: {
+   *   robotId: string,
+   *   transforms: Object
+   * }
+   */
+  TOOL_TRANSFORM_CHANGED: 'tcp:tool-transform-changed',
+  
+  /**
+   * End effector position/orientation updated
+   * PAYLOAD: {
+   *   robotId: string,
+   *   endEffectorPoint: {x,y,z},
+   *   endEffectorOrientation: {x,y,z,w},
+   *   hasTCP: boolean,
+   *   toolDimensions?: {x,y,z}
+   * }
+   */
+  ENDEFFECTOR_UPDATED: 'tcp:endeffector-updated',
+  
+  /**
+   * Force recalculation of end effector
+   * PAYLOAD: { robotId: string }
+   */
+  FORCE_RECALCULATE: 'tcp:force-recalculate'
+};
 
+// ============================================
+// CAMERA EVENTS
+// ============================================
 /**
- * EVENT: tcp:endeffector-updated
- * EMITTED BY: TCPContext
- * LISTENED BY: IKContext, UI components
+ * Camera control events namespace
  * 
- * PURPOSE: Notify when end effector position/orientation changes
- * WHEN: After any change affecting end effector
+ * Handles camera position, target, and property changes.
+ * Primary consumers: CameraContext, ViewerContext
  * 
- * PAYLOAD: {
- *   robotId: String,
- *   endEffectorPoint: Object,      // { x, y, z }
- *   endEffectorOrientation: Object, // { x, y, z, w }
- *   hasTCP: Boolean,
- *   toolDimensions?: Object
- * }
+ * @namespace CameraEvents
  */
-export const EVENT_TCP_ENDEFFECTOR_UPDATED = 'tcp:endeffector-updated';
+export const CameraEvents = {
+  /**
+   * Camera position changed
+   * PAYLOAD: { position: {x,y,z} }
+   */
+  POSITION_CHANGED: 'camera:position-changed',
+  
+  /**
+   * Camera target changed
+   * PAYLOAD: { target: {x,y,z} }
+   */
+  TARGET_CHANGED: 'camera:target-changed',
+  
+  /**
+   * Camera reset to default
+   * PAYLOAD: none
+   */
+  RESET: 'camera:reset',
+  
+  /**
+   * Focus on object requested
+   * PAYLOAD: {
+   *   object: Object,
+   *   paddingMultiplier?: number
+   * }
+   */
+  FOCUS_ON: 'camera:focus-on',
+  
+  /**
+   * Focus operation complete
+   * PAYLOAD: {
+   *   position: {x,y,z},
+   *   target: {x,y,z}
+   * }
+   */
+  FOCUS_COMPLETE: 'camera:focus-complete',
+  
+  /**
+   * Camera aspect ratio changed
+   * PAYLOAD: { aspect: number }
+   */
+  ASPECT_CHANGED: 'camera:aspect-changed',
+  
+  /**
+   * Camera field of view changed
+   * PAYLOAD: { fov: number }
+   */
+  FOV_CHANGED: 'camera:fov-changed'
+};
 
-/**
- * EVENT: tcp:tool-transform-changed
- * EMITTED BY: TCPContext
- * LISTENED BY: ViewerContext
- * 
- * PURPOSE: Cross-context notification of transform changes
- * WHEN: After tool transform is modified
- * 
- * PAYLOAD: {
- *   robotId: String,
- *   transforms: Object
- * }
- */
-export const EVENT_TCP_TOOL_TRANSFORM_CHANGED = 'tcp:tool-transform-changed';
+// ============================================
+// LEGACY EXPORTS (for backward compatibility)
+// ============================================
+// Robot Events
+export const EVENT_ROBOT_NEEDS_SCENE = RobotEvents.NEEDS_SCENE;
+export const EVENT_ROBOT_LOADED = RobotEvents.LOADED;
+export const EVENT_ROBOT_UNLOADED = RobotEvents.UNLOADED;
+export const EVENT_ROBOT_ACTIVE_CHANGED = RobotEvents.ACTIVE_CHANGED;
+export const EVENT_ROBOT_JOINTS_CHANGED = RobotEvents.JOINTS_CHANGED;
+export const EVENT_ROBOT_JOINT_CHANGED = RobotEvents.JOINT_CHANGED;
+export const EVENT_ROBOT_JOINTS_RESET = RobotEvents.JOINTS_RESET;
+export const EVENT_ROBOT_REMOVED = RobotEvents.REMOVED;
+export const EVENT_ROBOT_WORKSPACE_UPDATED = RobotEvents.WORKSPACE_UPDATED;
+export const EVENT_ROBOT_DISCOVERY_COMPLETE = RobotEvents.DISCOVERY_COMPLETE;
+export const EVENT_ROBOT_LOADING_STATE_CHANGED = RobotEvents.LOADING_STATE_CHANGED;
+export const EVENT_ROBOT_POSITION_CHANGED = RobotEvents.POSITION_CHANGED;
+export const EVENT_ROBOT_TCP_ATTACHED = RobotEvents.TCP_ATTACHED;
+export const EVENT_ROBOT_TCP_DETACHED = RobotEvents.TCP_DETACHED;
+export const EVENT_ROBOT_REGISTERED = RobotEvents.REGISTERED;
 
-/**
- * EVENT: tcp:force-recalculate
- * EMITTED BY: Any component
- * LISTENED BY: TCPContext
- * 
- * PURPOSE: Force recalculation of end effector
- * WHEN: Manual recalculation needed
- * 
- * PAYLOAD: {
- *   robotId: String
- * }
- */
-export const EVENT_TCP_FORCE_RECALCULATE = 'tcp:force-recalculate';
+// Robot Commands
+export const EVENT_MOVE_JOINT = RobotEvents.Commands.MOVE_JOINT;
+export const EVENT_MOVE_JOINTS = RobotEvents.Commands.MOVE_JOINTS;
+export const EVENT_REQUEST_JOINTS = RobotEvents.Commands.REQUEST_JOINTS;
+export const EVENT_RECEIVE_JOINTS = RobotEvents.Responses.JOINT_VALUES;
+export const EVENT_COMMAND_LOAD_ROBOT = RobotEvents.Commands.LOAD;
+export const EVENT_COMMAND_UNLOAD_ROBOT = RobotEvents.Commands.UNLOAD;
+export const EVENT_COMMAND_SET_ACTIVE_ROBOT = RobotEvents.Commands.SET_ACTIVE;
+export const EVENT_COMMAND_RESET_JOINTS = RobotEvents.Commands.RESET_JOINTS;
+export const EVENT_COMMAND_ADD_TO_WORKSPACE = RobotEvents.Commands.ADD_TO_WORKSPACE;
+export const EVENT_COMMAND_REMOVE_FROM_WORKSPACE = RobotEvents.Commands.REMOVE_FROM_WORKSPACE;
+export const EVENT_COMMAND_DISCOVER_ROBOTS = RobotEvents.Commands.DISCOVER;
+export const EVENT_COMMAND_SET_ROBOT_POSITION = RobotEvents.Commands.SET_POSITION;
 
-// --- EVENTS LISTENED TO BY TCP CONTEXT ---
+// Viewer Events
+export const EVENT_VIEWER_READY = ViewerEvents.READY;
+export const EVENT_VIEWER_HERE_IS_SCENE = ViewerEvents.HERE_IS_SCENE;
+export const EVENT_VIEWER_INITIALIZED = ViewerEvents.INITIALIZED;
+export const EVENT_VIEWER_CONFIG_UPDATED = ViewerEvents.CONFIG_UPDATED;
+export const EVENT_VIEWER_ROBOT_LOADED = ViewerEvents.ROBOT_LOADED;
+export const EVENT_VIEWER_ROBOT_LOAD_ERROR = ViewerEvents.ROBOT_LOAD_ERROR;
+export const EVENT_VIEWER_JOINTS_RESET = ViewerEvents.JOINTS_RESET;
+export const EVENT_VIEWER_RESIZED = ViewerEvents.RESIZED;
+export const EVENT_VIEWER_DISPOSED = ViewerEvents.DISPOSED;
+export const EVENT_VIEWER_DRAG_START = ViewerEvents.DRAG_START;
+export const EVENT_VIEWER_DRAG_END = ViewerEvents.DRAG_END;
+export const EVENT_VIEWER_JOINT_HOVER = ViewerEvents.JOINT_HOVER;
+export const EVENT_VIEWER_JOINT_UNHOVER = ViewerEvents.JOINT_UNHOVER;
+export const EVENT_VIEWER_TABLE_LOADED = ViewerEvents.TABLE_LOADED;
+export const EVENT_VIEWER_TABLE_TOGGLED = ViewerEvents.TABLE_TOGGLED;
+export const EVENT_VIEWER_TCP_SCENE_RESPONSE = ViewerEvents.TCP_SCENE_RESPONSE;
 
-/**
- * EVENT: viewer:tcp-scene-response
- * EMITTED BY: ViewerContext
- * LISTENED BY: TCPContext
- * 
- * PURPOSE: Provide scene access in response to tcp:needs-scene
- * WHEN: In response to EVENT_TCP_NEEDS_SCENE request
- * 
- * EXPECTED PAYLOAD: {
- *   success: Boolean,
- *   requestId: String,
- *   payload: {
- *     getSceneSetup: Function  // () => sceneSetup instance
- *   },
- *   error?: String
- * }
- */
-export const EVENT_VIEWER_TCP_SCENE_RESPONSE = 'viewer:tcp-scene-response';
+// Joint Events
+export const EVENT_JOINT_SET_VALUE = JointEvents.Commands.SET_VALUE;
+export const EVENT_JOINT_SET_VALUE_RESPONSE = JointEvents.Responses.SET_VALUE;
+export const EVENT_JOINT_SET_VALUES = JointEvents.Commands.SET_VALUES;
+export const EVENT_JOINT_SET_VALUES_RESPONSE = JointEvents.Responses.SET_VALUES;
+export const EVENT_JOINT_GET_VALUES = JointEvents.Commands.GET_VALUES;
+export const EVENT_JOINT_GET_VALUES_RESPONSE = JointEvents.Responses.GET_VALUES;
+export const EVENT_JOINT_RESET = JointEvents.Commands.RESET;
+export const EVENT_JOINT_RESET_RESPONSE = JointEvents.Responses.RESET;
+
+// IK Events
+export const EVENT_IK_SOLVE = IKEvents.Commands.SOLVE;
+export const EVENT_IK_SOLUTION_FOUND = IKEvents.SOLUTION_FOUND;
+export const EVENT_IK_NO_SOLUTION = IKEvents.NO_SOLUTION;
+
+// Trajectory Events
+export const EVENT_TRAJECTORY_PLAY = TrajectoryEvents.Commands.PLAY;
+export const EVENT_TRAJECTORY_PAUSE = TrajectoryEvents.Commands.PAUSE;
+export const EVENT_TRAJECTORY_STOP = TrajectoryEvents.Commands.STOP;
+export const EVENT_TRAJECTORY_PLAYING = TrajectoryEvents.PLAYING;
+export const EVENT_TRAJECTORY_PAUSED = TrajectoryEvents.PAUSED;
+export const EVENT_TRAJECTORY_STOPPED = TrajectoryEvents.STOPPED;
+export const EVENT_TRAJECTORY_FRAME_UPDATE = TrajectoryEvents.FRAME_UPDATE;
+export const EVENT_TRAJECTORY_RECORD_START = TrajectoryEvents.Commands.RECORD_START;
+export const EVENT_TRAJECTORY_RECORD_STOP = TrajectoryEvents.Commands.RECORD_STOP;
+export const EVENT_TRAJECTORY_RECORDING_STARTED = TrajectoryEvents.RECORDING_STARTED;
+export const EVENT_TRAJECTORY_RECORDING_STOPPED = TrajectoryEvents.RECORDING_STOPPED;
+
+// Environment Events
+export const EVENT_ENVIRONMENT_OBJECT_SPAWNED = EnvironmentEvents.OBJECT_SPAWNED;
+export const EVENT_ENVIRONMENT_OBJECT_REMOVED = EnvironmentEvents.OBJECT_REMOVED;
+export const EVENT_ENVIRONMENT_OBJECT_SELECTED = EnvironmentEvents.OBJECT_SELECTED;
+
+// Scene Events
+export const EVENT_SCENE_OBJECT_REGISTERED = SceneEvents.OBJECT_REGISTERED;
+export const EVENT_SCENE_OBJECT_UNREGISTERED = SceneEvents.OBJECT_UNREGISTERED;
+export const EVENT_SCENE_OBJECT_UPDATED = SceneEvents.OBJECT_UPDATED;
+
+// Human Events
+export const EVENT_HUMAN_SPAWNED = HumanEvents.SPAWNED;
+export const EVENT_HUMAN_REMOVED = HumanEvents.REMOVED;
+export const EVENT_HUMAN_SELECTED = HumanEvents.SELECTED;
+export const EVENT_HUMAN_POSITION_UPDATE = HumanEvents.positionUpdate;
+export const createHumanPositionEventName = HumanEvents.createPositionEventName;
+
+// World Events
+export const EVENT_WORLD_READY = WorldEvents.READY;
+export const EVENT_WORLD_RESET = WorldEvents.RESET;
+export const EVENT_WORLD_FULLY_LOADED = WorldEvents.FULLY_LOADED;
+export const EVENT_WORLD_GRAVITY_CHANGED = WorldEvents.GRAVITY_CHANGED;
+export const EVENT_WORLD_GRID_TOGGLED = WorldEvents.GRID_TOGGLED;
+export const EVENT_WORLD_GRID_UPDATED = WorldEvents.GRID_UPDATED;
+export const EVENT_WORLD_GROUND_TOGGLED = WorldEvents.GROUND_TOGGLED;
+export const EVENT_WORLD_GROUND_COLOR_CHANGED = WorldEvents.GROUND_COLOR_CHANGED;
+export const EVENT_WORLD_GROUND_OPACITY_CHANGED = WorldEvents.GROUND_OPACITY_CHANGED;
+export const EVENT_WORLD_GROUND_MATERIAL_CHANGED = WorldEvents.GROUND_MATERIAL_CHANGED;
+
+// TCP Events
+export const EVENT_TCP_NEEDS_SCENE = TCPEvents.NEEDS_SCENE;
+export const EVENT_TCP_TOOL_ATTACHED = TCPEvents.TOOL_ATTACHED;
+export const EVENT_TCP_TOOL_REMOVED = TCPEvents.TOOL_REMOVED;
+export const EVENT_TCP_TOOL_TRANSFORMED = TCPEvents.TOOL_TRANSFORMED;
+export const EVENT_TCP_TOOL_TRANSFORM_CHANGED = TCPEvents.TOOL_TRANSFORM_CHANGED;
+export const EVENT_TCP_ENDEFFECTOR_UPDATED = TCPEvents.ENDEFFECTOR_UPDATED;
+export const EVENT_TCP_FORCE_RECALCULATE = TCPEvents.FORCE_RECALCULATE;
 
 // ============================================
 // UTILITY FUNCTIONS
 // ============================================
 
 /**
- * Helper to create request/response pattern
- * @param {string} eventName - Base event name
+ * Create a request/response pattern for async communication
+ * 
+ * @param {string} eventName - Base event name (usually a command)
  * @param {Object} payload - Event payload
- * @param {Function} callback - Response callback
- * @returns {string} requestId
+ * @param {Function} callback - Callback for response
+ * @returns {string} requestId - Unique request identifier
+ * 
+ * @example
+ * // Request joint values
+ * createRequest(JointEvents.Commands.GET_VALUES, 
+ *   { robotId: 'ur5_001' }, 
+ *   (response) => {
+ *     console.log('Joint values:', response.values);
+ *   }
+ * );
  */
 export const createRequest = (eventName, payload, callback) => {
   const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -1459,10 +1317,14 @@ export const createRequest = (eventName, payload, callback) => {
 };
 
 /**
- * Helper to emit error events
- * @param {string} context - Context name (robot, viewer, etc)
+ * Emit error events with standard format
+ * 
+ * @param {string} context - Context name (robot, viewer, tcp, etc)
  * @param {string} operation - Operation that failed
  * @param {Error} error - Error object
+ * 
+ * @example
+ * emitError('robot', 'loadRobot', new Error('URDF not found'));
  */
 export const emitError = (context, operation, error) => {
   EventBus.emit(`${context}:error`, {
@@ -1474,28 +1336,112 @@ export const emitError = (context, operation, error) => {
 };
 
 /**
- * Helper to create typed event emitters
+ * Create a typed event emitter function
+ * 
  * @param {string} eventName - Event name
  * @returns {Function} Typed emitter function
+ * 
+ * @example
+ * const emitRobotLoaded = createEmitter(RobotEvents.LOADED);
+ * emitRobotLoaded({ robotId: 'ur5_001', robot: robotObject });
  */
 export const createEmitter = (eventName) => {
   return (payload) => EventBus.emit(eventName, payload);
 };
 
 /**
- * Helper to create typed event listeners
+ * Create a typed event listener function
+ * 
  * @param {string} eventName - Event name
  * @returns {Function} Typed listener function
+ * 
+ * @example
+ * const onRobotLoaded = createListener(RobotEvents.LOADED);
+ * const unsubscribe = onRobotLoaded((payload) => {
+ *   console.log('Robot loaded:', payload.robotId);
+ * });
  */
 export const createListener = (eventName) => {
   return (handler) => EventBus.on(eventName, handler);
 };
 
 /**
- * Utility to generate the event name for human position updates
- * @param {string} id - Human ID
- * @returns {string} Event name for position update
+ * Create a namespaced event string
+ * 
+ * @param {string} namespace - Event namespace
+ * @param {string} eventName - Event name
+ * @returns {string} Namespaced event
+ * 
+ * @example
+ * const myEvent = createNamespacedEvent('mymodule', 'custom-event');
+ * // Returns: 'mymodule:custom-event'
  */
-export function createHumanPositionEventName(id) {
-  return `human:position-update:${id}`;
-}
+export const createNamespacedEvent = (namespace, eventName) => {
+  return `${namespace}:${eventName}`;
+};
+
+/**
+ * Emit multiple events in sequence
+ * 
+ * @param {Array<{event: string, payload: any}>} events - Array of events to emit
+ * 
+ * @example
+ * batchEmit([
+ *   { event: RobotEvents.LOADED, payload: { robotId: 'ur5_001' } },
+ *   { event: RobotEvents.ACTIVE_CHANGED, payload: { robotId: 'ur5_001' } }
+ * ]);
+ */
+export const batchEmit = (events) => {
+  events.forEach(({ event, payload }) => {
+    EventBus.emit(event, payload);
+  });
+};
+
+/**
+ * Create a subscription manager for handling multiple event subscriptions
+ * 
+ * @returns {Object} Subscription manager with subscribe and unsubscribeAll methods
+ * 
+ * @example
+ * const subscriptions = createSubscriptionManager();
+ * 
+ * // Subscribe to multiple events
+ * subscriptions.subscribe(RobotEvents.LOADED, handleRobotLoaded);
+ * subscriptions.subscribe(RobotEvents.REMOVED, handleRobotRemoved);
+ * 
+ * // Later: unsubscribe from all
+ * subscriptions.unsubscribeAll();
+ */
+export const createSubscriptionManager = () => {
+  const subscriptions = [];
+  
+  return {
+    /**
+     * Subscribe to an event
+     * @param {string} event - Event name
+     * @param {Function} handler - Event handler
+     * @returns {Function} Unsubscribe function
+     */
+    subscribe: (event, handler) => {
+      const unsubscribe = EventBus.on(event, handler);
+      subscriptions.push(unsubscribe);
+      return unsubscribe;
+    },
+    
+    /**
+     * Unsubscribe from all events
+     */
+    unsubscribeAll: () => {
+      subscriptions.forEach(unsub => unsub());
+      subscriptions.length = 0;
+    },
+    
+    /**
+     * Get count of active subscriptions
+     * @returns {number} Number of active subscriptions
+     */
+    get count() {
+      return subscriptions.length;
+    }
+  };
+};

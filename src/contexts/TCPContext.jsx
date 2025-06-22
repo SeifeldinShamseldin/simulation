@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import URDFLoader from '../core/Loader/URDFLoader';
 import MeshLoader from '../core/Loader/MeshLoader';
 import EventBus from '../utils/EventBus';
-import * as DataTransfer from './dataTransfer.js';
+import * as DataTransfer from './dataTransfer';
 
 const TCPContext = createContext(null);
 

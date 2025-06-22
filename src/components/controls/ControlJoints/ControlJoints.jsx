@@ -1,8 +1,11 @@
 // src/components/controls/ControlJoints/ControlJoints.jsx
-// Refactored to only import from useJoints hook with exact original UI
+// UI displays commanded joint positions (where joints are going)
+// Sliders update when joint commands are sent from any source
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import useJoints from '../../../contexts/hooks/useJoints';
+import EventBus from '../../../utils/EventBus';
+import { JointEvents } from '../../../contexts/dataTransfer';
 
 const ControlJoints = () => {
   // Get all joint functionality from single hook
@@ -11,8 +14,6 @@ const ControlJoints = () => {
   // Destructure what we need
   const {
     robotId,
-    isAnimating,
-    progress,
     setJointValue,
     resetJoints,
     getJointLimits,
@@ -30,7 +31,6 @@ const ControlJoints = () => {
     
     if (!success) {
       debugJoint(`Failed to update joint ${jointName}`);
-      // You could add a toast notification here
     }
   }, [setJointValue, debugJoint]);
   
@@ -39,12 +39,41 @@ const ControlJoints = () => {
     const success = resetJoints();
     if (!success) {
       debugJoint('Failed to reset joints');
-      // You could add a toast notification here
     }
   }, [resetJoints, debugJoint]);
   
   // Get movable joints for display
   const movableJoints = getMovableJoints();
+  
+  // Poll for joint values via GET_VALUES event every 200ms
+  useEffect(() => {
+    if (!robotId) return;
+    let isMounted = true;
+    let interval;
+    let requestId = 'getvals_' + Date.now();
+
+    const handleResponse = (data) => {
+      if (isMounted && data.robotId === robotId && data.requestId === requestId) {
+        setJointValues(data.values);
+      }
+    };
+    const unsub = EventBus.on(JointEvents.Responses.GET_VALUES, handleResponse);
+
+    // Poll every 200ms
+    interval = setInterval(() => {
+      requestId = 'getvals_' + Date.now();
+      EventBus.emit(JointEvents.Commands.GET_VALUES, { robotId, requestId });
+    }, 200);
+
+    // Initial fetch
+    EventBus.emit(JointEvents.Commands.GET_VALUES, { robotId, requestId });
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      unsub();
+    };
+  }, [robotId]);
   
   if (!robotId || !hasJoints) {
     return (
@@ -68,15 +97,11 @@ const ControlJoints = () => {
     <div className="controls-section">
       <h3 className="controls-section-title">
         Joint Control - {robotId}
-        {isAnimating && (
-          <span className="controls-badge controls-badge-info controls-ml-2">
-            Moving... {Math.round(progress * 100)}%
-          </span>
-        )}
       </h3>
       
       <div className="joint-controls-container">
         {movableJoints.map((joint) => {
+          // Get commanded value (where joint is going)
           const value = getJointValue(joint.name);
           const limits = getJointLimits(joint.name);
           const min = limits.lower ?? -Math.PI;
@@ -100,7 +125,6 @@ const ControlJoints = () => {
                   step={step}
                   value={value}
                   onChange={(e) => handleJointChange(joint.name, e.target.value)}
-                  disabled={isAnimating}
                 />
                 <span className="joint-value-display">
                   {value.toFixed(2)} rad
@@ -119,7 +143,6 @@ const ControlJoints = () => {
       <button 
         onClick={handleReset} 
         className="controls-btn controls-btn-warning controls-btn-block controls-mt-3"
-        disabled={isAnimating}
       >
         Reset All Joints
       </button>
@@ -127,16 +150,6 @@ const ControlJoints = () => {
       {/* Joint summary */}
       <div className="controls-mt-3 controls-small controls-text-muted">
         {movableJoints.length} movable joints • Robot: {robotId}
-        {isAnimating && (
-          <div className="controls-mt-2">
-            <div className="controls-progress">
-              <div 
-                className="controls-progress-bar" 
-                style={{ width: `${progress * 100}%` }}
-              />
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );
