@@ -3,7 +3,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import * as THREE from 'three';
 import EventBus from '../utils/EventBus';
 import URDFLoader from '../core/Loader/URDFLoader';
-import * as DataTransfer from './dataTransfer';
+import * as DataTransfer from './dataTransfer.js';
 
 // Debug flag - set to false in production
 const DEBUG = process.env.NODE_ENV === 'development';
@@ -625,91 +625,6 @@ export const RobotProvider = ({ children }) => {
     return true;
   }, [activeRobotId, setActiveRobotId, loadedRobots]);
 
-  // ========== JOINT CONTROL (Simplified) ==========
-
-  const setJointValue = useCallback((robotId, jointName, value) => {
-    const robot = getRobot(robotId);
-    if (!robot) return false;
-    
-    try {
-      // Try robot method first
-      if (robot.setJointValue) {
-        return robot.setJointValue(jointName, value);
-      }
-      
-      // Try direct joint access
-      if (robot.joints?.[jointName]?.setJointValue) {
-        const success = robot.joints[jointName].setJointValue(value);
-        if (success && robot.updateMatrixWorld) {
-          robot.updateMatrixWorld(true);
-        }
-        return success;
-      }
-      
-      return false;
-    } catch (error) {
-      console.error(`[RobotContext] Error setting joint ${jointName}:`, error);
-      return false;
-    }
-  }, [getRobot]);
-
-  const setJointValues = useCallback((robotId, values) => {
-    const robot = getRobot(robotId);
-    if (!robot || !robot.setJointValues) return false;
-    
-    try {
-      const success = robot.setJointValues(values);
-      if (success) {
-        EventBus.emit('robot:joints-changed', { 
-          robotId, 
-          values
-        });
-      }
-      return success;
-    } catch (error) {
-      console.error(`[RobotContext] Error setting joints:`, error);
-      return false;
-    }
-  }, [getRobot]);
-
-  const getJointValues = useCallback((robotId) => {
-    const robot = getRobot(robotId);
-    if (!robot) return {};
-    
-    const values = {};
-    
-    if (robot.joints) {
-      Object.values(robot.joints).forEach(joint => {
-        if (joint && joint.jointType !== 'fixed' && typeof joint.angle !== 'undefined') {
-          values[joint.name] = joint.angle;
-        }
-      });
-    }
-    
-    return values;
-  }, [getRobot]);
-
-  const resetJoints = useCallback((robotId) => {
-    const robot = getRobot(robotId);
-    if (!robot || !robot.joints) return;
-    
-    Object.values(robot.joints).forEach(joint => {
-      if (joint.setJointValue) {
-        joint.setJointValue(0);
-      }
-    });
-    
-    EventBus.emit('robot:joints-reset', { robotId });
-  }, [getRobot]);
-
-  const getCurrentRobot = useCallback(() => {
-    return activeRobotId ? getRobot(activeRobotId) : null;
-  }, [activeRobotId, getRobot]);
-
-  const getCurrentRobotName = useCallback(() => {
-    return activeRobotId;
-  }, [activeRobotId]);
-
   // ========== STATUS & UTILITIES ==========
 
   const getRobotLoadStatus = useCallback((robot) => {
@@ -854,19 +769,6 @@ export const RobotProvider = ({ children }) => {
     removeRobot: unloadRobot, // Alias
     getActiveRobots,
     
-    // Joint Control
-    setJointValue,
-    setJointValues,
-    getJointValues,
-    resetJoints,
-    
-    // Utilities
-    getCurrentRobot,
-    getCurrentRobotName,
-    isRobotReady,
-    calculateRobotPositions: () => [], // Deprecated
-    getLoadedRobots: getAllRobots,
-    
     // Computed Properties
     robotCount: workspaceRobots.length,
     isEmpty: workspaceRobots.length === 0,
@@ -918,15 +820,6 @@ export const RobotProvider = ({ children }) => {
     getAllRobots,
     setRobotActive,
     getActiveRobots,
-    setJointValue,
-    setJointValues,
-    getJointValues,
-    resetJoints,
-    getCurrentRobot,
-    getCurrentRobotName,
-    isRobotReady,
-    clearError,
-    clearSuccess,
     getManufacturer,
     isInitialized
   ]);

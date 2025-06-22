@@ -1,14 +1,12 @@
 // src/contexts/JointContext.jsx - Simplified for direct joint control
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import EventBus from '../utils/EventBus';
-import { useRobotContext } from './RobotContext';
+import * as DataTransfer from './dataTransfer.js';
 import { debug, debugJoint } from '../utils/DebugSystem';
 
 export const JointContext = createContext();
 
 export const JointProvider = ({ children }) => {
-  const { isRobotReady } = useRobotContext();
-  
   const [robotJoints, setRobotJoints] = useState(new Map());
   const [robotJointValues, setRobotJointValues] = useState(new Map());
   
@@ -111,63 +109,6 @@ export const JointProvider = ({ children }) => {
     return success;
   }, []);
 
-  const setRobotJointValuesInternal = useCallback((robotId, values) => {
-    if (!isRobotReady(robotId)) {
-      debugJoint(`Robot ${robotId} not ready for joint updates`);
-      return false;
-    }
-    const robot = findRobotWithFallbacks(robotId);
-    if (!robot) {
-      debugJoint(`Robot ${robotId} not found`);
-      return false;
-    }
-    let success = false;
-    try {
-      if (robot.setJointValues && typeof robot.setJointValues === 'function') {
-        success = robot.setJointValues(values);
-        debugJoint(`Robot setJointValues result: ${success}`);
-      }
-      if (!success && robotManagerRef.current && robotManagerRef.current.setJointValues) {
-        try {
-          success = robotManagerRef.current.setJointValues(robotId, values);
-          debugJoint(`Robot manager setJointValues result: ${success}`);
-        } catch (error) {
-          debugJoint('Robot manager setJointValues failed:', error);
-        }
-      }
-      if (!success) {
-        success = true;
-        Object.entries(values).forEach(([jointName, value]) => {
-          const joint = robot.joints[jointName];
-          if (!joint) {
-            debugJoint(`Joint ${jointName} not found in robot ${robotId}`);
-            success = false;
-            return;
-          }
-          const jointSuccess = robot.setJointValue(jointName, value);
-          if (!jointSuccess) {
-            debugJoint(`Failed to set joint ${jointName} to ${value}`);
-            success = false;
-          }
-        });
-      }
-      if (success && robot.updateMatrixWorld) {
-        robot.updateMatrixWorld(true);
-      }
-      if (success) {
-        EventBus.emit('robot:joints-changed', {
-          robotId,
-          robotName: robotId,
-          values
-        });
-      }
-      return success;
-    } catch (error) {
-      debugJoint(`Error setting joint values for ${robotId}:`, error);
-      return false;
-    }
-  }, [findRobotWithFallbacks, isRobotReady]);
-
   useEffect(() => {
     const handleRobotLoaded = (data) => {
       const { robotName, robot, robotId } = data;
@@ -233,97 +174,138 @@ export const JointProvider = ({ children }) => {
     };
   }, [robotJoints]);
 
-  const setJointValue = useCallback((robotId, jointName, value) => {
-    debugJoint(`Setting joint ${jointName} = ${value} for robot ${robotId}`);
-    const robot = findRobotWithFallbacks(robotId);
-    if (!robot) {
-      debugJoint(`Robot ${robotId} not found for setJointValue`);
-      return false;
-    }
-    let success = false;
-    try {
-      success = ensureJointAngleSync(robot, jointName, value);
-      if (!success && robot.setJointValue) {
-        success = robot.setJointValue(robotId, jointName, value);
+  // ========== EVENT-DRIVEN JOINT CONTROL ========== //
+  useEffect(() => {
+    // Set single joint value
+    const handleSetJointValue = ({ robotId, jointName, value, requestId }) => {
+      debugJoint(`Event: set joint ${jointName} = ${value} for robot ${robotId}`);
+      const robot = findRobotWithFallbacks(robotId);
+      let success = false;
+      if (robot) {
+        success = ensureJointAngleSync(robot, jointName, value);
+        if (success && robot.joints && robot.joints[jointName]) {
+          robot.joints[jointName].angle = value;
+        }
+        if (success) {
+          setRobotJointValues(prev => {
+            const newMap = new Map(prev);
+            const robotValues = newMap.get(robotId) || {};
+            robotValues[jointName] = value;
+            newMap.set(robotId, robotValues);
+            return newMap;
+          });
+          const allJointValues = getRobotJointValues(robotId);
+          EventBus.emit(DataTransfer.EVENT_ROBOT_JOINT_CHANGED, {
+            robotId,
+            robotName: robotId,
+            jointName,
+            value,
+            allValues: allJointValues
+          });
+          EventBus.emit(DataTransfer.EVENT_ROBOT_JOINTS_CHANGED, {
+            robotId,
+            robotName: robotId,
+            values: allJointValues,
+            source: 'eventbus-single'
+          });
+        }
       }
-      if (success && robot.joints && robot.joints[jointName]) {
-        robot.joints[jointName].angle = value;
-        debugJoint(`✅ Synced joint.angle for ${jointName} = ${value}`);
-      }
-      if (success) {
-        setRobotJointValues(prev => {
-          const newMap = new Map(prev);
-          const robotValues = newMap.get(robotId) || {};
-          robotValues[jointName] = value;
-          newMap.set(robotId, robotValues);
-          return newMap;
-        });
-        const allJointValues = getRobotJointValues(robotId);
-        debugJoint(`Successfully set joint ${jointName} = ${value} for robot ${robotId}`);
-        debugJoint(`All joint values:`, allJointValues);
-        EventBus.emit('robot:joint-changed', {
-          robotId,
-          robotName: robotId,
-          jointName,
-          value,
-          allValues: allJointValues
-        });
-        EventBus.emit('robot:joints-changed', {
-          robotId,
-          robotName: robotId,
-          values: allJointValues,
-          source: 'manual'
-        });
-      }
-      return success;
-    } catch (error) {
-      debugJoint(`Error setting joint value:`, error);
-      return false;
-    }
-  }, [findRobotWithFallbacks, getRobotJointValues, ensureJointAngleSync]);
-
-  const setJointValues = useCallback((robotId, values) => {
-    const success = setRobotJointValuesInternal(robotId, values);
-    if (success) {
-      setRobotJointValues(prev => {
-        const newMap = new Map(prev);
-        const robotValues = newMap.get(robotId) || {};
-        newMap.set(robotId, { ...robotValues, ...values });
-        return newMap;
-      });
-      const allJointValues = getRobotJointValues(robotId);
-      EventBus.emit('robot:joints-changed', {
+      EventBus.emit(DataTransfer.EVENT_JOINT_SET_VALUE_RESPONSE, {
         robotId,
-        robotName: robotId,
-        values: allJointValues,
-        source: 'manual-batch'
+        jointName,
+        value,
+        success,
+        requestId
       });
-    }
-    return success;
-  }, [setRobotJointValuesInternal, getRobotJointValues]);
+    };
 
-  const resetJoints = useCallback((robotId) => {
-    debugJoint(`Resetting joints for robot ${robotId}`);
-    const robot = findRobotWithFallbacks(robotId);
-    if (!robot) {
-      debugJoint(`Robot ${robotId} not found for reset`);
-      return;
-    }
-    try {
-      const joints = robotJoints.get(robotId) || [];
-      const resetValues = {};
-      joints.forEach(joint => {
-        resetValues[joint.name] = 0;
-      });
-      const success = setRobotJointValuesInternal(robotId, resetValues);
-      if (success) {
-        setRobotJointValues(prev => new Map(prev).set(robotId, resetValues));
-        debugJoint(`Reset joints for ${robotId}:`, resetValues);
+    // Set multiple joint values
+    const handleSetJointValues = ({ robotId, values, requestId }) => {
+      debugJoint(`Event: set multiple joints for robot ${robotId}`);
+      const robot = findRobotWithFallbacks(robotId);
+      let success = false;
+      if (robot) {
+        success = true;
+        Object.entries(values).forEach(([jointName, value]) => {
+          const jointSuccess = ensureJointAngleSync(robot, jointName, value);
+          if (!jointSuccess) success = false;
+        });
+        if (success) {
+          setRobotJointValues(prev => {
+            const newMap = new Map(prev);
+            const robotValues = newMap.get(robotId) || {};
+            Object.assign(robotValues, values);
+            newMap.set(robotId, robotValues);
+            return newMap;
+          });
+          const allJointValues = getRobotJointValues(robotId);
+          EventBus.emit(DataTransfer.EVENT_ROBOT_JOINTS_CHANGED, {
+            robotId,
+            robotName: robotId,
+            values: allJointValues,
+            source: 'eventbus-batch'
+          });
+        }
       }
-    } catch (error) {
-      debugJoint(`Error resetting joints:`, error);
-    }
-  }, [robotJoints, findRobotWithFallbacks, setRobotJointValuesInternal]);
+      EventBus.emit(DataTransfer.EVENT_JOINT_SET_VALUES_RESPONSE, {
+        robotId,
+        values,
+        success,
+        requestId
+      });
+    };
+
+    // Get joint values
+    const handleGetJointValues = ({ robotId, requestId }) => {
+      debugJoint(`Event: get joint values for robot ${robotId}`);
+      const values = getRobotJointValues(robotId);
+      EventBus.emit(DataTransfer.EVENT_JOINT_GET_VALUES_RESPONSE, {
+        robotId,
+        values,
+        requestId
+      });
+    };
+
+    // Reset joints
+    const handleResetJoints = ({ robotId, requestId }) => {
+      debugJoint(`Event: reset joints for robot ${robotId}`);
+      const robot = findRobotWithFallbacks(robotId);
+      let success = false;
+      if (robot) {
+        const joints = robotJoints.get(robotId) || [];
+        const resetValues = {};
+        joints.forEach(joint => {
+          resetValues[joint.name] = 0;
+        });
+        Object.entries(resetValues).forEach(([jointName, value]) => {
+          ensureJointAngleSync(robot, jointName, value);
+        });
+        setRobotJointValues(prev => new Map(prev).set(robotId, resetValues));
+        EventBus.emit(DataTransfer.EVENT_ROBOT_JOINTS_RESET, {
+          robotId,
+          robotName: robotId
+        });
+        success = true;
+      }
+      EventBus.emit(DataTransfer.EVENT_JOINT_RESET_RESPONSE, {
+        robotId,
+        success,
+        requestId
+      });
+    };
+
+    // Register listeners
+    const unsubSet = EventBus.on(DataTransfer.EVENT_JOINT_SET_VALUE, handleSetJointValue);
+    const unsubSetVals = EventBus.on(DataTransfer.EVENT_JOINT_SET_VALUES, handleSetJointValues);
+    const unsubGet = EventBus.on(DataTransfer.EVENT_JOINT_GET_VALUES, handleGetJointValues);
+    const unsubReset = EventBus.on(DataTransfer.EVENT_JOINT_RESET, handleResetJoints);
+    return () => {
+      unsubSet();
+      unsubSetVals();
+      unsubGet();
+      unsubReset();
+    };
+  }, [findRobotWithFallbacks, ensureJointAngleSync, getRobotJointValues, robotJoints]);
 
   const getJointInfo = useCallback((robotId) => {
     return robotJoints.get(robotId) || [];
@@ -352,18 +334,12 @@ export const JointProvider = ({ children }) => {
   const value = useMemo(() => ({
     robotJoints,
     robotJointValues,
-    setJointValue,
-    setJointValues,
-    resetJoints,
     getJointInfo,
     getJointValues,
     getJointLimits,
   }), [
     robotJoints,
     robotJointValues,
-    setJointValue,
-    setJointValues,
-    resetJoints,
     getJointInfo,
     getJointValues,
     getJointLimits,

@@ -5,7 +5,7 @@ import SceneSetup from '../core/Scene/SceneSetup';
 import { PointerURDFDragControls } from '../core/Loader/URDFControls';
 import EventBus from '../utils/EventBus';
 import useCamera from './hooks/useCamera';
-import * as DataTransfer from './dataTransfer';
+import * as DataTransfer from './dataTransfer.js';
 
 const ViewerContext = createContext(null);
 
@@ -419,6 +419,29 @@ export const ViewerProvider = ({ children }) => {
     };
     EventBus.on(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
     return () => EventBus.off(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
+  }, [isViewerReady]);
+  
+  // ========== EVENTBUS: Respond to tcp:needs-scene requests ==========
+  useEffect(() => {
+    const handleTCPSceneRequest = (request) => {
+      if (isViewerReady && sceneSetupRef.current) {
+        EventBus.emit(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, {
+          success: true,
+          requestId: request.requestId,
+          payload: {
+            getSceneSetup: () => sceneSetupRef.current
+          }
+        });
+      } else {
+        EventBus.emit(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, {
+          success: false,
+          requestId: request.requestId,
+          error: 'Viewer not initialized.'
+        });
+      }
+    };
+    EventBus.on(DataTransfer.EVENT_TCP_NEEDS_SCENE, handleTCPSceneRequest);
+    return () => EventBus.off(DataTransfer.EVENT_TCP_NEEDS_SCENE, handleTCPSceneRequest);
   }, [isViewerReady]);
   
   // Memoize context value to prevent unnecessary re-renders

@@ -1,10 +1,10 @@
+// src/contexts/TCPContext.jsx - Refactored to use EventBus only
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
-import { useViewer } from './ViewerContext';
-import { useRobotContext } from './RobotContext';
 import URDFLoader from '../core/Loader/URDFLoader';
 import MeshLoader from '../core/Loader/MeshLoader';
 import EventBus from '../utils/EventBus';
+import * as DataTransfer from './dataTransfer.js';
 
 const TCPContext = createContext(null);
 
@@ -560,7 +560,7 @@ class OptimizedTCPManager {
     const finalPosition = this.getFinalEndEffectorPosition(robotId);
     const finalOrientation = this.getFinalEndEffectorOrientation(robotId);
     
-    EventBus.emit('tcp:tool-attached', {
+    EventBus.emit(DataTransfer.EVENT_TCP_TOOL_ATTACHED, {
       robotId,
       toolId,
       toolName: 'tcp', // Always emit "tcp" as the name
@@ -569,12 +569,19 @@ class OptimizedTCPManager {
       toolDimensions: toolDimensions
     });
 
-    EventBus.emit('tcp:endeffector-updated', {
+    EventBus.emit(DataTransfer.EVENT_TCP_ENDEFFECTOR_UPDATED, {
       robotId,
       endEffectorPoint: finalPosition,
       endEffectorOrientation: finalOrientation,
       hasTCP: true,
       toolDimensions: toolDimensions
+    });
+
+    // Emit event for cross-context (RobotContext)
+    EventBus.emit(DataTransfer.EVENT_ROBOT_TCP_ATTACHED, {
+      robotId,
+      toolId,
+      toolData: this.getCurrentTool(robotId)
     });
 
     console.log(`[TCP] Tool "${tool.name}" attached to ${robotId} as "tcp"`);
@@ -639,7 +646,7 @@ class OptimizedTCPManager {
       const finalPosition = this.getFinalEndEffectorPosition(robotId);
       const finalOrientation = this.getFinalEndEffectorOrientation(robotId);
       
-      EventBus.emit('tcp:tool-transformed', {
+      EventBus.emit(DataTransfer.EVENT_TCP_TOOL_TRANSFORMED, {
         robotId,
         toolId: toolData.toolId,
         transforms,
@@ -647,12 +654,18 @@ class OptimizedTCPManager {
         toolDimensions: updatedDimensions
       });
 
-      EventBus.emit('tcp:endeffector-updated', {
+      EventBus.emit(DataTransfer.EVENT_TCP_ENDEFFECTOR_UPDATED, {
         robotId,
         endEffectorPoint: finalPosition,
         endEffectorOrientation: finalOrientation,
         hasTCP: true,
         toolDimensions: updatedDimensions
+      });
+
+      // Emit event for cross-context
+      EventBus.emit(DataTransfer.EVENT_TCP_TOOL_TRANSFORM_CHANGED, {
+        robotId,
+        transforms
       });
 
       this._lastUpdateTime.set(robotId, now);
@@ -691,11 +704,17 @@ class OptimizedTCPManager {
     // Emit events
     const robotPosition = this.calculateRobotEndEffector(robotId);
     
-    EventBus.emit('tcp:tool-removed', { robotId, toolId: toolData.toolId });
-    EventBus.emit('tcp:endeffector-updated', {
+    EventBus.emit(DataTransfer.EVENT_TCP_TOOL_REMOVED, { robotId, toolId: toolData.toolId });
+    EventBus.emit(DataTransfer.EVENT_TCP_ENDEFFECTOR_UPDATED, {
       robotId,
       endEffectorPoint: robotPosition.position,
       hasTCP: false
+    });
+
+    // Emit event for cross-context (RobotContext)
+    EventBus.emit(DataTransfer.EVENT_ROBOT_TCP_DETACHED, {
+      robotId,
+      toolId: null
     });
   }
 
@@ -752,7 +771,7 @@ class OptimizedTCPManager {
     this._endEffectorCache.set(cacheKey, result);
     this._lastUpdateTime.set(robotId, now);
     
-    EventBus.emit('tcp:endeffector-updated', {
+    EventBus.emit(DataTransfer.EVENT_TCP_ENDEFFECTOR_UPDATED, {
       robotId,
       endEffectorPoint: finalPosition,
       endEffectorOrientation: finalOrientation,
@@ -805,8 +824,6 @@ class OptimizedTCPManager {
 }
 
 export const TCPProvider = ({ children }) => {
-  const { isViewerReady, getSceneSetup } = useViewer();
-  const robotManager = useRobotContext();
   const tcpManagerRef = useRef(null);
   
   // State
@@ -816,21 +833,82 @@ export const TCPProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Initialize TCP Manager
+  // Initialize TCP Manager via EventBus
   useEffect(() => {
-    if (isViewerReady) {
-      const sceneSetup = getSceneSetup();
-      if (sceneSetup && robotManager) {
-        if (!tcpManagerRef.current) {
-          tcpManagerRef.current = new OptimizedTCPManager();
+    const requestId = `tcp-scene-${Date.now()}`;
+    let timeoutId;
+
+    const handleSceneResponse = (response) => {
+      if (response.requestId === requestId) {
+        clearTimeout(timeoutId);
+        EventBus.off(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
+        
+        if (response.success && response.payload?.getSceneSetup) {
+          const sceneSetup = response.payload.getSceneSetup();
+          if (sceneSetup) {
+            if (!tcpManagerRef.current) {
+              tcpManagerRef.current = new OptimizedTCPManager();
+            }
+            tcpManagerRef.current.initialize(sceneSetup, null);
+            setIsInitialized(true);
+            setError(null);
+            console.log('[TCPContext] Initialized via EventBus');
+          }
+        } else {
+          setError('Failed to get scene setup from viewer');
         }
-        tcpManagerRef.current.initialize(sceneSetup, robotManager);
-        setIsInitialized(true);
-        setError(null);
-        loadAvailableTools();
       }
+    };
+
+    const requestScene = () => {
+      console.log('[TCPContext] Requesting scene via EventBus...');
+      EventBus.on(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
+      EventBus.emit(DataTransfer.EVENT_TCP_NEEDS_SCENE, { requestId });
+      
+      timeoutId = setTimeout(() => {
+        EventBus.off(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
+        setError('Viewer did not respond to scene request');
+      }, 5000);
+    };
+
+    // Listen for viewer ready event
+    const handleViewerReady = () => {
+      requestScene();
+    };
+
+    EventBus.on(DataTransfer.EVENT_VIEWER_READY, handleViewerReady);
+
+    // Request scene immediately in case viewer is already ready
+    requestScene();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      EventBus.off(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
+      EventBus.off(DataTransfer.EVENT_VIEWER_READY, handleViewerReady);
+    };
+  }, []);
+
+  // Tool management methods
+  const loadAvailableTools = useCallback(async () => {
+    if (!tcpManagerRef.current || !isInitialized) return;
+    try {
+      setIsLoading(true);
+      setError(null);
+      const tools = await tcpManagerRef.current.scanAvailableTools();
+      setAvailableTools(tools);
+    } catch (err) {
+      setError(`Failed to load tools: ${err.message}`);
+    } finally {
+      setIsLoading(false);
     }
-  }, [isViewerReady, getSceneSetup, robotManager]);
+  }, [isInitialized]);
+
+  // Load tools only after initialization
+  useEffect(() => {
+    if (isInitialized) {
+      loadAvailableTools();
+    }
+  }, [isInitialized, loadAvailableTools]);
 
   // Event handlers
   useEffect(() => {
@@ -863,30 +941,26 @@ export const TCPProvider = ({ children }) => {
     const unsubscribes = [
       EventBus.on('robot:registered', handleRobotEvent),
       EventBus.on('robot:loaded', handleRobotEvent),
+      EventBus.on(DataTransfer.EVENT_ROBOT_LOADED, handleRobotEvent),
+      EventBus.on('robot:unloaded', (data) => {
+        if (data.robotId) {
+          tcpManager.unregisterRobot?.(data.robotId);
+          setAttachedTools(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(data.robotId);
+            return newMap;
+          });
+        }
+      }),
       EventBus.on('robot:joint-changed', handleJointChange),
       EventBus.on('robot:joints-changed', handleJointChange),
-      EventBus.on('tcp:force-recalculate', handleForceRecalculate)
+      EventBus.on(DataTransfer.EVENT_TCP_FORCE_RECALCULATE, handleForceRecalculate)
     ];
 
     return () => unsubscribes.forEach(unsub => unsub());
   }, [isInitialized]);
 
   // Tool management methods
-  const loadAvailableTools = useCallback(async () => {
-    if (!tcpManagerRef.current || !isInitialized) return;
-    
-    try {
-      setIsLoading(true);
-      setError(null);
-      const tools = await tcpManagerRef.current.scanAvailableTools();
-      setAvailableTools(tools);
-    } catch (err) {
-      setError(`Failed to load tools: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isInitialized]);
-
   const attachTool = useCallback(async (robotId, toolId) => {
     if (!tcpManagerRef.current) {
       throw new Error('TCP Manager not initialized');
