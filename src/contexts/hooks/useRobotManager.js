@@ -1,6 +1,8 @@
 // src/contexts/hooks/useRobotManager.js - MERGED & OPTIMIZED
 import { useCallback, useMemo } from 'react';
 import { useRobotContext } from '../RobotContext';
+import EventBus from '../../utils/EventBus';
+import { RobotPoseEvents } from '../dataTransfer';
 
 // Debug utility to reduce console pollution
 const DEBUG = process.env.NODE_ENV === 'development';
@@ -136,7 +138,38 @@ export const useRobotManager = () => {
     isRobotActiveCheck,
     getRobotData,
     // ========== MANUFACTURER HELPER ==========
-    getManufacturer: context.getManufacturer
+    getManufacturer: context.getManufacturer,
+    // Robot pose operations using events
+    setRobotPose: (robotId, pose) => {
+      if (!robotId) {
+        console.warn('[useRobotManager] No robot ID for pose control');
+        return false;
+      }
+      EventBus.emit(RobotPoseEvents.Commands.SET_POSE, { robotId, ...pose });
+      return true;
+    },
+    getRobotPose: (robotId) => {
+      if (!robotId) return Promise.resolve({ position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } });
+      return new Promise((resolve) => {
+        const requestId = `getpose_${Date.now()}`;
+        const handleResponse = (data) => {
+          if (data.requestId === requestId && data.robotId === robotId) {
+            EventBus.off(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+            resolve({
+              position: data.position,
+              rotation: data.rotation
+            });
+          }
+        };
+        EventBus.on(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+        EventBus.emit(RobotPoseEvents.Commands.GET_POSE, { robotId, requestId });
+        setTimeout(() => {
+          EventBus.off(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+          resolve({ position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } });
+        }, 1000);
+      });
+    },
+    robotPoses: context.robotPoses || new Map()
   }), [
     // Context dependencies
     context.availableRobots,
@@ -192,7 +225,11 @@ export const useRobotManager = () => {
     isRobotActiveCheck,
     getRobotData,
     // ========== MANUFACTURER HELPER ==========
-    context.getManufacturer
+    context.getManufacturer,
+    // Robot pose dependencies
+    context.setRobotPose,
+    context.getRobotPose,
+    context.robotPoses
   ]);
 };
 

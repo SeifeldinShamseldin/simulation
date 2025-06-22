@@ -360,6 +360,74 @@ export const RobotEvents = {
 };
 
 // ============================================
+// ROBOT POSE EVENTS
+// ============================================
+/**
+ * Robot pose events namespace
+ * 
+ * Handles robot position and rotation in world space.
+ * Primary consumers: RobotContext, Reposition UI
+ * 
+ * @namespace RobotPoseEvents
+ */
+export const RobotPoseEvents = {
+  // ========== Commands ==========
+  Commands: {
+    /**
+     * Set robot pose (position and rotation)
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   position?: {x,y,z},
+     *   rotation?: {x,y,z},    // Euler angles
+     *   requestId?: string
+     * }
+     * RESPONSE: RobotPoseEvents.Responses.SET_POSE
+     */
+    SET_POSE: 'robotpose:command:set-pose',
+    
+    /**
+     * Get current robot pose
+     * EMITTED BY: Any component
+     * LISTENED BY: RobotContext
+     * PAYLOAD: {
+     *   robotId: string,
+     *   requestId: string    // Required
+     * }
+     * RESPONSE: RobotPoseEvents.Responses.GET_POSE
+     */
+    GET_POSE: 'robotpose:command:get-pose'
+  },
+  
+  // ========== Responses ==========
+  Responses: {
+    /**
+     * Response to set robot pose
+     * PAYLOAD: {
+     *   robotId: string,
+     *   position: {x,y,z},
+     *   rotation: {x,y,z},
+     *   success: boolean,
+     *   requestId?: string
+     * }
+     */
+    SET_POSE: 'robotpose:response:set-pose',
+    
+    /**
+     * Response to get robot pose
+     * PAYLOAD: {
+     *   robotId: string,
+     *   position: {x,y,z},
+     *   rotation: {x,y,z},
+     *   requestId: string
+     * }
+     */
+    GET_POSE: 'robotpose:response:get-pose'
+  }
+};
+
+// ============================================
 // VIEWER EVENTS
 // ============================================
 /**

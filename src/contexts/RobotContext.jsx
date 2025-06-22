@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import EventBus from '../utils/EventBus';
 import URDFLoader from '../core/Loader/URDFLoader';
 import * as DataTransfer from './dataTransfer';
+import { RobotPoseEvents, RobotEvents } from './dataTransfer';
 
 // Debug flag - set to false in production
 const DEBUG = process.env.NODE_ENV === 'development';
@@ -131,6 +132,9 @@ export const RobotProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // Robot pose state - tracks position and rotation for each robot
+  const [robotPoses, setRobotPoses] = useState(new Map());
 
   // ========== HELPER FUNCTIONS ==========
   
@@ -625,6 +629,87 @@ export const RobotProvider = ({ children }) => {
     return true;
   }, [activeRobotId, setActiveRobotId, loadedRobots]);
 
+  // ========== ROBOT POSE MANAGEMENT ==========
+
+  // Get robot pose (event-based, always returns a Promise)
+  const getRobotPose = useCallback((robotId) => {
+    return new Promise((resolve) => {
+      const requestId = `getpose_${Date.now()}`;
+      const handleResponse = (data) => {
+        if (data.requestId === requestId && data.robotId === robotId) {
+          EventBus.off(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+          resolve({
+            position: data.position,
+            rotation: data.rotation
+          });
+        }
+      };
+      EventBus.on(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+      EventBus.emit(RobotPoseEvents.Commands.GET_POSE, { robotId, requestId });
+      setTimeout(() => {
+        EventBus.off(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+        resolve({ position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } });
+      }, 1000);
+    });
+  }, []);
+
+  // Set robot pose (event-based)
+  const setRobotPose = useCallback((robotId, pose) => {
+    EventBus.emit(RobotPoseEvents.Commands.SET_POSE, { robotId, ...pose });
+  }, []);
+
+  // Event handlers for robot pose events
+  useEffect(() => {
+    // SET_POSE: update robot's position/rotation in 3D scene
+    const handleSetPose = (data) => {
+      const { robotId, position, rotation } = data;
+      const robotData = loadedRobots.get(robotId);
+      if (!robotData?.container) return;
+      if (position) robotData.container.position.set(position.x, position.y, position.z);
+      if (rotation) robotData.container.rotation.set(rotation.x, rotation.y, rotation.z);
+      robotData.container.updateMatrix();
+      robotData.container.updateMatrixWorld(true);
+      EventBus.emit(RobotEvents.POSITION_CHANGED, {
+        robotId,
+        position: robotData.container.position,
+        rotation: robotData.container.rotation
+      });
+    };
+
+    // GET_POSE: read robot's position/rotation and emit response
+    const handleGetPose = (data) => {
+      const { robotId, requestId } = data;
+      const robotData = loadedRobots.get(robotId);
+      let position = { x: 0, y: 0, z: 0 };
+      let rotation = { x: 0, y: 0, z: 0 };
+      if (robotData?.container) {
+        position = {
+          x: robotData.container.position.x,
+          y: robotData.container.position.y,
+          z: robotData.container.position.z
+        };
+        rotation = {
+          x: robotData.container.rotation.x,
+          y: robotData.container.rotation.y,
+          z: robotData.container.rotation.z
+        };
+      }
+      EventBus.emit(RobotPoseEvents.Responses.GET_POSE, {
+        robotId,
+        position,
+        rotation,
+        requestId
+      });
+    };
+
+    const unsubSet = EventBus.on(RobotPoseEvents.Commands.SET_POSE, handleSetPose);
+    const unsubGet = EventBus.on(RobotPoseEvents.Commands.GET_POSE, handleGetPose);
+    return () => {
+      unsubSet();
+      unsubGet();
+    };
+  }, [loadedRobots]);
+
   // ========== STATUS & UTILITIES ==========
 
   const getRobotLoadStatus = useCallback((robot) => {
@@ -689,11 +774,9 @@ export const RobotProvider = ({ children }) => {
   const loadAvailableTools = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    
     try {
       const response = await fetch('/api/tcp/scan');
       const result = await response.json();
-      
       if (result.success) {
         setAvailableTools(result.tools || []);
       } else {
@@ -789,6 +872,10 @@ export const RobotProvider = ({ children }) => {
     
     // Status
     isInitialized,
+
+    // Robot Pose
+    getRobotPose,
+    setRobotPose,
   }), [
     availableRobots,
     categories,
@@ -821,7 +908,9 @@ export const RobotProvider = ({ children }) => {
     setRobotActive,
     getActiveRobots,
     getManufacturer,
-    isInitialized
+    isInitialized,
+    getRobotPose,
+    setRobotPose,
   ]);
 
   return (
