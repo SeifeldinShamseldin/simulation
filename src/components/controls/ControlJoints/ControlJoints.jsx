@@ -2,10 +2,8 @@
 // UI displays commanded joint positions (where joints are going)
 // Sliders update when joint commands are sent from any source
 
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback } from 'react';
 import useJoints from '../../../contexts/hooks/useJoints';
-import EventBus from '../../../utils/EventBus';
-import { JointEvents } from '../../../contexts/dataTransfer';
 
 const ControlJoints = () => {
   // Get all joint functionality from single hook
@@ -44,36 +42,6 @@ const ControlJoints = () => {
   
   // Get movable joints for display
   const movableJoints = getMovableJoints();
-  
-  // Poll for joint values via GET_VALUES event every 200ms
-  useEffect(() => {
-    if (!robotId) return;
-    let isMounted = true;
-    let interval;
-    let requestId = 'getvals_' + Date.now();
-
-    const handleResponse = (data) => {
-      if (isMounted && data.robotId === robotId && data.requestId === requestId) {
-        setJointValues(data.values);
-      }
-    };
-    const unsub = EventBus.on(JointEvents.Responses.GET_VALUES, handleResponse);
-
-    // Poll every 200ms
-    interval = setInterval(() => {
-      requestId = 'getvals_' + Date.now();
-      EventBus.emit(JointEvents.Commands.GET_VALUES, { robotId, requestId });
-    }, 200);
-
-    // Initial fetch
-    EventBus.emit(JointEvents.Commands.GET_VALUES, { robotId, requestId });
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-      unsub();
-    };
-  }, [robotId]);
   
   if (!robotId || !hasJoints) {
     return (
