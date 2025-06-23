@@ -1,35 +1,20 @@
 // src/contexts/hooks/useJoints.js
-// Complete facade hook that aggregates all joint-related functionality
+// Direct EventBus-based joint control - no JointContext dependency
 
-import { useEffect, useCallback, useMemo, useContext, useState } from 'react';
-import { JointContext } from '../JointContext';
+import { useEffect, useCallback, useMemo, useState } from 'react';
 import { useRobotManager, useRobotSelection } from './useRobotManager';
 import { useRobotContext } from '../RobotContext';
 import EventBus from '../../utils/EventBus';
-import * as DataTransfer from '../dataTransfer';
-import { JointEvents } from '../dataTransfer';
-
-// Helper to use Joint context
-const useJointContext = () => {
-  const context = useContext(JointContext);
-  if (!context) {
-    throw new Error('useJointContext must be used within JointProvider');
-  }
-  return context;
-};
+import { RobotEvents } from '../dataTransfer';
 
 /**
- * Complete joints hook that provides all functionality needed for joint operations
- * Acts as a facade to aggregate data from multiple contexts
- * Listens to joint commands to display target/commanded positions in UI
+ * Direct EventBus-based joints hook that provides all functionality needed for joint operations
+ * Uses EventBus commands directly instead of going through JointContext
  * 
  * @param {string|null} robotIdOverride - Optional robot ID to override context
  * @returns {Object} Complete joints API with all necessary data and functions
  */
 export const useJoints = (robotIdOverride = null) => {
-  // Get core joint context
-  const jointContext = useJointContext();
-
   // Get robot-related data
   const { activeId: contextRobotId } = useRobotSelection();
   const { getRobot, isRobotLoaded } = useRobotManager();
@@ -38,27 +23,15 @@ export const useJoints = (robotIdOverride = null) => {
   // Determine which robot ID to use
   const robotIdToUse = robotIdOverride || contextRobotId;
 
-  // State to track commanded joint values (where joints are going)
+  // State to track joint info and values
+  const [jointInfo, setJointInfo] = useState([]);
+  const [jointValues, setJointValuesState] = useState({});
   const [commandedValues, setCommandedValues] = useState({});
-  
-  // State to track actual joint values from polling
-  const [polledJointValues, setPolledJointValues] = useState({});
+  const [isLoading, setIsLoading] = useState(false);
 
   // Get robot instance and state
   const robot = robotIdToUse ? getRobot(robotIdToUse) : null;
   const isReady = robotIdToUse ? isRobotLoaded(robotIdToUse) : false;
-
-  // Get joint info for target robot
-  const jointInfo = useMemo(() => {
-    if (!robotIdToUse) return [];
-    return jointContext.getJointInfo(robotIdToUse);
-  }, [robotIdToUse, jointContext]);
-
-  // Get joint values
-  const jointValues = useMemo(() => {
-    if (!robotIdToUse) return {};
-    return jointContext.getJointValues(robotIdToUse);
-  }, [robotIdToUse, jointContext]);
 
   // Check if robot has joints
   const hasJoints = useMemo(() => {
@@ -92,16 +65,33 @@ export const useJoints = (robotIdOverride = null) => {
   // Get joint limits
   const getJointLimits = useCallback((jointName) => {
     if (!robotIdToUse) return { lower: -Math.PI, upper: Math.PI };
-    return jointContext.getJointLimits(robotIdToUse, jointName);
-  }, [robotIdToUse, jointContext]);
+    const joint = jointInfo.find(j => j.name === jointName);
+    return joint ? joint.limits : { lower: -Math.PI, upper: Math.PI };
+  }, [robotIdToUse, jointInfo]);
 
-  // Event-driven joint operations using JointEvents
+  // Direct EventBus joint operations
   const setJointValue = useCallback((jointName, value) => {
     if (!robotIdToUse) {
       console.warn('[useJoints] No robot ID for joint control');
       return false;
     }
-    EventBus.emit(JointEvents.Commands.SET_VALUE, { robotId: robotIdToUse, jointName, value });
+    
+    const requestId = `set-joint-${Date.now()}-${Math.random()}`;
+    
+    // Update commanded values immediately for UI responsiveness
+    setCommandedValues(prev => ({
+      ...prev,
+      [jointName]: value
+    }));
+    
+    // Emit command directly to RobotContext
+    EventBus.emit(RobotEvents.SET_JOINT_VALUE, { 
+      robotId: robotIdToUse, 
+      jointName, 
+      value, 
+      requestId 
+    });
+    
     return true;
   }, [robotIdToUse]);
 
@@ -110,7 +100,22 @@ export const useJoints = (robotIdOverride = null) => {
       console.warn('[useJoints] No robot ID for joint control');
       return false;
     }
-    EventBus.emit(JointEvents.Commands.SET_VALUES, { robotId: robotIdToUse, values });
+    
+    const requestId = `set-joints-${Date.now()}-${Math.random()}`;
+    
+    // Update commanded values immediately for UI responsiveness
+    setCommandedValues(prev => ({
+      ...prev,
+      ...values
+    }));
+    
+    // Emit command directly to RobotContext
+    EventBus.emit(RobotEvents.SET_JOINT_VALUES, { 
+      robotId: robotIdToUse, 
+      values, 
+      requestId 
+    });
+    
     return true;
   }, [robotIdToUse]);
 
@@ -119,9 +124,28 @@ export const useJoints = (robotIdOverride = null) => {
       console.warn('[useJoints] No robot ID for joint reset');
       return false;
     }
-    EventBus.emit(JointEvents.Commands.RESET, { robotId: robotIdToUse });
+    
+    // Reset all joints to 0
+    const resetValues = {};
+    jointInfo.forEach(joint => {
+      resetValues[joint.name] = 0;
+    });
+    
+    // Use setJointValues to reset all joints
+    const requestId = `reset-joints-${Date.now()}-${Math.random()}`;
+    
+    // Update commanded values immediately for UI responsiveness
+    setCommandedValues(resetValues);
+    
+    // Emit command directly to RobotContext
+    EventBus.emit(RobotEvents.SET_JOINT_VALUES, { 
+      robotId: robotIdToUse, 
+      values: resetValues, 
+      requestId 
+    });
+    
     return true;
-  }, [robotIdToUse]);
+  }, [robotIdToUse, jointInfo]);
 
   // Get all joint names
   const getAllJointNames = useCallback(() => {
@@ -159,6 +183,34 @@ export const useJoints = (robotIdOverride = null) => {
     console.log(`[useJoints] ${message}`);
   }, []);
 
+  // Proactively check for loaded robot on mount or when robotId changes
+  useEffect(() => {
+    if (robotIdToUse && isRobotLoaded(robotIdToUse)) {
+      const robot = getRobot(robotIdToUse);
+      if (robot) {
+        const joints = [];
+        const values = {};
+        
+        robot.traverse((child) => {
+          if (child.isURDFJoint && child.jointType !== 'fixed') {
+            joints.push({
+              name: child.name,
+              type: child.jointType,
+              limits: child.limit || {},
+              axis: child.axis ? child.axis.toArray() : [0, 0, 1]
+            });
+            values[child.name] = child.angle || 0;
+          }
+        });
+        
+        setJointInfo(joints);
+        setJointValuesState(values);
+        setCommandedValues(values);
+      }
+    }
+  }, [robotIdToUse, isRobotLoaded, getRobot]);
+
+  // Initialize commanded values when joint values are first available
   useEffect(() => {
     if (
       robotIdToUse &&
@@ -169,55 +221,118 @@ export const useJoints = (robotIdOverride = null) => {
     }
   }, [robotIdToUse, jointValues, commandedValues]);
 
-  // Listen to joint command events to update UI with target positions
+  // Listen for robot loaded events to extract joint info
   useEffect(() => {
     if (!robotIdToUse) return;
     
-    // Listen for single joint command
-    const handleSetValueCommand = (data) => {
-      if (data.robotId === robotIdToUse) {
-        setCommandedValues(prev => ({
-          ...prev,
-          [data.jointName]: data.value
-        }));
-      }
-    };
-    
-    // Listen for multiple joint commands
-    const handleSetValuesCommand = (data) => {
-      if (data.robotId === robotIdToUse) {
-        setCommandedValues(prev => ({
-          ...prev,
-          ...data.values
-        }));
-      }
-    };
-    
-    // Listen for reset command
-    const handleResetCommand = (data) => {
-      if (data.robotId === robotIdToUse) {
-        // Reset all joints to 0
-        const resetValues = {};
-        jointInfo.forEach(joint => {
-          resetValues[joint.name] = 0;
+    const handleRobotLoaded = (data) => {
+      const { robotName, robot, robotId } = data;
+      const targetRobotId = robotId || robotName;
+      
+      if (targetRobotId === robotIdToUse && robot) {
+        const joints = [];
+        const values = {};
+        
+        robot.traverse((child) => {
+          if (child.isURDFJoint && child.jointType !== 'fixed') {
+            joints.push({
+              name: child.name,
+              type: child.jointType,
+              limits: child.limit || {},
+              axis: child.axis ? child.axis.toArray() : [0, 0, 1]
+            });
+            values[child.name] = child.angle || 0;
+          }
         });
-        setCommandedValues(resetValues);
+        
+        setJointInfo(joints);
+        setJointValuesState(values);
+        setCommandedValues(values);
       }
     };
-    
-    // Subscribe to command events
-    const unsubSetValue = EventBus.on(JointEvents.Commands.SET_VALUE, handleSetValueCommand);
-    const unsubSetValues = EventBus.on(JointEvents.Commands.SET_VALUES, handleSetValuesCommand);
-    const unsubReset = EventBus.on(JointEvents.Commands.RESET, handleResetCommand);
+
+    const handleRobotRegistered = (data) => {
+      const { robotId, robotName, robot } = data;
+      const targetRobotId = robotId || robotName;
+      
+      if (targetRobotId === robotIdToUse && robot && jointInfo.length === 0) {
+        handleRobotLoaded({ robotName: targetRobotId, robot, robotId: targetRobotId });
+      }
+    };
+
+    const handleRobotRemoved = (data) => {
+      const { robotName, robotId } = data;
+      const targetRobotId = robotId || robotName;
+      
+      if (targetRobotId === robotIdToUse) {
+        setJointInfo([]);
+        setJointValuesState({});
+        setCommandedValues({});
+      }
+    };
+
+    const unsubLoaded = EventBus.on(RobotEvents.LOADED, handleRobotLoaded);
+    const unsubRegistered = EventBus.on(RobotEvents.REGISTERED, handleRobotRegistered);
+    const unsubRemoved = EventBus.on(RobotEvents.REMOVED, handleRobotRemoved);
     
     return () => {
-      unsubSetValue();
-      unsubSetValues();
-      unsubReset();
+      unsubLoaded();
+      unsubRegistered();
+      unsubRemoved();
     };
-  }, [robotIdToUse, jointInfo]);
+  }, [robotIdToUse, jointInfo.length]);
 
-  // Poll for joint values via GET_VALUES event every 200ms
+  // Listen for joint response events to update state
+  useEffect(() => {
+    if (!robotIdToUse) return;
+    
+    // Handle set joint value response
+    const handleSetJointValueResponse = ({ robotId, jointName, value, success, requestId }) => {
+      if (robotId === robotIdToUse && success) {
+        setJointValuesState(prev => ({
+          ...prev,
+          [jointName]: value
+        }));
+      }
+    };
+
+    // Handle set joint values response
+    const handleSetJointValuesResponse = ({ robotId, values, success, requestId }) => {
+      if (robotId === robotIdToUse && success) {
+        setJointValuesState(prev => ({
+          ...prev,
+          ...values
+        }));
+      }
+    };
+
+    // Handle get joint values response
+    const handleGetJointValuesResponse = ({ robotId, values, requestId }) => {
+      if (robotId === robotIdToUse) {
+        setJointValuesState(values);
+        // Update commanded values if they haven't been set yet
+        setCommandedValues(prev => {
+          if (Object.keys(prev).length === 0) {
+            return values;
+          }
+          return prev;
+        });
+      }
+    };
+
+    // Register response listeners
+    const unsubSetResp = EventBus.on(RobotEvents.SET_JOINT_VALUE_RESPONSE, handleSetJointValueResponse);
+    const unsubSetValsResp = EventBus.on(RobotEvents.SET_JOINT_VALUES_RESPONSE, handleSetJointValuesResponse);
+    const unsubGetResp = EventBus.on(RobotEvents.GET_JOINT_VALUES_RESPONSE, handleGetJointValuesResponse);
+    
+    return () => {
+      unsubSetResp();
+      unsubSetValsResp();
+      unsubGetResp();
+    };
+  }, [robotIdToUse]);
+
+  // Poll for joint values via GET_JOINT_VALUES event every 200ms
   useEffect(() => {
     if (!robotIdToUse) return;
     let isMounted = true;
@@ -226,7 +341,7 @@ export const useJoints = (robotIdOverride = null) => {
 
     const handleResponse = (data) => {
       if (isMounted && data.robotId === robotIdToUse && data.requestId === requestId) {
-        setPolledJointValues(data.values);
+        setJointValuesState(data.values);
         // Update commanded values if they haven't been set yet
         setCommandedValues(prev => {
           if (Object.keys(prev).length === 0) {
@@ -237,16 +352,16 @@ export const useJoints = (robotIdOverride = null) => {
       }
     };
     
-    const unsub = EventBus.on(JointEvents.Responses.GET_VALUES, handleResponse);
+    const unsub = EventBus.on(RobotEvents.GET_JOINT_VALUES_RESPONSE, handleResponse);
 
     // Poll every 200ms
     interval = setInterval(() => {
       requestId = 'getvals_' + Date.now();
-      EventBus.emit(JointEvents.Commands.GET_VALUES, { robotId: robotIdToUse, requestId });
+      EventBus.emit(RobotEvents.GET_JOINT_VALUES, { robotId: robotIdToUse, requestId });
     }, 200);
 
     // Initial fetch
-    EventBus.emit(JointEvents.Commands.GET_VALUES, { robotId: robotIdToUse, requestId });
+    EventBus.emit(RobotEvents.GET_JOINT_VALUES, { robotId: robotIdToUse, requestId });
 
     return () => {
       isMounted = false;
@@ -261,6 +376,7 @@ export const useJoints = (robotIdOverride = null) => {
     robotId: robotIdToUse,
     robot,
     isReady,
+    isLoading,
     
     // Joint data
     jointInfo,

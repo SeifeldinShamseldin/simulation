@@ -768,6 +768,145 @@ export const RobotProvider = ({ children }) => {
     };
   }, [activeRobotId, setActiveRobotId]);
 
+  // ========== ROBOT INSTANCE & JOINT COMMAND HANDLERS ==========
+  
+  useEffect(() => {
+    // Handle robot instance requests
+    const handleGetInstanceRequest = ({ robotId, requestId }) => {
+      const robotData = loadedRobots.get(robotId);
+      if (robotData?.robot) {
+        EventBus.emit(RobotEvents.GET_INSTANCE_RESPONSE, {
+          robotId,
+          robot: robotData.robot,
+          requestId
+        });
+      }
+    };
+
+    // Handle set joint value command
+    const handleSetJointValue = ({ robotId, jointName, value, requestId }) => {
+      const robotData = loadedRobots.get(robotId);
+      let success = false;
+      
+      if (robotData?.robot) {
+        const robot = robotData.robot;
+        
+        // Try robot's setJointValue method
+        if (robot.setJointValue && typeof robot.setJointValue === 'function') {
+          success = robot.setJointValue(jointName, value);
+        }
+        
+        // Try joint's setJointValue method
+        if (!success && robot.joints && robot.joints[jointName]) {
+          if (robot.joints[jointName].setJointValue) {
+            success = robot.joints[jointName].setJointValue(value);
+          }
+          if (robot.joints[jointName].setPosition) {
+            robot.joints[jointName].setPosition(value);
+          }
+        }
+        
+        // Update matrix world if successful
+        if (success && robot.updateMatrixWorld) {
+          robot.updateMatrixWorld(true);
+        }
+      }
+      
+      // Send response
+      EventBus.emit(RobotEvents.SET_JOINT_VALUE_RESPONSE, {
+        robotId,
+        jointName,
+        value,
+        success,
+        requestId
+      });
+    };
+
+    // Handle set joint values command
+    const handleSetJointValues = ({ robotId, values, requestId }) => {
+      const robotData = loadedRobots.get(robotId);
+      let success = false;
+      
+      if (robotData?.robot) {
+        const robot = robotData.robot;
+        
+        // Try robot's setJointValues method
+        if (robot.setJointValues && typeof robot.setJointValues === 'function') {
+          success = robot.setJointValues(values);
+        } else {
+          // Fallback: set each joint individually
+          success = true;
+          Object.entries(values).forEach(([jointName, value]) => {
+            if (robot.joints && robot.joints[jointName]) {
+              if (robot.joints[jointName].setJointValue) {
+                const jointSuccess = robot.joints[jointName].setJointValue(value);
+                if (!jointSuccess) success = false;
+              }
+              if (robot.joints[jointName].setPosition) {
+                robot.joints[jointName].setPosition(value);
+              }
+            }
+          });
+        }
+        
+        // Update matrix world if successful
+        if (success && robot.updateMatrixWorld) {
+          robot.updateMatrixWorld(true);
+        }
+      }
+      
+      // Send response
+      EventBus.emit(RobotEvents.SET_JOINT_VALUES_RESPONSE, {
+        robotId,
+        values,
+        success,
+        requestId
+      });
+    };
+
+    // Handle get joint values command
+    const handleGetJointValues = ({ robotId, requestId }) => {
+      const robotData = loadedRobots.get(robotId);
+      const values = {};
+      
+      if (robotData?.robot) {
+        const robot = robotData.robot;
+        
+        // Try robot's getJointValues method
+        if (robot.getJointValues && typeof robot.getJointValues === 'function') {
+          Object.assign(values, robot.getJointValues());
+        } else {
+          // Fallback: traverse robot object
+          robot.traverse((child) => {
+            if (child.isURDFJoint && child.jointType !== 'fixed' && typeof child.angle !== 'undefined') {
+              values[child.name] = child.angle;
+            }
+          });
+        }
+      }
+      
+      // Send response
+      EventBus.emit(RobotEvents.GET_JOINT_VALUES_RESPONSE, {
+        robotId,
+        values,
+        requestId
+      });
+    };
+
+    // Register all handlers
+    const unsubGetInstance = EventBus.on(RobotEvents.GET_INSTANCE_REQUEST, handleGetInstanceRequest);
+    const unsubSetJoint = EventBus.on(RobotEvents.SET_JOINT_VALUE, handleSetJointValue);
+    const unsubSetJoints = EventBus.on(RobotEvents.SET_JOINT_VALUES, handleSetJointValues);
+    const unsubGetJoints = EventBus.on(RobotEvents.GET_JOINT_VALUES, handleGetJointValues);
+    
+    return () => {
+      unsubGetInstance();
+      unsubSetJoint();
+      unsubSetJoints();
+      unsubGetJoints();
+    };
+  }, [loadedRobots]);
+
   // ========== TCP TOOLS (Simplified) ==========
 
   const loadAvailableTools = useCallback(async () => {

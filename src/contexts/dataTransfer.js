@@ -46,7 +46,7 @@ import EventBus from '../utils/EventBus';
  * Robot-related events namespace
  * 
  * Handles all robot lifecycle, state changes, joint control, and workspace management.
- * Primary consumers: RobotContext, JointContext, UI Components
+ * Primary consumers: RobotContext, UI Components
  * 
  * @namespace RobotEvents
  */
@@ -65,7 +65,7 @@ export const RobotEvents = {
   /**
    * Robot successfully loaded and added to scene
    * EMITTED BY: RobotContext
-   * LISTENED BY: JointContext, ViewerContext, UI components
+   * LISTENED BY: ViewerContext, UI components
    * PAYLOAD: {
    *   robotId: string,      // Unique identifier
    *   robotName: string,    // Display name
@@ -79,7 +79,7 @@ export const RobotEvents = {
   /**
    * Robot removed from scene
    * EMITTED BY: RobotContext
-   * LISTENED BY: JointContext, ViewerContext
+   * LISTENED BY: ViewerContext
    * PAYLOAD: { robotId: string }
    */
   UNLOADED: 'robot:unloaded',
@@ -95,7 +95,7 @@ export const RobotEvents = {
   /**
    * Robot registered for joint control
    * EMITTED BY: RobotContext
-   * LISTENED BY: JointContext
+   * LISTENED BY: useJoints hook
    * PAYLOAD: { robotId: string, robotName: string, robot: Object }
    */
   REGISTERED: 'robot:registered',
@@ -105,7 +105,7 @@ export const RobotEvents = {
   /**
    * Active robot selection changed
    * EMITTED BY: RobotContext
-   * LISTENED BY: JointContext, UI components
+   * LISTENED BY: UI components
    * PAYLOAD: { robotId: string|null, robot: Object|null }
    */
   ACTIVE_CHANGED: 'robot:active-changed',
@@ -135,39 +135,116 @@ export const RobotEvents = {
    */
   POSITION_CHANGED: 'robot:position-changed',
   
-  // ========== Joint Events ==========
+  // ========== Robot Instance Management ==========
   
   /**
-   * Multiple joint values changed
-   * EMITTED BY: RobotContext, JointContext
-   * LISTENED BY: JointContext, UI components, TrajectoryContext
+   * Request robot instance
+   * EMITTED BY: useJoints hook, other components
+   * LISTENED BY: RobotContext
    * PAYLOAD: {
    *   robotId: string,
-   *   robotName: string,
-   *   values: Object,      // { jointName: value, ... }
-   *   source: string       // 'manual', 'ik', 'trajectory', etc.
+   *   requestId: string
    * }
    */
-  JOINTS_CHANGED: 'robot:joints-changed',
+  GET_INSTANCE_REQUEST: 'robot:get-instance-request',
   
   /**
-   * Single joint value changed
-   * EMITTED BY: RobotContext, JointContext
-   * LISTENED BY: UI components
+   * Response with robot instance
+   * EMITTED BY: RobotContext
+   * LISTENED BY: useJoints hook, other components
    * PAYLOAD: {
    *   robotId: string,
-   *   robotName: string,
+   *   robot: Object,       // Robot instance
+   *   requestId: string
+   * }
+   */
+  GET_INSTANCE_RESPONSE: 'robot:get-instance-response',
+  
+  // ========== Joint Commands ==========
+  
+  /**
+   * Set single joint value command
+   * EMITTED BY: useJoints hook, UI components
+   * LISTENED BY: RobotContext
+   * PAYLOAD: {
+   *   robotId: string,
    *   jointName: string,
    *   value: number,       // Radians
-   *   allValues: Object    // All current joint values
+   *   requestId?: string
    * }
    */
-  JOINT_CHANGED: 'robot:joint-changed',
+  SET_JOINT_VALUE: 'robot:set-joint-value',
+  
+  /**
+   * Set multiple joint values command
+   * EMITTED BY: useJoints hook, UI components
+   * LISTENED BY: RobotContext
+   * PAYLOAD: {
+   *   robotId: string,
+   *   values: Object,      // { jointName: value, ... }
+   *   requestId?: string
+   * }
+   */
+  SET_JOINT_VALUES: 'robot:set-joint-values',
+  
+  /**
+   * Get joint values command
+   * EMITTED BY: useJoints hook, UI components
+   * LISTENED BY: RobotContext
+   * PAYLOAD: {
+   *   robotId: string,
+   *   requestId?: string
+   * }
+   */
+  GET_JOINT_VALUES: 'robot:get-joint-values',
+  
+  // ========== Joint Responses ==========
+  
+  /**
+   * Set joint value response
+   * EMITTED BY: RobotContext
+   * LISTENED BY: useJoints hook, UI components
+   * PAYLOAD: {
+   *   robotId: string,
+   *   jointName: string,
+   *   value: number,
+   *   success: boolean,
+   *   requestId?: string
+   * }
+   */
+  SET_JOINT_VALUE_RESPONSE: 'robot:set-joint-value-response',
+  
+  /**
+   * Set joint values response
+   * EMITTED BY: RobotContext
+   * LISTENED BY: useJoints hook, UI components
+   * PAYLOAD: {
+   *   robotId: string,
+   *   values: Object,
+   *   success: boolean,
+   *   requestId?: string
+   * }
+   */
+  SET_JOINT_VALUES_RESPONSE: 'robot:set-joint-values-response',
+  
+  /**
+   * Get joint values response
+   * EMITTED BY: RobotContext
+   * LISTENED BY: useJoints hook, UI components
+   * PAYLOAD: {
+   *   robotId: string,
+   *   values: Object,      // { jointName: value, ... }
+   *   requestId?: string
+   * }
+   */
+  GET_JOINT_VALUES_RESPONSE: 'robot:get-joint-values-response',
+  
+  // ========== Joint Events ==========
   
   /**
    * Robot joints reset to zero
    * EMITTED BY: RobotContext
-   * LISTENED BY: JointContext, UI components
+   * LISTENED BY: useJoints hook, UI components
    * PAYLOAD: { robotId: string, robotName: string }
    */
   JOINTS_RESET: 'robot:joints-reset',
@@ -522,14 +599,6 @@ export const ViewerEvents = {
    */
   ROBOT_LOAD_ERROR: 'viewer:robot-load-error',
   
-  /**
-   * Joints reset via viewer
-   * EMITTED BY: ViewerContext
-   * LISTENED BY: UI components
-   * PAYLOAD: { robotId: string }
-   */
-  JOINTS_RESET: 'viewer:joints-reset',
-  
   // ========== Drag Control Events ==========
   
   /**
@@ -548,22 +617,6 @@ export const ViewerEvents = {
    */
   DRAG_END: 'viewer:drag-end',
   
-  /**
-   * Hovering over joint
-   * EMITTED BY: ViewerContext
-   * LISTENED BY: UI components
-   * PAYLOAD: { joint: Object }
-   */
-  JOINT_HOVER: 'viewer:joint-hover',
-  
-  /**
-   * Left joint hover
-   * EMITTED BY: ViewerContext
-   * LISTENED BY: UI components
-   * PAYLOAD: { joint: Object }
-   */
-  JOINT_UNHOVER: 'viewer:joint-unhover',
-  
   // ========== Table Events ==========
   
   /**
@@ -581,119 +634,6 @@ export const ViewerEvents = {
    * PAYLOAD: { visible: boolean }
    */
   TABLE_TOGGLED: 'viewer:table-toggled'
-};
-
-// ============================================
-// JOINT EVENTS
-// ============================================
-/**
- * Joint control events namespace
- * 
- * Handles direct joint value manipulation with command/response pattern.
- * Primary consumers: JointContext, IKContext, TrajectoryContext
- * 
- * @namespace JointEvents
- */
-export const JointEvents = {
-  // ========== Commands ==========
-  Commands: {
-    /**
-     * Set single joint value
-     * EMITTED BY: Any component
-     * LISTENED BY: JointContext
-     * PAYLOAD: {
-     *   robotId: string,
-     *   jointName: string,
-     *   value: number,
-     *   requestId?: string
-     * }
-     * RESPONSE: JointEvents.Responses.SET_VALUE
-     */
-    SET_VALUE: 'joint:command:set-value',
-    
-    /**
-     * Set multiple joint values
-     * EMITTED BY: Any component
-     * LISTENED BY: JointContext
-     * PAYLOAD: {
-     *   robotId: string,
-     *   values: Object,      // { jointName: value, ... }
-     *   requestId?: string
-     * }
-     * RESPONSE: JointEvents.Responses.SET_VALUES
-     */
-    SET_VALUES: 'joint:command:set-values',
-    
-    /**
-     * Get current joint values
-     * EMITTED BY: Any component
-     * LISTENED BY: JointContext
-     * PAYLOAD: {
-     *   robotId: string,
-     *   requestId: string    // Required
-     * }
-     * RESPONSE: JointEvents.Responses.GET_VALUES
-     */
-    GET_VALUES: 'joint:command:get-values',
-    
-    /**
-     * Reset all joints to zero
-     * EMITTED BY: Any component
-     * LISTENED BY: JointContext
-     * PAYLOAD: {
-     *   robotId: string,
-     *   requestId?: string
-     * }
-     * RESPONSE: JointEvents.Responses.RESET
-     */
-    RESET: 'joint:command:reset'
-  },
-  
-  // ========== Responses ==========
-  Responses: {
-    /**
-     * Response to set single joint value
-     * PAYLOAD: {
-     *   robotId: string,
-     *   jointName: string,
-     *   value: number,
-     *   success: boolean,
-     *   requestId?: string
-     * }
-     */
-    SET_VALUE: 'joint:response:set-value',
-    
-    /**
-     * Response to set multiple joint values
-     * PAYLOAD: {
-     *   robotId: string,
-     *   values: Object,
-     *   success: boolean,
-     *   requestId?: string
-     * }
-     */
-    SET_VALUES: 'joint:response:set-values',
-    
-    /**
-     * Response to get joint values
-     * PAYLOAD: {
-     *   robotId: string,
-     *   values: Object,
-     *   requestId: string
-     * }
-     */
-    GET_VALUES: 'joint:response:get-values',
-    
-    /**
-     * Response to reset joints
-     * PAYLOAD: {
-     *   robotId: string,
-     *   success: boolean,
-     *   requestId?: string
-     * }
-     */
-    RESET: 'joint:response:reset'
-  }
 };
 
 // ============================================
@@ -1208,8 +1148,6 @@ export const EVENT_ROBOT_NEEDS_SCENE = RobotEvents.NEEDS_SCENE;
 export const EVENT_ROBOT_LOADED = RobotEvents.LOADED;
 export const EVENT_ROBOT_UNLOADED = RobotEvents.UNLOADED;
 export const EVENT_ROBOT_ACTIVE_CHANGED = RobotEvents.ACTIVE_CHANGED;
-export const EVENT_ROBOT_JOINTS_CHANGED = RobotEvents.JOINTS_CHANGED;
-export const EVENT_ROBOT_JOINT_CHANGED = RobotEvents.JOINT_CHANGED;
 export const EVENT_ROBOT_JOINTS_RESET = RobotEvents.JOINTS_RESET;
 export const EVENT_ROBOT_REMOVED = RobotEvents.REMOVED;
 export const EVENT_ROBOT_WORKSPACE_UPDATED = RobotEvents.WORKSPACE_UPDATED;
@@ -1241,26 +1179,13 @@ export const EVENT_VIEWER_INITIALIZED = ViewerEvents.INITIALIZED;
 export const EVENT_VIEWER_CONFIG_UPDATED = ViewerEvents.CONFIG_UPDATED;
 export const EVENT_VIEWER_ROBOT_LOADED = ViewerEvents.ROBOT_LOADED;
 export const EVENT_VIEWER_ROBOT_LOAD_ERROR = ViewerEvents.ROBOT_LOAD_ERROR;
-export const EVENT_VIEWER_JOINTS_RESET = ViewerEvents.JOINTS_RESET;
 export const EVENT_VIEWER_RESIZED = ViewerEvents.RESIZED;
 export const EVENT_VIEWER_DISPOSED = ViewerEvents.DISPOSED;
 export const EVENT_VIEWER_DRAG_START = ViewerEvents.DRAG_START;
 export const EVENT_VIEWER_DRAG_END = ViewerEvents.DRAG_END;
-export const EVENT_VIEWER_JOINT_HOVER = ViewerEvents.JOINT_HOVER;
-export const EVENT_VIEWER_JOINT_UNHOVER = ViewerEvents.JOINT_UNHOVER;
 export const EVENT_VIEWER_TABLE_LOADED = ViewerEvents.TABLE_LOADED;
 export const EVENT_VIEWER_TABLE_TOGGLED = ViewerEvents.TABLE_TOGGLED;
 export const EVENT_VIEWER_TCP_SCENE_RESPONSE = ViewerEvents.TCP_SCENE_RESPONSE;
-
-// Joint Events
-export const EVENT_JOINT_SET_VALUE = JointEvents.Commands.SET_VALUE;
-export const EVENT_JOINT_SET_VALUE_RESPONSE = JointEvents.Responses.SET_VALUE;
-export const EVENT_JOINT_SET_VALUES = JointEvents.Commands.SET_VALUES;
-export const EVENT_JOINT_SET_VALUES_RESPONSE = JointEvents.Responses.SET_VALUES;
-export const EVENT_JOINT_GET_VALUES = JointEvents.Commands.GET_VALUES;
-export const EVENT_JOINT_GET_VALUES_RESPONSE = JointEvents.Responses.GET_VALUES;
-export const EVENT_JOINT_RESET = JointEvents.Commands.RESET;
-export const EVENT_JOINT_RESET_RESPONSE = JointEvents.Responses.RESET;
 
 // IK Events
 export const EVENT_IK_SOLVE = IKEvents.Commands.SOLVE;
@@ -1319,7 +1244,7 @@ export const EVENT_TCP_FORCE_RECALCULATE = TCPEvents.FORCE_RECALCULATE;
  * 
  * @example
  * // Request joint values
- * createRequest(JointEvents.Commands.GET_VALUES, 
+ * createRequest(RobotEvents.GET_JOINT_VALUES, 
  *   { robotId: 'ur5_001' }, 
  *   (response) => {
  *     console.log('Joint values:', response.values);

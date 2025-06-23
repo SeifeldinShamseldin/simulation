@@ -63,7 +63,8 @@ export const ViewerProvider = ({ children }) => {
       console.warn('[ViewerContext] Attempted to get robot manager before viewer initialization');
       return null;
     }
-    return viewerInstanceRef.current?.robotLoaderRef?.current;
+    // Remove robotLoaderRef dependency - use EventBus instead
+    return null;
   }, []);
   
   // Focus on robot (existing API)

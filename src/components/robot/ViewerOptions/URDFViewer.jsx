@@ -33,7 +33,7 @@ const URDFViewer = React.forwardRef(({
         focusOnRobot,
         resetJoints: robotContext.resetJoints,
         getSceneSetup: viewer.getSceneSetup,
-        robotLoaderRef: { current: robotContext } // Point to unified context
+        // Remove robotLoaderRef - use EventBus instead
       };
       
       viewer.setViewerInstance(viewerCompat);
@@ -118,9 +118,6 @@ const URDFViewer = React.forwardRef(({
       totalRobots: robotContext.robotCount,
       activeRobots: robotContext.getActiveRobots()
     }),
-    
-    // Compatibility
-    robotLoaderRef: { current: robotContext },
     
     // Table methods (TODO: implement in viewer context)
     loadTable: async () => false,
