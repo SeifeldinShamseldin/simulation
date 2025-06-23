@@ -97,6 +97,21 @@ export const useTCP = (robotIdOverride = null) => {
     };
   }, [robotId]);
   
+  // Listen for end effector link (via EventBus)
+  useEffect(() => {
+    if (!robotId) return;
+    const handleLinkResponse = (data) => {
+      if (data.robotId === robotId) {
+        console.log(`[useTCP] End Effector Link for ${robotId}:`, data.link);
+      }
+    };
+    const unsub = EventBus.on(EndEffectorEvents.Responses.LINK, handleLinkResponse);
+    // Emit initial request to start broadcast
+    const requestId = `get-link-${Date.now()}`;
+    EventBus.emit(EndEffectorEvents.Commands.GET_LINK, { robotId, requestId });
+    return () => unsub();
+  }, [robotId]);
+  
   // Get current tool info
   const currentTool = useMemo(() => {
     if (!robotId || !tcpContext.attachedTools) return null;
@@ -164,7 +179,7 @@ export const useTCP = (robotIdOverride = null) => {
     tools: {
       available: tcpContext.availableTools || [],
       isLoading: tcpContext.isLoading,
-      refresh: tcpContext.loadAvailableTools
+      refresh: tcpContext.scanAvailableTools
     },
     
     // Tool operations

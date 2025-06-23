@@ -26,7 +26,7 @@
  *    });
  * 
  * 4. Command/Response pattern:
- *    createRequest(JointEvents.Commands.GET_VALUES, 
+ *    createRequest(RobotEvents.GET_JOINT_VALUES, 
  *      { robotId: 'ur5_001' }, 
  *      (response) => console.log(response.values)
  *    );
@@ -52,6 +52,32 @@ import EventBus from '../utils/EventBus';
  */
 export const RobotEvents = {
   // ========== System Events ==========
+  
+  /**
+   * Initialize new robot instance
+   * EMITTED BY: Any component adding a new robot
+   * LISTENED BY: RobotContext
+   * PAYLOAD: {
+   *   robotId: string,
+   *   robotType: string,
+   *   config: Object,
+   *   joints: Object
+   * }
+   */
+  INITIALIZE: 'robot:initialize',
+  
+  /**
+   * Robot initialization complete
+   * EMITTED BY: RobotContext
+   * LISTENED BY: UI components, hooks
+   * PAYLOAD: {
+   *   robotId: string,
+   *   success: boolean,
+   *   jointNames: Array,
+   *   error?: string
+   * }
+   */
+  INITIALIZED: 'robot:initialized',
   
   /**
    * Requests access to the 3D scene from ViewerContext
@@ -197,57 +223,6 @@ export const RobotEvents = {
    * }
    */
   GET_JOINT_VALUES: 'robot:get-joint-values',
-  
-  // ========== Joint Responses ==========
-  
-  /**
-   * Set joint value response
-   * EMITTED BY: RobotContext
-   * LISTENED BY: useJoints hook, UI components
-   * PAYLOAD: {
-   *   robotId: string,
-   *   jointName: string,
-   *   value: number,
-   *   success: boolean,
-   *   requestId?: string
-   * }
-   */
-  SET_JOINT_VALUE_RESPONSE: 'robot:set-joint-value-response',
-  
-  /**
-   * Set joint values response
-   * EMITTED BY: RobotContext
-   * LISTENED BY: useJoints hook, UI components
-   * PAYLOAD: {
-   *   robotId: string,
-   *   values: Object,
-   *   success: boolean,
-   *   requestId?: string
-   * }
-   */
-  SET_JOINT_VALUES_RESPONSE: 'robot:set-joint-values-response',
-  
-  /**
-   * Get joint values response
-   * EMITTED BY: RobotContext
-   * LISTENED BY: useJoints hook, UI components
-   * PAYLOAD: {
-   *   robotId: string,
-   *   values: Object,      // { jointName: value, ... }
-   *   requestId?: string
-   * }
-   */
-  GET_JOINT_VALUES_RESPONSE: 'robot:get-joint-values-response',
-  
-  // ========== Joint Events ==========
-  
-  /**
-   * Robot joints reset to zero
-   * EMITTED BY: RobotContext
-   * LISTENED BY: useJoints hook, UI components
-   * PAYLOAD: { robotId: string, robotName: string }
-   */
-  JOINTS_RESET: 'robot:joints-reset',
   
   // ========== Workspace Events ==========
   
@@ -637,61 +612,6 @@ export const ViewerEvents = {
 };
 
 // ============================================
-// IK EVENTS
-// ============================================
-/**
- * Inverse Kinematics events namespace
- * 
- * Handles IK solver requests and results.
- * Primary consumers: IKContext, UI components
- * 
- * @namespace IKEvents
- */
-export const IKEvents = {
-  Commands: {
-    /**
-     * Request IK solution
-     * EMITTED BY: Any component
-     * LISTENED BY: IKContext
-     * PAYLOAD: {
-     *   robotId: string,
-     *   targetPosition: {x,y,z},
-     *   targetOrientation?: Object,  // Quaternion or euler
-     *   requestId?: string
-     * }
-     */
-    SOLVE: 'ik:command:solve'
-  },
-  
-  /**
-   * IK solution found
-   * EMITTED BY: IKContext
-   * LISTENED BY: UI components
-   * PAYLOAD: {
-   *   robotId: string,
-   *   requestId?: string,
-   *   solution: Object,    // Joint values
-   *   iterations: number,
-   *   error: number
-   * }
-   */
-  SOLUTION_FOUND: 'ik:solution-found',
-  
-  /**
-   * IK solver couldn't find solution
-   * EMITTED BY: IKContext
-   * LISTENED BY: UI components
-   * PAYLOAD: {
-   *   robotId: string,
-   *   requestId?: string,
-   *   reason: string,
-   *   lastError: number
-   * }
-   */
-  NO_SOLUTION: 'ik:no-solution'
-};
-
-// ============================================
 // ENVIRONMENT EVENTS
 // ============================================
 /**
@@ -1034,7 +954,12 @@ export const EndEffectorEvents = {
    */
   Commands: {
     GET_STATE: 'endeffector:command:get-state',
-    
+    /**
+     * Request the current end effector link
+     * PAYLOAD: { robotId: string, requestId: string }
+     * RESPONSE: EndEffectorEvents.Responses.LINK
+     */
+    GET_LINK: 'endeffector:command:get-link',
     /**
      * Force recalculation of end effector
      * EMITTED BY: Any component
@@ -1063,7 +988,16 @@ export const EndEffectorEvents = {
      *   requestId: string
      * }
      */
-    STATE: 'endeffector:response:state'
+    STATE: 'endeffector:response:state',
+    /**
+     * Response to get end effector link
+     * PAYLOAD: {
+     *   robotId: string,
+     *   link: string|null, // The end effector link's name or id
+     *   requestId: string
+     * }
+     */
+    LINK: 'endeffector:response:link'
   },
   
   /**
@@ -1076,7 +1010,18 @@ export const EndEffectorEvents = {
    * End effector tracking stopped for robot
    * PAYLOAD: { robotId: string }
    */
-  TRACKING_STOPPED: 'endeffector:tracking-stopped'
+  TRACKING_STOPPED: 'endeffector:tracking-stopped',
+  
+  /**
+   * Global event: End effector link updated (broadcasted regularly)
+   * PAYLOAD: {
+   *   robotId: string,
+   *   link: string|null, // The end effector link's name or id
+   *   previousLink?: string|null, // Previous link name if changed
+   *   timestamp: number
+   * }
+   */
+  LINK_UPDATED: 'endeffector:link-updated'
 };
 
 // ============================================
@@ -1154,8 +1099,6 @@ export const EVENT_ROBOT_WORKSPACE_UPDATED = RobotEvents.WORKSPACE_UPDATED;
 export const EVENT_ROBOT_DISCOVERY_COMPLETE = RobotEvents.DISCOVERY_COMPLETE;
 export const EVENT_ROBOT_LOADING_STATE_CHANGED = RobotEvents.LOADING_STATE_CHANGED;
 export const EVENT_ROBOT_POSITION_CHANGED = RobotEvents.POSITION_CHANGED;
-export const EVENT_ROBOT_TCP_ATTACHED = RobotEvents.TCP_ATTACHED;
-export const EVENT_ROBOT_TCP_DETACHED = RobotEvents.TCP_DETACHED;
 export const EVENT_ROBOT_REGISTERED = RobotEvents.REGISTERED;
 
 // Robot Commands
@@ -1186,11 +1129,6 @@ export const EVENT_VIEWER_DRAG_END = ViewerEvents.DRAG_END;
 export const EVENT_VIEWER_TABLE_LOADED = ViewerEvents.TABLE_LOADED;
 export const EVENT_VIEWER_TABLE_TOGGLED = ViewerEvents.TABLE_TOGGLED;
 export const EVENT_VIEWER_TCP_SCENE_RESPONSE = ViewerEvents.TCP_SCENE_RESPONSE;
-
-// IK Events
-export const EVENT_IK_SOLVE = IKEvents.Commands.SOLVE;
-export const EVENT_IK_SOLUTION_FOUND = IKEvents.SOLUTION_FOUND;
-export const EVENT_IK_NO_SOLUTION = IKEvents.NO_SOLUTION;
 
 // Environment Events
 export const EVENT_ENVIRONMENT_OBJECT_SPAWNED = EnvironmentEvents.OBJECT_SPAWNED;

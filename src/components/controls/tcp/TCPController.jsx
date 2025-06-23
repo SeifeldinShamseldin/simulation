@@ -412,11 +412,11 @@ const TCPController = React.memo(({ viewerRef }) => {
                 </div>
                 <div className="controls-list-item-actions">
                   <button
-                    className={`controls-btn controls-btn-sm ${tool.current?.toolId === availableTool.id ? 'controls-btn-success' : 'controls-btn-primary'}`}
-                    onClick={() => tool.current?.toolId === availableTool.id ? null : handleToolSelect(availableTool.id)}
-                    disabled={system.isDisabled || tool.current?.toolId === availableTool.id}
+                    className={`controls-btn controls-btn-sm ${tool.current?.toolId === availableTool.id ? 'controls-btn-danger' : 'controls-btn-primary'}`}
+                    onClick={() => tool.current?.toolId === availableTool.id ? handleRemoveTool() : handleToolSelect(availableTool.id)}
+                    disabled={system.isDisabled}
                   >
-                    {tool.current?.toolId === availableTool.id ? 'Active' : 'Attach'}
+                    {tool.current?.toolId === availableTool.id ? 'Remove' : 'Attach'}
                   </button>
                 </div>
               </div>

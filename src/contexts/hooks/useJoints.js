@@ -287,8 +287,8 @@ export const useJoints = (robotIdOverride = null) => {
     if (!robotIdToUse) return;
     
     // Handle set joint value response
-    const handleSetJointValueResponse = ({ robotId, jointName, value, success, requestId }) => {
-      if (robotId === robotIdToUse && success) {
+    const handleSetJointValue = ({ robotId, jointName, value, requestId }) => {
+      if (robotId === robotIdToUse) {
         setJointValuesState(prev => ({
           ...prev,
           [jointName]: value
@@ -297,38 +297,38 @@ export const useJoints = (robotIdOverride = null) => {
     };
 
     // Handle set joint values response
-    const handleSetJointValuesResponse = ({ robotId, values, success, requestId }) => {
-      if (robotId === robotIdToUse && success) {
+    const handleSetJointValues = ({ robotId, values, requestId }) => {
+      if (robotId === robotIdToUse) {
         setJointValuesState(prev => ({
           ...prev,
-          ...values
+          ...(values || {})
         }));
       }
     };
 
     // Handle get joint values response
-    const handleGetJointValuesResponse = ({ robotId, values, requestId }) => {
+    const handleGetJointValues = ({ robotId, values, requestId }) => {
       if (robotId === robotIdToUse) {
-        setJointValuesState(values);
+        setJointValuesState(values || {});
         // Update commanded values if they haven't been set yet
         setCommandedValues(prev => {
           if (Object.keys(prev).length === 0) {
-            return values;
+            return values || {};
           }
           return prev;
         });
       }
     };
 
-    // Register response listeners
-    const unsubSetResp = EventBus.on(RobotEvents.SET_JOINT_VALUE_RESPONSE, handleSetJointValueResponse);
-    const unsubSetValsResp = EventBus.on(RobotEvents.SET_JOINT_VALUES_RESPONSE, handleSetJointValuesResponse);
-    const unsubGetResp = EventBus.on(RobotEvents.GET_JOINT_VALUES_RESPONSE, handleGetJointValuesResponse);
+    // Register listeners on the same event as the request
+    const unsubSet = EventBus.on(RobotEvents.SET_JOINT_VALUE, handleSetJointValue);
+    const unsubSetVals = EventBus.on(RobotEvents.SET_JOINT_VALUES, handleSetJointValues);
+    const unsubGet = EventBus.on(RobotEvents.GET_JOINT_VALUES, handleGetJointValues);
     
     return () => {
-      unsubSetResp();
-      unsubSetValsResp();
-      unsubGetResp();
+      unsubSet();
+      unsubSetVals();
+      unsubGet();
     };
   }, [robotIdToUse]);
 
@@ -341,18 +341,18 @@ export const useJoints = (robotIdOverride = null) => {
 
     const handleResponse = (data) => {
       if (isMounted && data.robotId === robotIdToUse && data.requestId === requestId) {
-        setJointValuesState(data.values);
+        setJointValuesState(data.values || {});
         // Update commanded values if they haven't been set yet
         setCommandedValues(prev => {
           if (Object.keys(prev).length === 0) {
-            return data.values;
+            return data.values || {};
           }
           return prev;
         });
       }
     };
     
-    const unsub = EventBus.on(RobotEvents.GET_JOINT_VALUES_RESPONSE, handleResponse);
+    const unsub = EventBus.on(RobotEvents.GET_JOINT_VALUES, handleResponse);
 
     // Poll every 200ms
     interval = setInterval(() => {

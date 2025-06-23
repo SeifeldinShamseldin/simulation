@@ -636,17 +636,17 @@ export const RobotProvider = ({ children }) => {
       const requestId = `getpose_${Date.now()}`;
       const handleResponse = (data) => {
         if (data.requestId === requestId && data.robotId === robotId) {
-          EventBus.off(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+          EventBus.off(RobotPoseEvents.Commands.GET_POSE, handleResponse);
           resolve({
             position: data.position,
             rotation: data.rotation
           });
         }
       };
-      EventBus.on(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+      EventBus.on(RobotPoseEvents.Commands.GET_POSE, handleResponse);
       EventBus.emit(RobotPoseEvents.Commands.GET_POSE, { robotId, requestId });
       setTimeout(() => {
-        EventBus.off(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+        EventBus.off(RobotPoseEvents.Commands.GET_POSE, handleResponse);
         resolve({ position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } });
       }, 1000);
     });
@@ -693,7 +693,7 @@ export const RobotProvider = ({ children }) => {
           z: robotData.container.rotation.z
         };
       }
-      EventBus.emit(RobotPoseEvents.Responses.GET_POSE, {
+      EventBus.emit(RobotPoseEvents.Commands.GET_POSE, {
         robotId,
         position,
         rotation,
@@ -813,11 +813,10 @@ export const RobotProvider = ({ children }) => {
       }
       
       // Send response
-      EventBus.emit(RobotEvents.SET_JOINT_VALUE_RESPONSE, {
+      EventBus.emit(RobotEvents.SET_JOINT_VALUE, {
         robotId,
         jointName,
         value,
-        success,
         requestId
       });
     };
@@ -856,10 +855,9 @@ export const RobotProvider = ({ children }) => {
       }
       
       // Send response
-      EventBus.emit(RobotEvents.SET_JOINT_VALUES_RESPONSE, {
+      EventBus.emit(RobotEvents.SET_JOINT_VALUES, {
         robotId,
-        values,
-        success,
+        values: values || {},
         requestId
       });
     };
@@ -886,9 +884,9 @@ export const RobotProvider = ({ children }) => {
       }
       
       // Send response
-      EventBus.emit(RobotEvents.GET_JOINT_VALUES_RESPONSE, {
+      EventBus.emit(RobotEvents.GET_JOINT_VALUES, {
         robotId,
-        values,
+        values: values || {},
         requestId
       });
     };

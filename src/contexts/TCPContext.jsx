@@ -1,4 +1,4 @@
-// src/contexts/TCPContext.jsx - Refactored to use EventBus only
+// src/contexts/TCPContext.jsx - Refactored to use EventBus only cluade shit code
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
 import URDFLoader from '../core/Loader/URDFLoader';
@@ -24,12 +24,81 @@ class OptimizedTCPManager {
     this._lastUpdateTime = new Map(); // Track last update time per robot
     this._updateDebounceTime = 16; // ~60fps debounce
     
+    // End effector link tracking
+    this._endEffectorLinks = new Map(); // Track current end effector link per robot
+    this._linkMonitoringInterval = null;
+    this._linkCheckInterval = 100; // Check every 100ms
+    
     // Centralized end effector configuration
     this.endEffectorPatterns = [
       'tool0', 'ee_link', 'end_effector', 'gripper_link', 
       'link_6', 'link_7', 'wrist_3_link', 'tool_link',
       'flange', 'tool_flange', 'tcp'
     ];
+  }
+
+  /**
+   * Start monitoring end effector links for all robots
+   */
+  startEndEffectorLinkMonitoring() {
+    if (this._linkMonitoringInterval) return;
+    
+    console.log('[TCPManager] Starting end effector link monitoring');
+    
+    this._linkMonitoringInterval = setInterval(() => {
+      // Check all registered robots
+      for (const [robotId, robot] of this.robotRegistry.entries()) {
+        this.checkEndEffectorLinkChange(robotId, robot);
+      }
+    }, this._linkCheckInterval);
+  }
+
+  /**
+   * Stop monitoring end effector links
+   */
+  stopEndEffectorLinkMonitoring() {
+    if (this._linkMonitoringInterval) {
+      clearInterval(this._linkMonitoringInterval);
+      this._linkMonitoringInterval = null;
+      console.log('[TCPManager] Stopped end effector link monitoring');
+    }
+  }
+
+  /**
+   * Check if end effector link has changed for a robot
+   */
+  checkEndEffectorLinkChange(robotId, robot) {
+    if (!robot) return;
+    
+    // Find current end effector link
+    const currentLink = this.findEndEffector(robot);
+    const linkName = currentLink?.name || null;
+    
+    // Get previous link
+    const previousLink = this._endEffectorLinks.get(robotId);
+    
+    // Check if link has changed
+    if (linkName !== previousLink) {
+      console.log(`[TCPManager] End effector link changed for ${robotId}: ${previousLink} -> ${linkName}`);
+      
+      // Update cache
+      this._endEffectorLinks.set(robotId, linkName);
+      
+      // Clear end effector cache to force recalculation
+      const cacheKey = `${robotId}_${robot.uuid || 'unknown'}`;
+      this._endEffectorCache.delete(cacheKey);
+      
+      // Emit global link updated event
+      EventBus.emit(DataTransfer.EndEffectorEvents.LINK_UPDATED, {
+        robotId,
+        link: linkName,
+        previousLink,
+        timestamp: Date.now()
+      });
+      
+      // Force recalculation of end effector
+      this.recalculateEndEffector(robotId);
+    }
   }
 
   /**
@@ -58,219 +127,166 @@ class OptimizedTCPManager {
       
       // Method 2: robots Map
       if (this.robotManager.robots?.has?.(robotId)) {
-        const robotData = this.robotManager.robots.get(robotId);
-        if (robotData?.robot) {
-          this.robotRegistry.set(robotId, robotData.robot);
-          return robotData.robot;
+        const robot = this.robotManager.robots.get(robotId);
+        if (robot) {
+          this.robotRegistry.set(robotId, robot);
+          return robot;
+        }
+      }
+      
+      // Method 3: loadedRobots property
+      if (this.robotManager.loadedRobots) {
+        const robot = this.robotManager.loadedRobots[robotId];
+        if (robot) {
+          this.robotRegistry.set(robotId, robot);
+          return robot;
         }
       }
     }
     
-    // Method 3: Scene traversal (slowest, last resort)
+    // Try scene search as last resort
     if (this.sceneSetup?.scene) {
-      let foundRobot = null;
-      this.sceneSetup.scene.traverse((child) => {
-        if (child.isURDFRobot && (child.name === robotId || child.robotName === robotId)) {
-          foundRobot = child;
-        }
-      });
-      if (foundRobot) {
-        this.robotRegistry.set(robotId, foundRobot);
-        return foundRobot;
+      const robot = this.findRobotInScene(robotId);
+      if (robot) {
+        this.robotRegistry.set(robotId, robot);
+        return robot;
       }
     }
     
-    // Only warn once per robot to avoid spam
+    // Only warn once per robot ID
     if (!this._notFoundWarnings.has(robotId)) {
-      console.warn(`[TCP] Robot ${robotId} not found`);
+      console.warn(`[TCPManager] Robot not found: ${robotId}`);
       this._notFoundWarnings.add(robotId);
-      setTimeout(() => this._notFoundWarnings.delete(robotId), 5000);
     }
     
     return null;
   }
 
   /**
-   * Register robot in local registry
+   * Register a robot for tracking
    */
   registerRobot(robotId, robot) {
-    if (robotId && robot) {
-      this.robotRegistry.set(robotId, robot);
-      this._notFoundWarnings.delete(robotId);
-    }
+    if (!robotId || !robot) return;
+    
+    this.robotRegistry.set(robotId, robot);
+    
+    // Immediately check end effector link
+    this.checkEndEffectorLinkChange(robotId, robot);
+    
+    console.log(`[TCPManager] Registered robot: ${robotId}`);
   }
 
   /**
-   * Calculate robot end effector position (OPTIMIZED)
+   * Unregister a robot
+   */
+  unregisterRobot(robotId) {
+    this.robotRegistry.delete(robotId);
+    this._endEffectorLinks.delete(robotId);
+    this._endEffectorCache.delete(`${robotId}_*`);
+    this._lastUpdateTime.delete(robotId);
+    this.attachedTools.delete(robotId);
+    
+    console.log(`[TCPManager] Unregistered robot: ${robotId}`);
+  }
+
+  /**
+   * Find robot in scene hierarchy
+   */
+  findRobotInScene(robotId) {
+    if (!this.sceneSetup?.scene) return null;
+    
+    let foundRobot = null;
+    
+    this.sceneSetup.scene.traverse((child) => {
+      if (foundRobot) return;
+      
+      if (child.userData?.robotId === robotId || 
+          child.userData?.id === robotId ||
+          child.name === robotId) {
+        foundRobot = child;
+      }
+    });
+    
+    return foundRobot;
+  }
+
+  /**
+   * Find end effector link in robot hierarchy
+   */
+  findEndEffector(robot) {
+    if (!robot) return null;
+    
+    let endEffector = null;
+    
+    // Priority-based search
+    for (const pattern of this.endEffectorPatterns) {
+      robot.traverse((child) => {
+        if (!endEffector && child.isURDFLink && 
+            child.name.toLowerCase().includes(pattern.toLowerCase())) {
+          endEffector = child;
+        }
+      });
+      
+      if (endEffector) break;
+    }
+    
+    // Fallback: find the last link in the kinematic chain
+    if (!endEffector) {
+      const links = [];
+      robot.traverse((child) => {
+        if (child.isURDFLink) {
+          links.push(child);
+        }
+      });
+      
+      if (links.length > 0) {
+        endEffector = links[links.length - 1];
+      }
+    }
+    
+    return endEffector;
+  }
+
+  /**
+   * Calculate robot's base end effector (without TCP)
    */
   calculateRobotEndEffector(robotId) {
     const robot = this.findRobot(robotId);
     if (!robot) {
-      return { 
-        position: { x: 0, y: 0, z: 0 },
-        orientation: { x: 0, y: 0, z: 0, w: 1 }
-      };
+      return { position: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
     }
-
-    this._notFoundWarnings.delete(robotId);
-
-    // Check cache first
-    const cacheKey = `${robotId}_${robot.uuid}`;
-    const now = Date.now();
-    const lastUpdate = this._lastUpdateTime.get(robotId) || 0;
     
-    // Use cached result if recent enough
-    if (this._endEffectorCache.has(cacheKey) && (now - lastUpdate) < this._updateDebounceTime) {
-      return this._endEffectorCache.get(cacheKey);
-    }
-
-    // Find end effector link (use cached if available)
-    let endEffectorLink = robot.userData?.endEffectorLink;
-    
+    const endEffectorLink = this.getEndEffectorLink(robotId);
     if (!endEffectorLink) {
-      // Try to find by name first
-      if (robot.links) {
-        for (const name of this.endEffectorPatterns) {
-          if (robot.links[name]) {
-            endEffectorLink = robot.links[name];
-            break;
-          }
-        }
-      }
+      return { position: { x: 0, y: 0, z: 0 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };
+    }
+    
+    // If it's a TCP, calculate from its tip
+    if (endEffectorLink.name === 'tcp') {
+      const box = new THREE.Box3().setFromObject(endEffectorLink);
+      const maxPoint = new THREE.Vector3();
+      box.getMax(maxPoint);
       
-      // Fallback: find deepest link
-      if (!endEffectorLink) {
-        let deepestLink = null;
-        let maxDepth = 0;
-        
-        const findDeepest = (obj, depth = 0) => {
-          if (obj.isURDFJoint && depth > maxDepth) {
-            maxDepth = depth;
-            deepestLink = obj;
-          }
-          obj.children?.forEach(child => findDeepest(child, depth + 1));
-        };
-        
-        findDeepest(robot);
-        endEffectorLink = deepestLink;
-      }
-
-      // Cache the end effector link
-      if (endEffectorLink && robot.userData) {
-        robot.userData.endEffectorLink = endEffectorLink;
-      }
-    }
-
-    if (!endEffectorLink) {
-      const result = { 
-        position: { x: 0, y: 0, z: 0 },
-        orientation: { x: 0, y: 0, z: 0, w: 1 }
+      const worldQuat = new THREE.Quaternion();
+      endEffectorLink.getWorldQuaternion(worldQuat);
+      
+      return {
+        position: { x: maxPoint.x, y: maxPoint.y, z: maxPoint.z },
+        orientation: { x: worldQuat.x, y: worldQuat.y, z: worldQuat.z, w: worldQuat.w }
       };
-      this._endEffectorCache.set(cacheKey, result);
-      return result;
     }
-
-    // Get world position and orientation (optimized)
+    
+    // For normal links, use world position
     const worldPos = new THREE.Vector3();
     const worldQuat = new THREE.Quaternion();
     
-    // Use getWorldPosition/getWorldQuaternion for better performance
     endEffectorLink.getWorldPosition(worldPos);
     endEffectorLink.getWorldQuaternion(worldQuat);
     
-    const result = {
+    return {
       position: { x: worldPos.x, y: worldPos.y, z: worldPos.z },
       orientation: { x: worldQuat.x, y: worldQuat.y, z: worldQuat.z, w: worldQuat.w }
     };
-
-    // Cache the result
-    this._endEffectorCache.set(cacheKey, result);
-    this._lastUpdateTime.set(robotId, now);
-    
-    return result;
-  }
-
-  /**
-   * Calculate TCP tool tip offset based on actual tool geometry
-   */
-  calculateToolTipOffset(toolContainer) {
-    if (!toolContainer) return { x: 0, y: 0, z: 0 };
-
-    const { position, rotation, scale } = toolContainer;
-    let tipOffset = { x: position.x, y: position.y, z: position.z };
-
-    // Calculate actual tool dimensions from geometry
-    const toolDimensions = this.calculateToolDimensions(toolContainer);
-    
-    // Use the actual tool length (z-dimension) for tip offset
-    const toolLength = toolDimensions.z * scale.z;
-    
-    // Apply rotation if present
-    if (rotation.x !== 0 || rotation.y !== 0 || rotation.z !== 0) {
-      const baseTip = new THREE.Vector3(0, 0, toolLength);
-      baseTip.applyEuler(rotation);
-      tipOffset.x += baseTip.x;
-      tipOffset.y += baseTip.y;
-      tipOffset.z += baseTip.z;
-    } else {
-      tipOffset.z += toolLength;
-    }
-    
-    return tipOffset;
-  }
-
-  /**
-   * Calculate actual tool dimensions from geometry (OPTIMIZED)
-   */
-  calculateToolDimensions(toolContainer) {
-    if (!toolContainer) return { x: 0, y: 0, z: 0 };
-
-    // Check cache first
-    const cacheKey = toolContainer.uuid;
-    if (this._dimensionCache.has(cacheKey)) {
-      return this._dimensionCache.get(cacheKey);
-    }
-
-    const boundingBox = new THREE.Box3();
-    let hasGeometry = false;
-    let meshCount = 0;
-
-    // Optimized traversal - only process meshes with geometry
-    toolContainer.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.geometry) {
-        // Only compute bounding box if not already computed
-        if (!child.geometry.boundingBox) {
-          child.geometry.computeBoundingBox();
-        }
-        
-        if (child.geometry.boundingBox) {
-          // Use expandByObject which is the standard method available in all Three.js versions
-          boundingBox.expandByObject(child);
-          hasGeometry = true;
-          meshCount++;
-        }
-      }
-    });
-
-    let dimensions;
-    if (!hasGeometry || meshCount === 0) {
-      // Fallback to default dimensions
-      dimensions = { x: 0.01, y: 0.01, z: 0.05 };
-    } else {
-      const size = new THREE.Vector3();
-      boundingBox.getSize(size);
-
-      dimensions = {
-        x: Math.max(size.x, 0.001), // Minimum 1mm
-        y: Math.max(size.y, 0.001),
-        z: Math.max(size.z, 0.001)
-      };
-    }
-
-    // Cache the result
-    this._dimensionCache.set(cacheKey, dimensions);
-    
-    return dimensions;
   }
 
   /**
@@ -333,14 +349,22 @@ class OptimizedTCPManager {
     if (!robot) return null;
 
     // Use cached link if available
-    if (robot.userData?.endEffectorLink) {
-      return robot.userData.endEffectorLink;
+    const cachedLink = this._endEffectorLinks.get(robotId);
+    if (cachedLink) {
+      // Find the actual link object by name
+      let link = null;
+      robot.traverse((child) => {
+        if (child.name === cachedLink && child.isURDFLink) {
+          link = child;
+        }
+      });
+      if (link) return link;
     }
 
     // Find and cache the link
     const link = this.findEndEffector(robot);
-    if (link && robot.userData) {
-      robot.userData.endEffectorLink = link;
+    if (link) {
+      this._endEffectorLinks.set(robotId, link.name);
     }
 
     return link;
@@ -355,384 +379,21 @@ class OptimizedTCPManager {
     this.urdfLoader = new URDFLoader(new THREE.LoadingManager());
     this.urdfLoader.parseVisual = true;
     this.urdfLoader.parseCollision = false;
+    
+    // Start monitoring end effector links
+    this.startEndEffectorLinkMonitoring();
   }
 
   /**
-   * Scan for available TCP tools
+   * Cleanup manager
    */
-  async scanAvailableTools() {
-    const response = await fetch('/api/tcp/scan');
-    const data = await response.json();
-    
-    if (!data.success) {
-      throw new Error(data.message || 'Failed to scan TCP tools');
-    }
-    
-    this.availableTools = data.tools || [];
-    return this.availableTools;
-  }
-
-  /**
-   * Load tool based on type
-   */
-  async loadTool(tool) {
-    switch (tool.type) {
-      case 'URDF Package':
-        return await this.loadUrdfTool(tool);
-      case 'Multi-Mesh':
-        return await this.loadMultiMeshTool(tool);
-      default:
-        return await this.loadSingleMeshTool(tool);
-    }
-  }
-
-  /**
-   * Load URDF tool
-   */
-  async loadUrdfTool(tool) {
-    return new Promise((resolve, reject) => {
-      const urdfPath = `${tool.path}/${tool.urdfFile}`;
-      
-      this.urdfLoader.resetLoader();
-      this.urdfLoader.packages = tool.path;
-      this.urdfLoader.currentRobotName = tool.id;
-      
-      this.urdfLoader.loadMeshCb = (path, manager, done, material) => {
-        const filename = path.split('/').pop();
-        const resolvedPath = `${tool.path}/${filename}`;
-        
-        MeshLoader.load(resolvedPath, manager, (obj, err) => {
-          if (err) return done(null, err);
-          
-          if (obj) {
-            obj.traverse(child => {
-              if (child instanceof THREE.Mesh) {
-                if (!child.material || child.material.name === '' || child.material.name === 'default') {
-                  child.material = material || new THREE.MeshPhongMaterial({ color: 0x888888 });
-                }
-                child.castShadow = true;
-                child.receiveShadow = true;
-              }
-            });
-            done(obj);
-          } else {
-            done(null, new Error('No mesh object returned'));
-          }
-        }, material);
-      };
-      
-      this.urdfLoader.load(urdfPath, resolve, null, reject);
-    });
-  }
-
-  /**
-   * Load multi-mesh tool
-   */
-  async loadMultiMeshTool(tool) {
-    const group = new THREE.Group();
-    group.name = tool.id;
-    
-    for (const meshFile of tool.meshFiles) {
-      try {
-        const meshPath = `${tool.path}/${meshFile}`;
-        const mesh = await this.loadSingleMesh(meshPath);
-        if (mesh) group.add(mesh);
-      } catch (error) {
-        console.warn(`Failed to load mesh ${meshFile}:`, error);
-      }
-    }
-    
-    return group.children.length > 0 ? group : null;
-  }
-
-  /**
-   * Load single mesh tool
-   */
-  async loadSingleMeshTool(tool) {
-    const meshPath = tool.fileName ? `${tool.path}/${tool.fileName}` : tool.path;
-    return await this.loadSingleMesh(meshPath);
-  }
-
-  /**
-   * Load single mesh
-   */
-  async loadSingleMesh(meshPath) {
-    return new Promise((resolve, reject) => {
-      MeshLoader.load(meshPath, new THREE.LoadingManager(), (obj, err) => {
-        if (err) return reject(err);
-        
-        if (obj) {
-          obj.traverse(child => {
-            if (child instanceof THREE.Mesh) {
-              if (!child.material || child.material.name === '' || child.material.name === 'default') {
-                child.material = new THREE.MeshPhongMaterial({ color: 0x888888 });
-              }
-              child.castShadow = true;
-              child.receiveShadow = true;
-            }
-          });
-          resolve(obj);
-        } else {
-          reject(new Error('No mesh object returned'));
-        }
-      });
-    });
-  }
-
-  /**
-   * Find end effector link using centralized patterns
-   */
-  findEndEffector(robot) {
-    if (!robot) return null;
-    
-    // Try to find by name first
-    if (robot.links) {
-      for (const pattern of this.endEffectorPatterns) {
-        if (robot.links[pattern]) {
-          return robot.links[pattern];
-        }
-      }
-    }
-    
-    // Fallback: find deepest link
-    let deepestLink = null;
-    let maxDepth = 0;
-    
-    const findDeepest = (obj, depth = 0) => {
-      if (obj.isURDFLink && depth > maxDepth) {
-        maxDepth = depth;
-        deepestLink = obj;
-      }
-      obj.children?.forEach(child => findDeepest(child, depth + 1));
-    };
-    
-    findDeepest(robot);
-    return deepestLink;
-  }
-
-  /**
-   * Attach tool to robot
-   */
-  async attachTool(robotId, toolId) {
-    // Remove existing tool
-    await this.removeTool(robotId);
-
-    // Find tool and robot
-    const tool = this.availableTools.find(t => t.id === toolId);
-    if (!tool) throw new Error(`Tool ${toolId} not found`);
-
-    const robot = this.findRobot(robotId);
-    if (!robot) throw new Error(`Robot ${robotId} not found`);
-
-    const endEffector = this.findEndEffector(robot);
-    if (!endEffector) throw new Error('End effector not found');
-
-    // Load and attach tool
-    const toolObject = await this.loadTool(tool);
-    if (!toolObject) throw new Error('Failed to load tool object');
-
-    // 🚨 CRITICAL FIX: Always name the tool container "tcp"
-    const toolContainer = new THREE.Group();
-    toolContainer.name = 'tcp'; // Always name it "tcp" regardless of original tool name
-    toolContainer.add(toolObject);
-    endEffector.add(toolContainer);
-
-    // Calculate initial tool dimensions for proper positioning
-    const toolDimensions = this.calculateToolDimensions(toolContainer);
-    console.log(`[TCP] Tool ${tool.name} dimensions:`, toolDimensions);
-
-    // Store tool data with enhanced information
-    this.attachedTools.set(robotId, {
-      toolId,
-      tool,
-      toolObject,
-      toolContainer,
-      endEffector,
-      dimensions: toolDimensions, // Store calculated dimensions
-      transforms: {
-        position: { x: 0, y: 0, z: 0 },
-        rotation: { x: 0, y: 0, z: 0 },
-        scale: { x: 1, y: 1, z: 1 }
-      }
-    });
-
-    // Emit events with enhanced information
-    const finalPosition = this.getFinalEndEffectorPosition(robotId);
-    const finalOrientation = this.getFinalEndEffectorOrientation(robotId);
-    
-    EventBus.emit(DataTransfer.EVENT_TCP_TOOL_ATTACHED, {
-      robotId,
-      toolId,
-      toolName: 'tcp', // Always emit "tcp" as the name
-      originalToolName: tool.name, // Keep original name for reference
-      endEffectorPoint: finalPosition,
-      toolDimensions: toolDimensions
-    });
-
-    EventBus.emit(DataTransfer.EVENT_TCP_ENDEFFECTOR_UPDATED, {
-      robotId,
-      endEffectorPoint: finalPosition,
-      endEffectorOrientation: finalOrientation,
-      hasTCP: true,
-      toolDimensions: toolDimensions
-    });
-
-    // Emit event for cross-context (RobotContext)
-    EventBus.emit(DataTransfer.EVENT_ROBOT_TCP_ATTACHED, {
-      robotId,
-      toolId,
-      toolData: this.getCurrentTool(robotId)
-    });
-
-    console.log(`[TCP] Tool "${tool.name}" attached to ${robotId} as "tcp"`);
-    console.log(`[TCP] Final end effector position:`, finalPosition);
-
-    return true;
-  }
-
-  /**
-   * Set tool transform and recalculate (OPTIMIZED)
-   */
-  setToolTransform(robotId, transforms) {
-    const toolData = this.attachedTools.get(robotId);
-    if (!toolData) return;
-
-    const { toolContainer } = toolData;
-    
-    // Apply transforms
-    if (transforms.position) {
-      toolContainer.position.set(
-        transforms.position.x || 0,
-        transforms.position.y || 0,
-        transforms.position.z || 0
-      );
-    }
-
-    if (transforms.rotation) {
-      toolContainer.rotation.set(
-        transforms.rotation.x || 0,
-        transforms.rotation.y || 0,
-        transforms.rotation.z || 0
-      );
-    }
-
-    if (transforms.scale) {
-      toolContainer.scale.set(
-        transforms.scale.x || 1,
-        transforms.scale.y || 1,
-        transforms.scale.z || 1
-      );
-    }
-
-    // Update matrices (optimized)
-    toolContainer.updateMatrix();
-    toolContainer.updateMatrixWorld(true);
-
-    // Clear dimension cache for this tool since transforms changed
-    this._dimensionCache.delete(toolContainer.uuid);
-    
-    // Recalculate tool dimensions after transform changes (debounced)
-    const now = Date.now();
-    const lastUpdate = this._lastUpdateTime.get(robotId) || 0;
-    
-    if ((now - lastUpdate) >= this._updateDebounceTime) {
-      const updatedDimensions = this.calculateToolDimensions(toolContainer);
-      toolData.dimensions = updatedDimensions;
-
-      // Store transforms
-      toolData.transforms = { ...transforms };
-
-      // Emit events with updated information (debounced)
-      const finalPosition = this.getFinalEndEffectorPosition(robotId);
-      const finalOrientation = this.getFinalEndEffectorOrientation(robotId);
-      
-      EventBus.emit(DataTransfer.EVENT_TCP_TOOL_TRANSFORMED, {
-        robotId,
-        toolId: toolData.toolId,
-        transforms,
-        endEffectorPoint: finalPosition,
-        toolDimensions: updatedDimensions
-      });
-
-      EventBus.emit(DataTransfer.EVENT_TCP_ENDEFFECTOR_UPDATED, {
-        robotId,
-        endEffectorPoint: finalPosition,
-        endEffectorOrientation: finalOrientation,
-        hasTCP: true,
-        toolDimensions: updatedDimensions
-      });
-
-      // Emit event for cross-context
-      EventBus.emit(DataTransfer.EVENT_TCP_TOOL_TRANSFORM_CHANGED, {
-        robotId,
-        transforms
-      });
-
-      this._lastUpdateTime.set(robotId, now);
-    } else {
-      // Just store transforms without emitting events (will be handled by debounce)
-      toolData.transforms = { ...transforms };
-    }
-  }
-
-  /**
-   * Remove tool
-   */
-  async removeTool(robotId) {
-    const toolData = this.attachedTools.get(robotId);
-    if (!toolData) return;
-
-    // Remove from scene and dispose resources
-    const { endEffector, toolContainer } = toolData;
-    if (endEffector && toolContainer) {
-      endEffector.remove(toolContainer);
-      
-      toolContainer.traverse(child => {
-        child.geometry?.dispose();
-        if (child.material) {
-          if (Array.isArray(child.material)) {
-            child.material.forEach(m => m.dispose());
-          } else {
-            child.material.dispose();
-          }
-        }
-      });
-    }
-
-    this.attachedTools.delete(robotId);
-
-    // Emit events
-    const robotPosition = this.calculateRobotEndEffector(robotId);
-    
-    EventBus.emit(DataTransfer.EVENT_TCP_TOOL_REMOVED, { robotId, toolId: toolData.toolId });
-    EventBus.emit(DataTransfer.EVENT_TCP_ENDEFFECTOR_UPDATED, {
-      robotId,
-      endEffectorPoint: robotPosition.position,
-      hasTCP: false
-    });
-
-    // Emit event for cross-context (RobotContext)
-    EventBus.emit(DataTransfer.EVENT_ROBOT_TCP_DETACHED, {
-      robotId,
-      toolId: null
-    });
-  }
-
-  /**
-   * Set tool visibility
-   */
-  setToolVisibility(robotId, visible) {
-    const toolData = this.attachedTools.get(robotId);
-    if (toolData) {
-      toolData.toolContainer.visible = visible;
-    }
-  }
-
-  /**
-   * Get current tool
-   */
-  getCurrentTool(robotId) {
-    return this.attachedTools.get(robotId);
+  cleanup() {
+    this.stopEndEffectorLinkMonitoring();
+    this.robotRegistry.clear();
+    this._endEffectorLinks.clear();
+    this._endEffectorCache.clear();
+    this._lastUpdateTime.clear();
+    this.attachedTools.clear();
   }
 
   /**
@@ -782,7 +443,7 @@ class OptimizedTCPManager {
       toolDimensions
     });
     
-    // ALWAYS emit the new END_EFFECTOR event for consistent updates
+    // ALWAYS emit the new global END_EFFECTOR event for consistent updates
     EventBus.emit(DataTransfer.EndEffectorEvents.UPDATED, {
       robotId,
       position: finalPosition,
@@ -794,438 +455,616 @@ class OptimizedTCPManager {
       timestamp: now
     });
     
-    console.log(`[TCP] End effector updated for ${robotId}:`, {
-      position: finalPosition,
-      orientation: finalOrientation,
-      hasTCP,
-      tcpOffset
-    });
-    
     return result;
   }
 
   /**
-   * Clear caches for a specific robot
+   * Calculate tool dimensions
    */
-  clearRobotCache(robotId) {
+  calculateToolDimensions(toolContainer) {
+    const cacheKey = `dims_${toolContainer.uuid}`;
+    if (this._dimensionCache.has(cacheKey)) {
+      return this._dimensionCache.get(cacheKey);
+    }
+    
+    if (!toolContainer) return null;
+    
+    const box = new THREE.Box3().setFromObject(toolContainer);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    
+    const dimensions = {
+      x: size.x,
+      y: size.y,
+      z: size.z
+    };
+    
+    this._dimensionCache.set(cacheKey, dimensions);
+    return dimensions;
+  }
+
+  /**
+   * Calculate tool tip offset in world space
+   */
+  calculateToolTipOffset(toolContainer) {
+    if (!toolContainer) return { x: 0, y: 0, z: 0 };
+    
+    const box = new THREE.Box3().setFromObject(toolContainer);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    
+    const worldPos = new THREE.Vector3();
+    toolContainer.getWorldPosition(worldPos);
+    
+    return {
+      x: center.x - worldPos.x,
+      y: center.y - worldPos.y,
+      z: center.z - worldPos.z
+    };
+  }
+
+  /**
+   * Scan for available TCP tools (OLD IMPLEMENTATION)
+   */
+  async scanAvailableTools() {
+    const response = await fetch('/api/tcp/scan');
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.message || 'Failed to scan TCP tools');
+    }
+    this.availableTools = data.tools || [];
+    return this.availableTools;
+  }
+
+  /**
+   * Load tool based on type (OLD IMPLEMENTATION)
+   */
+  async loadTool(tool) {
+    switch (tool.type) {
+      case 'URDF Package':
+        return await this.loadUrdfTool(tool);
+      case 'Multi-Mesh':
+        return await this.loadMultiMeshTool(tool);
+      default:
+        return await this.loadSingleMeshTool(tool);
+    }
+  }
+
+  /**
+   * Load URDF tool (OLD IMPLEMENTATION)
+   */
+  async loadUrdfTool(tool) {
+    return new Promise((resolve, reject) => {
+      const urdfPath = `${tool.path}/${tool.urdfFile}`;
+      this.urdfLoader.resetLoader && this.urdfLoader.resetLoader();
+      this.urdfLoader.packages = tool.path;
+      this.urdfLoader.currentRobotName = tool.id;
+      this.urdfLoader.loadMeshCb = (path, manager, done, material) => {
+        const filename = path.split('/').pop();
+        const resolvedPath = `${tool.path}/${filename}`;
+        MeshLoader.load(resolvedPath, manager, (obj, err) => {
+          if (err) return done(null, err);
+          if (obj) {
+            obj.traverse(child => {
+              if (child instanceof THREE.Mesh) {
+                if (!child.material || child.material.name === '' || child.material.name === 'default') {
+                  child.material = material || new THREE.MeshPhongMaterial({ color: 0x888888 });
+                }
+                child.castShadow = true;
+                child.receiveShadow = true;
+              }
+            });
+            done(obj);
+          } else {
+            done(null, new Error('No mesh object returned'));
+          }
+        }, material);
+      };
+      this.urdfLoader.load(urdfPath, resolve, null, reject);
+    });
+  }
+
+  /**
+   * Load multi-mesh tool (OLD IMPLEMENTATION)
+   */
+  async loadMultiMeshTool(tool) {
+    const group = new THREE.Group();
+    group.name = tool.id;
+    for (const meshFile of tool.meshFiles) {
+      try {
+        const meshPath = `${tool.path}/${meshFile}`;
+        const mesh = await this.loadSingleMesh(meshPath);
+        if (mesh) group.add(mesh);
+      } catch (error) {
+        console.warn(`Failed to load mesh ${meshFile}:`, error);
+      }
+    }
+    return group.children.length > 0 ? group : null;
+  }
+
+  /**
+   * Load single mesh tool (OLD IMPLEMENTATION)
+   */
+  async loadSingleMeshTool(tool) {
+    const meshPath = tool.fileName ? `${tool.path}/${tool.fileName}` : tool.path;
+    return await this.loadSingleMesh(meshPath);
+  }
+
+  /**
+   * Load single mesh (OLD IMPLEMENTATION)
+   */
+  async loadSingleMesh(meshPath) {
+    return new Promise((resolve, reject) => {
+      MeshLoader.load(meshPath, new THREE.LoadingManager(), (obj, err) => {
+        if (err) return reject(err);
+        if (obj) {
+          obj.traverse(child => {
+            if (child instanceof THREE.Mesh) {
+              if (!child.material || child.material.name === '' || child.material.name === 'default') {
+                child.material = new THREE.MeshPhongMaterial({ color: 0x888888 });
+              }
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+          });
+          resolve(obj);
+        } else {
+          reject(new Error('No mesh object returned'));
+        }
+      });
+    });
+  }
+
+  /**
+   * Attach tool to robot (OLD IMPLEMENTATION)
+   */
+  async attachTool(robotId, toolId) {
+    // Remove existing tool
+    await this.removeTool(robotId);
+    // Find tool and robot
+    const tool = this.availableTools.find(t => t.id === toolId);
+    if (!tool) throw new Error(`Tool ${toolId} not found`);
     const robot = this.findRobot(robotId);
-    if (robot) {
-      const cacheKey = `${robotId}_${robot.uuid}`;
-      this._endEffectorCache.delete(cacheKey);
-    }
-    this._lastUpdateTime.delete(robotId);
+    if (!robot) throw new Error(`Robot ${robotId} not found`);
+    const endEffector = this.findEndEffector(robot);
+    if (!endEffector) throw new Error('End effector not found');
+    // Load and attach tool
+    const toolObject = await this.loadTool(tool);
+    if (!toolObject) throw new Error('Failed to load tool object');
+    // Always name the tool container "tcp"
+    const toolContainer = new THREE.Group();
+    toolContainer.name = 'tcp';
+    toolContainer.add(toolObject);
+    endEffector.add(toolContainer);
+    // Calculate initial tool dimensions
+    const toolDimensions = this.calculateToolDimensions(toolContainer);
+    // Store tool data
+    this.attachedTools.set(robotId, {
+      toolId,
+      tool,
+      toolObject,
+      toolContainer,
+      endEffector,
+      dimensions: toolDimensions,
+      transforms: {
+        position: { x: 0, y: 0, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 }
+      }
+    });
+    // Emit events
+    const finalPosition = this.getFinalEndEffectorPosition(robotId);
+    const finalOrientation = this.getFinalEndEffectorOrientation(robotId);
+    EventBus.emit(DataTransfer.EVENT_TCP_TOOL_ATTACHED, {
+      robotId,
+      toolId,
+      toolName: 'tcp',
+      originalToolName: tool.name,
+      endEffectorPoint: finalPosition,
+      toolDimensions: toolDimensions
+    });
+    EventBus.emit(DataTransfer.EVENT_TCP_ENDEFFECTOR_UPDATED, {
+      robotId,
+      endEffectorPoint: finalPosition,
+      endEffectorOrientation: finalOrientation,
+      hasTCP: true,
+      toolDimensions: toolDimensions
+    });
+    EventBus.emit(DataTransfer.EVENT_ROBOT_TCP_ATTACHED, {
+      robotId,
+      toolId,
+      toolData: this.getCurrentTool(robotId)
+    });
+    console.log(`[TCP] Tool "${tool.name}" attached to ${robotId} as "tcp"`);
+    console.log(`[TCP] Final end effector position:`, finalPosition);
+    return true;
   }
 
   /**
-   * Clear all caches
+   * Remove tool (OLD IMPLEMENTATION)
    */
-  clearAllCaches() {
-    this._dimensionCache.clear();
-    this._endEffectorCache.clear();
-    this._lastUpdateTime.clear();
+  async removeTool(robotId) {
+    const toolData = this.attachedTools.get(robotId);
+    if (!toolData) return;
+    // Remove from scene and dispose resources
+    const { endEffector, toolContainer } = toolData;
+    if (endEffector && toolContainer) {
+      endEffector.remove(toolContainer);
+      toolContainer.traverse(child => {
+        child.geometry?.dispose();
+        if (child.material) {
+          if (Array.isArray(child.material)) {
+            child.material.forEach(m => m.dispose());
+          } else {
+            child.material.dispose();
+          }
+        }
+      });
+    }
+    this.attachedTools.delete(robotId);
+    // Emit events
+    const robotPosition = this.calculateRobotEndEffector(robotId);
+    EventBus.emit(DataTransfer.EVENT_TCP_TOOL_REMOVED, { robotId, toolId: toolData.toolId });
+    EventBus.emit(DataTransfer.EVENT_TCP_ENDEFFECTOR_UPDATED, {
+      robotId,
+      endEffectorPoint: robotPosition.position,
+      hasTCP: false
+    });
+    EventBus.emit(DataTransfer.EVENT_ROBOT_TCP_DETACHED, {
+      robotId,
+      toolId: null
+    });
   }
 
   /**
-   * Dispose resources (OPTIMIZED)
+   * Set tool transform and recalculate (OLD IMPLEMENTATION)
    */
-  dispose() {
-    // Remove all tools
-    for (const [robotId] of this.attachedTools) {
-      this.removeTool(robotId);
+  setToolTransform(robotId, transforms) {
+    const toolData = this.attachedTools.get(robotId);
+    if (!toolData) return;
+    const { toolContainer } = toolData;
+    // Apply transforms
+    if (transforms.position) {
+      toolContainer.position.set(
+        transforms.position.x || 0,
+        transforms.position.y || 0,
+        transforms.position.z || 0
+      );
     }
-    
-    // Clear all caches
-    this.clearAllCaches();
-    
-    // Clear other data
-    this.attachedTools.clear();
-    this.availableTools = [];
-    this.robotRegistry.clear();
-    this._notFoundWarnings.clear();
+    if (transforms.rotation) {
+      toolContainer.rotation.set(
+        transforms.rotation.x || 0,
+        transforms.rotation.y || 0,
+        transforms.rotation.z || 0
+      );
+    }
+    if (transforms.scale) {
+      toolContainer.scale.set(
+        transforms.scale.x || 1,
+        transforms.scale.y || 1,
+        transforms.scale.z || 1
+      );
+    }
+    // Update matrices
+    toolContainer.updateMatrix();
+    toolContainer.updateMatrixWorld(true);
+    // Clear dimension cache for this tool
+    this._dimensionCache.delete(toolContainer.uuid);
+    // Recalculate tool dimensions after transform changes
+    const now = Date.now();
+    const lastUpdate = this._lastUpdateTime.get(robotId) || 0;
+    if ((now - lastUpdate) >= this._updateDebounceTime) {
+      const updatedDimensions = this.calculateToolDimensions(toolContainer);
+      toolData.dimensions = updatedDimensions;
+      // Store transforms
+      toolData.transforms = { ...transforms };
+      // Emit events with updated information
+      const finalPosition = this.getFinalEndEffectorPosition(robotId);
+      const finalOrientation = this.getFinalEndEffectorOrientation(robotId);
+      EventBus.emit(DataTransfer.EVENT_TCP_TOOL_TRANSFORMED, {
+        robotId,
+        toolId: toolData.toolId,
+        transforms,
+        endEffectorPoint: finalPosition,
+        toolDimensions: updatedDimensions
+      });
+      EventBus.emit(DataTransfer.EVENT_TCP_ENDEFFECTOR_UPDATED, {
+        robotId,
+        endEffectorPoint: finalPosition,
+        endEffectorOrientation: finalOrientation,
+        hasTCP: true,
+        toolDimensions: updatedDimensions
+      });
+      EventBus.emit(DataTransfer.EVENT_TCP_TOOL_TRANSFORM_CHANGED, {
+        robotId,
+        transforms
+      });
+      this._lastUpdateTime.set(robotId, now);
+    } else {
+      // Just store transforms without emitting events
+      toolData.transforms = { ...transforms };
+    }
+  }
+
+  /**
+   * Set tool visibility (OLD IMPLEMENTATION)
+   */
+  setToolVisibility(robotId, visible) {
+    const toolData = this.attachedTools.get(robotId);
+    if (toolData) {
+      toolData.toolContainer.visible = visible;
+    }
+  }
+
+  /**
+   * Get current tool
+   */
+  getCurrentTool(robotId) {
+    return this.attachedTools.get(robotId);
   }
 }
 
-export const TCPProvider = ({ children }) => {
-  const tcpManagerRef = useRef(null);
-  
-  // State
-  const [isInitialized, setIsInitialized] = useState(false);
-  const [availableTools, setAvailableTools] = useState([]);
+/**
+ * TCP Context Provider Component
+ */
+export function TCPProvider({ children }) {
+  const [manager] = useState(() => new OptimizedTCPManager());
   const [attachedTools, setAttachedTools] = useState(new Map());
-  const [isLoading, setIsLoading] = useState(false);
+  const [availableTools, setAvailableTools] = useState([]);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [isViewerReady, setIsViewerReady] = useState(false);
+  const [sceneSetup, setSceneSetup] = useState(null);
+  const initializedRef = useRef(false);
 
-  // Initialize TCP Manager via EventBus
+  // Initialize when viewer is ready
   useEffect(() => {
-    let retryTimeoutId;
-    let currentRequestId = null;
-    let didRespond = false;
+    let mounted = true;
+    let sceneRequestId = null;
 
-    // Helper to reset TCP state on viewer disposal
-    const resetTCP = () => {
-      if (retryTimeoutId) clearTimeout(retryTimeoutId);
-      setIsInitialized(false);
-      tcpManagerRef.current = null;
-      // Optionally clear attached tools, available tools, etc.
-      setAttachedTools(new Map());
-      setAvailableTools([]);
-    };
-
-    // Define handler at effect scope
-    const handleSceneResponse = (response) => {
-      if (response.requestId === currentRequestId) {
-        didRespond = true;
-        clearTimeout(retryTimeoutId);
-        EventBus.off(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
-
-        if (response.success && response.payload?.getSceneSetup) {
-          const sceneSetup = response.payload.getSceneSetup();
-          if (sceneSetup) {
-            if (!tcpManagerRef.current) {
-              tcpManagerRef.current = new OptimizedTCPManager();
-            }
-            tcpManagerRef.current.initialize(sceneSetup, null);
-            setIsInitialized(true);
-            console.log('[TCPContext] Initialized via EventBus');
-          }
-        } else {
-          console.error('Failed to get scene setup from viewer');
-        }
-      }
-    };
-
-    const requestSceneWithRetry = () => {
-      currentRequestId = `tcp-scene-${Date.now()}`;
-      didRespond = false;
-
-      const tryRequest = () => {
-        if (didRespond) return;
-        console.log('[TCPContext] Emitting tcp:needs-scene', DataTransfer.EVENT_TCP_NEEDS_SCENE, { requestId: currentRequestId });
-        EventBus.on(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
-        EventBus.emit(DataTransfer.EVENT_TCP_NEEDS_SCENE, { requestId: currentRequestId });
-
-        retryTimeoutId = setTimeout(() => {
-          EventBus.off(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
-          if (!didRespond) {
-            console.warn('Viewer did not respond to scene request, retrying...');
-            tryRequest(); // Retry
-          }
-        }, 2000); // Retry every 2 seconds
-      };
-
-      tryRequest();
-    };
-
-    // Listen for viewer ready event
     const handleViewerReady = () => {
       console.log('[TCPContext] Received EVENT_VIEWER_READY', DataTransfer.EVENT_VIEWER_READY);
-      requestSceneWithRetry();
+      setIsViewerReady(true);
+      
+      // Request scene
+      sceneRequestId = `tcp-scene-${Date.now()}`;
+      console.log('[TCPContext] Emitting tcp:needs-scene', DataTransfer.EVENT_TCP_NEEDS_SCENE, { requestId: sceneRequestId });
+      EventBus.emit(DataTransfer.EVENT_TCP_NEEDS_SCENE, { requestId: sceneRequestId });
     };
 
-    // Listen for viewer disposed event
-    const handleViewerDisposed = () => {
-      resetTCP();
-    };
-
-    EventBus.on(DataTransfer.EVENT_VIEWER_READY, handleViewerReady);
-    EventBus.on(DataTransfer.EVENT_VIEWER_DISPOSED, handleViewerDisposed);
-
-    return () => {
-      if (retryTimeoutId) clearTimeout(retryTimeoutId);
-      EventBus.off(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
-      EventBus.off(DataTransfer.EVENT_VIEWER_READY, handleViewerReady);
-    };
-  }, []);
-
-  // Tool management methods
-  const loadAvailableTools = useCallback(async () => {
-    if (!tcpManagerRef.current || !isInitialized) return;
-    try {
-      setIsLoading(true);
-      const tools = await tcpManagerRef.current.scanAvailableTools();
-      setAvailableTools(tools);
-    } catch (err) {
-      console.error(`Failed to load tools: ${err.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isInitialized]);
-
-  // Load tools only after initialization
-  useEffect(() => {
-    if (isInitialized) {
-      loadAvailableTools();
-    }
-  }, [isInitialized, loadAvailableTools]);
-
-  // Event handlers
-  useEffect(() => {
-    if (!isInitialized || !tcpManagerRef.current) return;
-
-    const tcpManager = tcpManagerRef.current;
-
-    const handleRobotEvent = (data) => {
-      const robotId = data.robotId || data.robotName;
-      if (robotId && data.robot) {
-        tcpManager.registerRobot(robotId, data.robot);
-        setTimeout(() => tcpManager.recalculateEndEffector(robotId), 100);
-      }
-    };
-
-    const handleJointChange = (data) => {
-      const robotId = data.robotId || data.robotName;
-      if (robotId) {
-        setTimeout(() => tcpManager.recalculateEndEffector(robotId), 10);
-      }
-    };
-
-    const handleForceRecalculate = (data) => {
-      if (data.robotId) {
-        tcpManager.recalculateEndEffector(data.robotId);
-      }
-    };
-
-    // Handle GET_STATE polling for end effector
-    const handleGetState = (data) => {
-      const { robotId, requestId } = data;
-      const position = tcpManager.getFinalEndEffectorPosition(robotId);
-      const orientation = tcpManager.getFinalEndEffectorOrientation(robotId);
-      const hasTCP = tcpManager.attachedTools.has(robotId);
-      let toolDimensions = null;
-      let tcpOffset = null;
-      if (hasTCP) {
-        const toolData = tcpManager.attachedTools.get(robotId);
-        if (toolData && toolData.toolContainer) {
-          toolDimensions = toolData.dimensions || tcpManager.calculateToolDimensions(toolData.toolContainer);
-          tcpOffset = tcpManager.calculateToolTipOffset(toolData.toolContainer);
+    const handleSceneResponse = (data) => {
+      console.log('[ViewerContext] Received tcp:needs-scene', {
+        isViewerReady,
+        sceneSetup: !!sceneSetup,
+        request: data
+      });
+      
+      if (data.requestId === sceneRequestId && mounted) {
+        if (data.success && data.payload?.getSceneSetup) {
+          const setup = data.payload.getSceneSetup();
+          setSceneSetup(setup);
+          manager.initialize(setup, setup.robotManager);
+          setIsInitialized(true);
+          console.log('[TCPContext] Initialized via EventBus');
+        } else {
+          console.error('[TCPContext] Failed to get scene setup:', data.error);
         }
       }
-      const now = Date.now();
-      // Emit the latest state as an update event
-      EventBus.emit(DataTransfer.EndEffectorEvents.UPDATED, {
+    };
+
+    // Listen for viewer ready
+    const unsubscribeReady = EventBus.on(DataTransfer.EVENT_VIEWER_READY, handleViewerReady);
+    const unsubscribeScene = EventBus.on(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, handleSceneResponse);
+
+    // Check if viewer is already ready
+    if (!initializedRef.current) {
+      initializedRef.current = true;
+      handleViewerReady();
+    }
+
+    return () => {
+      mounted = false;
+      unsubscribeReady();
+      unsubscribeScene();
+    };
+  }, [manager, isViewerReady, sceneSetup]);
+
+  // Robot event handlers
+  useEffect(() => {
+    if (!isInitialized) return;
+
+    const handleRobotLoaded = ({ robotId, robot }) => {
+      console.log(`[TCPContext] Robot loaded: ${robotId}`);
+      manager.registerRobot(robotId, robot);
+    };
+
+    const handleRobotRemoved = ({ robotId }) => {
+      console.log(`[TCPContext] Robot removed: ${robotId}`);
+      manager.unregisterRobot(robotId);
+    };
+
+    const handleForceRecalculate = ({ robotId }) => {
+      console.log(`[TCPContext] Force recalculate for: ${robotId}`);
+      manager.recalculateEndEffector(robotId);
+    };
+
+    const handleGetEndEffectorState = ({ robotId, requestId }) => {
+      const position = manager.getFinalEndEffectorPosition(robotId);
+      const orientation = manager.getFinalEndEffectorOrientation(robotId);
+      const hasTCP = manager.attachedTools.has(robotId);
+      const toolData = manager.attachedTools.get(robotId);
+      
+      EventBus.emit(DataTransfer.EndEffectorEvents.Responses.STATE, {
         robotId,
         position,
         orientation,
         hasTCP,
-        tcpOffset,
-        toolDimensions,
-        source: 'get-state',
-        timestamp: now
+        tcpOffset: toolData ? manager.calculateToolTipOffset(toolData.toolContainer) : null,
+        toolDimensions: toolData?.dimensions || null,
+        requestId
       });
-      // Optionally, emit a response event if you want request/response pattern
-      if (requestId) {
-        EventBus.emit(DataTransfer.EndEffectorEvents.Responses.STATE, {
-          robotId,
-          position,
-          orientation,
-          hasTCP,
-          tcpOffset,
-          toolDimensions,
-          requestId
-        });
-      }
+    };
+
+    const handleGetEndEffectorLink = ({ robotId, requestId }) => {
+      const link = manager.getEndEffectorLink(robotId);
+      EventBus.emit(DataTransfer.EndEffectorEvents.Responses.LINK, {
+        robotId,
+        link: link?.name || null,
+        requestId
+      });
     };
 
     // Subscribe to events
-    const unsubscribes = [
-      EventBus.on('robot:registered', handleRobotEvent),
-      EventBus.on('robot:loaded', handleRobotEvent),
-      EventBus.on(DataTransfer.EVENT_ROBOT_LOADED, handleRobotEvent),
-      EventBus.on('robot:unloaded', (data) => {
-        if (data.robotId) {
-          tcpManager.unregisterRobot?.(data.robotId);
-          setAttachedTools(prev => {
-            const newMap = new Map(prev);
-            newMap.delete(data.robotId);
-            return newMap;
-          });
-        }
-      }),
-      EventBus.on('robot:joint-changed', handleJointChange),
-      EventBus.on('robot:joints-changed', handleJointChange),
-      EventBus.on(DataTransfer.EVENT_TCP_FORCE_RECALCULATE, handleForceRecalculate),
-      EventBus.on(DataTransfer.EndEffectorEvents.Commands.GET_STATE, handleGetState)
-    ];
+    const unsubscribeLoaded = EventBus.on(DataTransfer.EVENT_ROBOT_LOADED, handleRobotLoaded);
+    const unsubscribeRemoved = EventBus.on(DataTransfer.EVENT_ROBOT_REMOVED, handleRobotRemoved);
+    const unsubscribeForce = EventBus.on(DataTransfer.EVENT_TCP_FORCE_RECALCULATE, handleForceRecalculate);
+    const unsubscribeGetState = EventBus.on(DataTransfer.EndEffectorEvents.Commands.GET_STATE, handleGetEndEffectorState);
+    const unsubscribeGetLink = EventBus.on(DataTransfer.EndEffectorEvents.Commands.GET_LINK, handleGetEndEffectorLink);
+    const unsubscribeRecalc = EventBus.on(DataTransfer.EndEffectorEvents.Commands.RECALCULATE, handleForceRecalculate);
 
-    return () => unsubscribes.forEach(unsub => unsub());
-  }, [isInitialized]);
-
-  // Tool management methods
-  const attachTool = useCallback(async (robotId, toolId) => {
-    if (!tcpManagerRef.current) {
-      throw new Error('TCP Manager not initialized');
-    }
-    
-    try {
-      setIsLoading(true);
-      
-      await tcpManagerRef.current.attachTool(robotId, toolId);
-      
-      const toolData = tcpManagerRef.current.getCurrentTool(robotId);
-      if (toolData) {
-        setAttachedTools(prev => new Map(prev).set(robotId, {
-          toolId,
-          tool: toolData.tool,
-          visible: true,
-          transforms: toolData.transforms
-        }));
-      }
-      
-      return true;
-    } catch (err) {
-      console.error(`Error attaching tool: ${err.message}`);
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const removeTool = useCallback(async (robotId) => {
-    if (!tcpManagerRef.current) return;
-    
-    try {
-      setIsLoading(true);
-      await tcpManagerRef.current.removeTool(robotId);
-      setAttachedTools(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(robotId);
-        return newMap;
-      });
-    } catch (err) {
-      console.error(`Error removing tool: ${err.message}`);
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const setToolTransform = useCallback((robotId, transforms) => {
-    if (!tcpManagerRef.current) return;
-    
-    try {
-      tcpManagerRef.current.setToolTransform(robotId, transforms);
-      
-      setAttachedTools(prev => {
-        const newMap = new Map(prev);
-        const toolData = newMap.get(robotId);
-        if (toolData) {
-          toolData.transforms = transforms;
-          newMap.set(robotId, toolData);
-        }
-        return newMap;
-      });
-    } catch (err) {
-      console.error(`Error setting transform: ${err.message}`);
-    }
-  }, []);
-
-  const setToolVisibility = useCallback((robotId, visible) => {
-    if (!tcpManagerRef.current) return;
-    
-    try {
-      tcpManagerRef.current.setToolVisibility(robotId, visible);
-      
-      setAttachedTools(prev => {
-        const newMap = new Map(prev);
-        const toolData = newMap.get(robotId);
-        if (toolData) {
-          toolData.visible = visible;
-          newMap.set(robotId, toolData);
-        }
-        return newMap;
-      });
-    } catch (err) {
-      console.error(`Error setting visibility: ${err.message}`);
-    }
-  }, []);
-
-  // End effector methods
-  const getCurrentEndEffectorPoint = useCallback((robotId) => {
-    return tcpManagerRef.current?.getFinalEndEffectorPosition(robotId) || { x: 0, y: 0, z: 0 };
-  }, []);
-
-  const getCurrentEndEffectorOrientation = useCallback((robotId) => {
-    return tcpManagerRef.current?.getFinalEndEffectorOrientation(robotId) || { x: 0, y: 0, z: 0, w: 1 };
-  }, []);
-
-  const getEndEffectorLink = useCallback((robotId) => {
-    return tcpManagerRef.current?.getEndEffectorLink(robotId) || null;
-  }, []);
-
-  const recalculateEndEffector = useCallback((robotId) => {
-    return tcpManagerRef.current?.recalculateEndEffector(robotId) || {
-      position: { x: 0, y: 0, z: 0 },
-      orientation: { x: 0, y: 0, z: 0, w: 1 }
+    return () => {
+      unsubscribeLoaded();
+      unsubscribeRemoved();
+      unsubscribeForce();
+      unsubscribeGetState();
+      unsubscribeGetLink();
+      unsubscribeRecalc();
     };
-  }, []);
+  }, [manager, isInitialized]);
 
-  const getRobotEndEffectorPosition = useCallback((robotId) => {
-    const result = tcpManagerRef.current?.calculateRobotEndEffector(robotId);
-    return result?.position || { x: 0, y: 0, z: 0 };
-  }, []);
+  // Joint update handler
+  useEffect(() => {
+    if (!isInitialized) return;
 
-  const getRobotEndEffectorOrientation = useCallback((robotId) => {
-    const result = tcpManagerRef.current?.calculateRobotEndEffector(robotId);
-    return result?.orientation || { x: 0, y: 0, z: 0, w: 1 };
-  }, []);
+    const handleJointUpdate = ({ robotId }) => {
+      // Only recalculate if this robot has tracking enabled
+      if (manager.robotRegistry.has(robotId)) {
+        manager.recalculateEndEffector(robotId);
+      }
+    };
 
-  // Cleanup
+    // Listen to robot joint events
+    const unsubscribeJoint = EventBus.on(DataTransfer.RobotEvents.SET_JOINT_VALUE, handleJointUpdate);
+    const unsubscribeJoints = EventBus.on(DataTransfer.RobotEvents.SET_JOINT_VALUES, handleJointUpdate);
+
+    return () => {
+      unsubscribeJoint();
+      unsubscribeJoints();
+    };
+  }, [manager, isInitialized]);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      tcpManagerRef.current?.dispose();
+      manager.cleanup();
     };
-  }, []);
+  }, [manager]);
 
-  // Memoize context value to prevent unnecessary re-renders
-  const value = useMemo(() => ({
+  // Always keep TCP tools up to date (like RobotContext)
+  useEffect(() => {
+    if (!isInitialized) return;
+
+    let isMounted = true;
+
+    // Function to scan and update tools
+    const updateTools = async () => {
+      const tools = await manager.scanAvailableTools();
+      if (isMounted) setAvailableTools(tools);
+    };
+
+    // Initial scan
+    updateTools();
+
+    // Scan again whenever window regains focus (like VSCode/RobotContext)
+    const handleFocus = () => updateTools();
+    window.addEventListener('focus', handleFocus);
+
+    // Optionally, poll every 5 seconds for live updates
+    const interval = setInterval(updateTools, 5000);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+    };
+  }, [isInitialized, manager]);
+
+  // Context API
+  const attachTool = useCallback(async (robotId, toolId) => {
+    if (!isInitialized) {
+      throw new Error('TCP manager not initialized');
+    }
+    
+    const toolData = await manager.attachTool(robotId, toolId);
+    setAttachedTools(new Map(manager.attachedTools));
+    return toolData;
+  }, [manager, isInitialized]);
+
+  const removeTool = useCallback(async (robotId) => {
+    if (!isInitialized) return;
+    
+    await manager.removeTool(robotId);
+    setAttachedTools(new Map(manager.attachedTools));
+  }, [manager, isInitialized]);
+
+  const setToolTransform = useCallback((robotId, transforms) => {
+    if (!isInitialized) return;
+    
+    manager.setToolTransform(robotId, transforms);
+    
+    // Emit cross-context event
+    EventBus.emit(DataTransfer.EVENT_TCP_TOOL_TRANSFORM_CHANGED, {
+      robotId,
+      transforms
+    });
+  }, [manager, isInitialized]);
+
+  const setToolVisibility = useCallback((robotId, visible) => {
+    if (!isInitialized) return;
+    
+    manager.setToolVisibility(robotId, visible);
+    setAttachedTools(new Map(manager.attachedTools));
+  }, [manager, isInitialized]);
+
+  const scanAvailableTools = useCallback(async () => {
+    try {
+      const tools = await manager.scanAvailableTools();
+      setAvailableTools(tools);
+      return tools;
+    } catch (error) {
+      console.error('[TCPContext] Failed to scan tools:', error);
+      return [];
+    }
+  }, [manager]);
+
+  const getEndEffectorLink = useCallback((robotId) => {
+    if (!isInitialized) return null;
+    return manager.getEndEffectorLink(robotId);
+  }, [manager, isInitialized]);
+
+  const value = {
     // State
-    availableTools,
     attachedTools,
-    isLoading,
+    availableTools,
     isInitialized,
     
-    // Tool Management
-    loadAvailableTools,
+    // Methods
     attachTool,
     removeTool,
     setToolTransform,
     setToolVisibility,
-    getToolInfo: (robotId) => attachedTools.get(robotId),
-    hasToolAttached: (robotId) => attachedTools.has(robotId),
-    
-    // End Effector Methods
-    getCurrentEndEffectorPoint,
-    getCurrentEndEffectorOrientation,
+    scanAvailableTools,
     getEndEffectorLink,
-    recalculateEndEffector,
-    getRobotEndEffectorPosition,
-    getRobotEndEffectorOrientation,
     
-    // Utils
-    clearError: () => {}
-  }), [
-    availableTools,
-    attachedTools,
-    isLoading,
-    isInitialized,
-    loadAvailableTools,
-    attachTool,
-    removeTool,
-    setToolTransform,
-    setToolVisibility,
-    getCurrentEndEffectorPoint,
-    getCurrentEndEffectorOrientation,
-    getEndEffectorLink,
-    recalculateEndEffector,
-    getRobotEndEffectorPosition,
-    getRobotEndEffectorOrientation
-  ]);
+    // Direct manager access for hooks
+    manager
+  };
 
   return (
     <TCPContext.Provider value={value}>
       {children}
     </TCPContext.Provider>
   );
-};
+}
 
 export const useTCPContext = () => {
   const context = useContext(TCPContext);
