@@ -250,28 +250,6 @@ export const RobotEvents = {
    */
   DISCOVERY_COMPLETE: 'robot:discovery-complete',
   
-  // ========== TCP Events ==========
-  
-  /**
-   * TCP tool attached to robot
-   * EMITTED BY: RobotContext/TCPContext
-   * LISTENED BY: UI components
-   * PAYLOAD: {
-   *   robotId: string,
-   *   toolId: string,
-   *   toolData: Object     // Tool information
-   * }
-   */
-  TCP_ATTACHED: 'robot:tcp-attached',
-  
-  /**
-   * TCP tool detached from robot
-   * EMITTED BY: RobotContext/TCPContext
-   * LISTENED BY: UI components
-   * PAYLOAD: { robotId: string, toolId: string }
-   */
-  TCP_DETACHED: 'robot:tcp-detached',
-  
   // ========== Commands (Requests) ==========
   Commands: {
     /**
@@ -832,87 +810,6 @@ export const WorldEvents = {
 };
 
 // ============================================
-// TCP EVENTS
-// ============================================
-/**
- * Tool Center Point events namespace
- * 
- * Handles TCP tool attachment, transformation, and end effector updates.
- * Primary consumers: TCPContext, IKContext
- * 
- * @namespace TCPEvents
- */
-export const TCPEvents = {
-  /**
-   * Request scene access from ViewerContext
-   * PAYLOAD: { requestId: string }
-   * RESPONSE: ViewerEvents.TCP_SCENE_RESPONSE
-   */
-  NEEDS_SCENE: 'tcp:needs-scene',
-  
-  /**
-   * TCP tool attached to robot
-   * PAYLOAD: {
-   *   robotId: string,
-   *   toolId: string,
-   *   toolName: string,         // Always "tcp"
-   *   originalToolName: string,
-   *   endEffectorPoint: {x,y,z},
-   *   toolDimensions: {x,y,z}
-   * }
-   */
-  TOOL_ATTACHED: 'tcp:tool-attached',
-  
-  /**
-   * TCP tool removed
-   * PAYLOAD: {
-   *   robotId: string,
-   *   toolId: string
-   * }
-   */
-  TOOL_REMOVED: 'tcp:tool-removed',
-  
-  /**
-   * Tool transform changed
-   * PAYLOAD: {
-   *   robotId: string,
-   *   toolId: string,
-   *   transforms: Object,
-   *   endEffectorPoint: {x,y,z},
-   *   toolDimensions: {x,y,z}
-   * }
-   */
-  TOOL_TRANSFORMED: 'tcp:tool-transformed',
-  
-  /**
-   * Cross-context transform notification
-   * PAYLOAD: {
-   *   robotId: string,
-   *   transforms: Object
-   * }
-   */
-  TOOL_TRANSFORM_CHANGED: 'tcp:tool-transform-changed',
-  
-  /**
-   * End effector position/orientation updated
-   * PAYLOAD: {
-   *   robotId: string,
-   *   endEffectorPoint: {x,y,z},
-   *   endEffectorOrientation: {x,y,z,w},
-   *   hasTCP: boolean,
-   *   toolDimensions?: {x,y,z}
-   * }
-   */
-  ENDEFFECTOR_UPDATED: 'tcp:endeffector-updated',
-  
-  /**
-   * Force recalculation of end effector
-   * PAYLOAD: { robotId: string }
-   */
-  FORCE_RECALCULATE: 'tcp:force-recalculate'
-};
-
-// ============================================
 // END EFFECTOR EVENTS
 // ============================================
 /**
@@ -1185,15 +1082,6 @@ export const EVENT_WORLD_GROUND_TOGGLED = WorldEvents.GROUND_TOGGLED;
 export const EVENT_WORLD_GROUND_COLOR_CHANGED = WorldEvents.GROUND_COLOR_CHANGED;
 export const EVENT_WORLD_GROUND_OPACITY_CHANGED = WorldEvents.GROUND_OPACITY_CHANGED;
 export const EVENT_WORLD_GROUND_MATERIAL_CHANGED = WorldEvents.GROUND_MATERIAL_CHANGED;
-
-// TCP Events
-export const EVENT_TCP_NEEDS_SCENE = TCPEvents.NEEDS_SCENE;
-export const EVENT_TCP_TOOL_ATTACHED = TCPEvents.TOOL_ATTACHED;
-export const EVENT_TCP_TOOL_REMOVED = TCPEvents.TOOL_REMOVED;
-export const EVENT_TCP_TOOL_TRANSFORMED = TCPEvents.TOOL_TRANSFORMED;
-export const EVENT_TCP_TOOL_TRANSFORM_CHANGED = TCPEvents.TOOL_TRANSFORM_CHANGED;
-export const EVENT_TCP_ENDEFFECTOR_UPDATED = TCPEvents.ENDEFFECTOR_UPDATED;
-export const EVENT_TCP_FORCE_RECALCULATE = TCPEvents.FORCE_RECALCULATE;
 
 // ============================================
 // UTILITY FUNCTIONS

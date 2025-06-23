@@ -5,6 +5,7 @@ import EventBus from '../utils/EventBus';
 import URDFLoader from '../core/Loader/URDFLoader';
 import * as DataTransfer from './dataTransfer';
 import { RobotPoseEvents, RobotEvents } from './dataTransfer';
+import { robotRegistry } from './robotRegistry';
 
 // Debug flag - set to false in production
 const DEBUG = process.env.NODE_ENV === 'development';
@@ -980,40 +981,6 @@ export const RobotProvider = ({ children }) => {
     };
   }, [loadedRobots]);
 
-  // ========== TCP TOOLS (Simplified) ==========
-
-  const loadAvailableTools = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/tcp/scan');
-      const result = await response.json();
-      if (result.success) {
-        setAvailableTools(result.tools || []);
-      } else {
-        setError(result.message || 'Failed to scan TCP tools');
-      }
-    } catch (err) {
-      console.error('[RobotContext] Error scanning tools:', err);
-      setError('Error connecting to server.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // Initialize on mount
-  useEffect(() => {
-    if (isInitialized) {
-      discoverRobots();
-      loadAvailableTools();
-    }
-  }, [isInitialized, discoverRobots, loadAvailableTools]);
-
-  // ========== ERROR HANDLING ==========
-
-  const clearError = useCallback(() => setError(null), []);
-  const clearSuccess = useCallback(() => setSuccessMessage(''), []);
-
   // ========== CONTEXT VALUE (Optimized) ==========
 
   const value = useMemo(() => ({
@@ -1035,9 +1002,6 @@ export const RobotProvider = ({ children }) => {
     // Robot Discovery
     discoverRobots,
     refresh: discoverRobots,
-    
-    // TCP Tools
-    loadAvailableTools,
     
     // Workspace Operations
     addRobotToWorkspace,
@@ -1075,8 +1039,8 @@ export const RobotProvider = ({ children }) => {
     activeRobotCount: activeRobotId ? 1 : 0,
     
     // Error Handling
-    clearError,
-    clearSuccess,
+    clearError: () => setError(null),
+    clearSuccess: () => setSuccessMessage(''),
     
     // Helpers
     getManufacturer,
@@ -1100,7 +1064,6 @@ export const RobotProvider = ({ children }) => {
     error,
     successMessage,
     discoverRobots,
-    loadAvailableTools,
     addRobotToWorkspace,
     removeRobotFromWorkspace,
     isRobotInWorkspace,
@@ -1122,6 +1085,13 @@ export const RobotProvider = ({ children }) => {
     setRobotPose,
   ]);
 
+  useEffect(() => {
+    robotRegistry.clear();
+    loadedRobots.forEach((data, key) => {
+      robotRegistry.set(key, data);
+    });
+  }, [loadedRobots]);
+
   return (
     <RobotContext.Provider value={value}>
       {children}
@@ -1141,5 +1111,22 @@ export const useRobotContext = () => {
 // Compatibility export - useRobotManagerContext points to useRobotContext
 export const useRobotManagerContext = useRobotContext;
 /* eslint-enable react-refresh/only-export-components */
+
+export const getRobotGlobal = (robotId) => {
+  if (!robotRegistry) return null;
+  if (!robotId) return null;
+  const robotData = robotRegistry.get(robotId);
+  if (robotData) {
+    return robotData.robot;
+  }
+  // Try base robot ID
+  const baseRobotId = robotId.split('_')[0];
+  for (const [key, data] of robotRegistry.entries()) {
+    if (key.startsWith(baseRobotId + '_')) {
+      return data.robot;
+    }
+  }
+  return null;
+};
 
 export default RobotContext;

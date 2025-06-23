@@ -423,30 +423,6 @@ export const ViewerProvider = ({ children }) => {
     return () => EventBus.off(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
   }, [isViewerReady]);
   
-  // ========== EVENTBUS: Respond to tcp:needs-scene requests ==========
-  useEffect(() => {
-    const handleTCPSceneRequest = (request) => {
-      console.log('[ViewerContext] Received tcp:needs-scene', { isViewerReady, sceneSetup: !!sceneSetupRef.current, request });
-      if (isViewerReady && sceneSetupRef.current) {
-        EventBus.emit(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, {
-          success: true,
-          requestId: request.requestId,
-          payload: {
-            getSceneSetup: () => sceneSetupRef.current
-          }
-        });
-      } else {
-        EventBus.emit(DataTransfer.EVENT_VIEWER_TCP_SCENE_RESPONSE, {
-          success: false,
-          requestId: request.requestId,
-          error: 'Viewer not initialized.'
-        });
-      }
-    };
-    EventBus.on(DataTransfer.EVENT_TCP_NEEDS_SCENE, handleTCPSceneRequest);
-    return () => EventBus.off(DataTransfer.EVENT_TCP_NEEDS_SCENE, handleTCPSceneRequest);
-  }, [isViewerReady]);
-  
   // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(() => ({
     // Existing API (for compatibility)

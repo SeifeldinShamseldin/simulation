@@ -9,10 +9,10 @@ import ResizablePanel from './components/common/ResizablePanel';
 import { RobotProvider } from './contexts/RobotContext'; // Unified context
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
-import { TCPProvider } from './contexts/TCPContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobotManager';
 import { CameraProvider } from './contexts/CameraContext';
+import endEffector from './core/EndEffector/EndEffector';
 import './App.css';
 
 const RobotPanel = ({ onClose, viewerRef }) => {
@@ -205,11 +205,9 @@ const App = () => {
       <ViewerProvider>
         <RobotProvider>
           <WorldProvider>
-            <TCPProvider>
-              <EnvironmentProvider>
-                <AppContent />
-              </EnvironmentProvider>
-            </TCPProvider>
+            <EnvironmentProvider>
+              <AppContent />
+            </EnvironmentProvider>
           </WorldProvider>
         </RobotProvider>
       </ViewerProvider>
