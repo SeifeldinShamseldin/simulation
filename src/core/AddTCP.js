@@ -11,6 +11,35 @@ class AddTCP {
     this.loader = new URDFLoader(new THREE.LoadingManager());
     this.loader.parseVisual = true;
     this.loader.parseCollision = false;
+    this.pendingOperations = new Map(); // robotId -> operation type
+    
+    // Bind status handlers
+    this.handleMountStatus = this.handleMountStatus.bind(this);
+    this.handleUnmountStatus = this.handleUnmountStatus.bind(this);
+    
+    // Listen for status events
+    EventBus.on('tcp:mount:status', this.handleMountStatus);
+    EventBus.on('tcp:unmount:status', this.handleUnmountStatus);
+  }
+
+  /**
+   * Handle mount status from EndEffector
+   */
+  handleMountStatus({ robotId, status }) {
+    if (status === 'Done' && this.pendingOperations.get(robotId) === 'mount') {
+      console.log(`[AddTCP] Mount operation complete for robot ${robotId}`);
+      this.pendingOperations.delete(robotId);
+    }
+  }
+
+  /**
+   * Handle unmount status from EndEffector
+   */
+  handleUnmountStatus({ robotId, status }) {
+    if (status === 'Done' && this.pendingOperations.get(robotId) === 'unmount') {
+      console.log(`[AddTCP] Unmount operation complete for robot ${robotId}`);
+      this.pendingOperations.delete(robotId);
+    }
   }
 
   /**
@@ -151,6 +180,12 @@ class AddTCP {
    * @param {string} toolId - Tool ID from available tools
    */
   async addTCPById(robotId, toolId) {
+    // Check if already processing
+    if (this.pendingOperations.has(robotId)) {
+      console.warn(`[AddTCP] Operation already in progress for robot ${robotId}`);
+      return;
+    }
+    
     // Find tool in available tools
     const tool = this.availableTools.find(t => t.id === toolId);
     if (!tool) {
@@ -165,6 +200,9 @@ class AddTCP {
       return;
     }
 
+    // Mark operation as pending
+    this.pendingOperations.set(robotId, 'mount');
+
     // Remove existing TCP if any
     this.removeTCP(robotId, robot);
 
@@ -173,6 +211,7 @@ class AddTCP {
     
     if (!endEffectorLink) {
       console.error('[AddTCP] No end effector link found in robot');
+      this.pendingOperations.delete(robotId);
       return;
     }
 
@@ -194,11 +233,13 @@ class AddTCP {
       }
     } catch (error) {
       console.error('[AddTCP] Error loading tool:', error);
+      this.pendingOperations.delete(robotId);
       return;
     }
 
     if (!tcpObject) {
       console.error('[AddTCP] Failed to load TCP object');
+      this.pendingOperations.delete(robotId);
       return;
     }
 
@@ -228,6 +269,8 @@ class AddTCP {
       toolName: tool.name,
       timestamp: Date.now()
     });
+    
+    // EndEffector will send status back when done
   }
 
   /**
@@ -238,6 +281,15 @@ class AddTCP {
    * @param {string} tcpType - Type of TCP file ('stl', 'urdf', etc.)
    */
   async addTCP(robotId, robot, tcpPath, tcpType = 'stl') {
+    // Check if already processing
+    if (this.pendingOperations.has(robotId)) {
+      console.warn(`[AddTCP] Operation already in progress for robot ${robotId}`);
+      return;
+    }
+    
+    // Mark operation as pending
+    this.pendingOperations.set(robotId, 'mount');
+
     // Remove existing TCP if any
     this.removeTCP(robotId, robot);
 
@@ -246,6 +298,7 @@ class AddTCP {
     
     if (!endEffectorLink) {
       console.error('[AddTCP] No end effector link found in robot');
+      this.pendingOperations.delete(robotId);
       return;
     }
 
@@ -259,6 +312,7 @@ class AddTCP {
 
     if (!tcpObject) {
       console.error('[AddTCP] Failed to load TCP');
+      this.pendingOperations.delete(robotId);
       return;
     }
 
@@ -287,6 +341,8 @@ class AddTCP {
       tcpType,
       timestamp: Date.now()
     });
+    
+    // EndEffector will send status back when done
   }
 
   /**
@@ -424,6 +480,15 @@ class AddTCP {
     const tcpData = this.tcps.get(robotId);
     if (!tcpData) return;
 
+    // Check if already processing
+    if (this.pendingOperations.has(robotId)) {
+      console.warn(`[AddTCP] Operation already in progress for robot ${robotId}`);
+      return;
+    }
+    
+    // Mark operation as pending
+    this.pendingOperations.set(robotId, 'unmount');
+
     // Remove from parent
     if (tcpData.parentLink && tcpData.link) {
       tcpData.parentLink.remove(tcpData.link);
@@ -439,6 +504,8 @@ class AddTCP {
       robotId,
       timestamp: Date.now()
     });
+    
+    // EndEffector will send status back when done
   }
 
   /**
@@ -521,6 +588,16 @@ class AddTCP {
    */
   hasTCP(robotId) {
     return this.tcps.has(robotId);
+  }
+  
+  /**
+   * Cleanup
+   */
+  dispose() {
+    EventBus.off('tcp:mount:status', this.handleMountStatus);
+    EventBus.off('tcp:unmount:status', this.handleUnmountStatus);
+    this.tcps.clear();
+    this.pendingOperations.clear();
   }
 }
 

@@ -6,51 +6,60 @@ import { getRobotGlobal } from '../../contexts/RobotContext';
 const DEBUG = false; // Set to true for debugging
 
 /**
- * EndEffector - Analyzes robot kinematic chain to identify base link and end effector
+ * EndEffector - Optimized module for tracking robot end effector state
  * 
- * This module identifies:
- * - Base Link: The first link in the kinematic chain (at origin, no parent link)
- * - End Effector: The last link in the kinematic chain (leaf node with no child links)
- * 
- * Works purely on kinematic structure, not naming conventions.
+ * Key optimizations:
+ * - Only recalculates on TCP mount/unmount events
+ * - Caches calculations to avoid redundant processing
+ * - Emits updates only when values change
+ * - Implements delay before sending status to prevent race conditions
  */
 class EndEffector {
   constructor() {
     this.kinematicCache = new Map(); // robotId -> { baseLink, endEffector }
-    this.latestEndEffector = null;
-    this.lastEmitTime = 0;
-    this.emitInterval = 100; // ms
-    this._vecBase = new THREE.Vector3();
-    this._vecEE = new THREE.Vector3();
-    this._quatBase = new THREE.Quaternion();
-    this._quatEE = new THREE.Quaternion();
-
-    this.handleGetEndEffectorGlobal = this.handleGetEndEffectorGlobal.bind(this);
+    this.poseCache = new Map(); // robotId -> { pose, orientation }
+    this.processingStatus = new Map(); // robotId -> boolean (prevent concurrent processing)
+    this.updateInterval = null; // Update loop interval
+    this.updateRate = 100; // Update rate in ms (10 Hz)
+    
+    // Bind methods
+    this.handleGetEndEffector = this.handleGetEndEffector.bind(this);
     this.handleTCPMount = this.handleTCPMount.bind(this);
     this.handleTCPUnmount = this.handleTCPUnmount.bind(this);
-
+    this.handleRobotLoaded = this.handleRobotLoaded.bind(this);
+    this.handleRobotUnloaded = this.handleRobotUnloaded.bind(this);
+    this.handleJointChange = this.handleJointChange.bind(this);
+    
     this.initialize();
-    
-    // Listen to simplified events only
-    EventBus.on('EndEffector/GET', this.handleGetEndEffectorGlobal);
-    EventBus.on(RobotEvents.LOADED, this.handleRobotLoaded.bind(this));
-    EventBus.on(RobotEvents.UNLOADED, this.handleRobotUnloaded.bind(this));
-    
-    // Listen to global TCP events
-    EventBus.on('tcp:mount', this.handleTCPMount);
-    EventBus.on('tcp:unmount', this.handleTCPUnmount);
   }
 
   initialize() {
+    // Listen to events
+    EventBus.on('EndEffector/GET', this.handleGetEndEffector);
+    EventBus.on(RobotEvents.LOADED, this.handleRobotLoaded);
+    EventBus.on(RobotEvents.UNLOADED, this.handleRobotUnloaded);
+    EventBus.on('tcp:mount', this.handleTCPMount);
+    EventBus.on('tcp:unmount', this.handleTCPUnmount);
+    
+    // Listen to joint changes for real-time updates
+    EventBus.on(RobotEvents.SET_JOINT_VALUE, this.handleJointChange);
+    EventBus.on(RobotEvents.SET_JOINT_VALUES, this.handleJointChange);
+    
+    // Start update loop for real-time pose updates
+    this.startUpdateLoop();
+    
     if (DEBUG) console.log('[EndEffector] Initialized');
   }
 
+  /**
+   * Analyze kinematic chain to find base and end effector links
+   */
   analyzeKinematicChain(robot) {
     const links = [];
     const joints = [];
     const linkNameToLink = new Map();
 
-    // Collect all links and joints, and map link names to link objects
+    // Collect all links and joints
     robot.traverse((child) => {
       if (child.isURDFLink) {
         links.push(child);
@@ -65,7 +74,7 @@ class EndEffector {
       return null;
     }
 
-    // Find all child link names (i.e., links that are children of joints)
+    // Find child link names
     const childLinkNames = new Set();
     joints.forEach(joint => {
       if (joint.child && joint.child.isURDFLink) {
@@ -73,261 +82,32 @@ class EndEffector {
       }
     });
 
-    // The base link is the one that is NOT a child of any joint
+    // Base link is the one that is NOT a child of any joint
     const baseLink = links.find(link => !childLinkNames.has(link.name));
-
-    // Find end effector as before
+    
+    // Find end effector
     const endEffector = this.findEndEffector(baseLink, links, joints);
 
-    return {
-      baseLink,
-      endEffector
-    };
-  }
-
-  cacheKinematicChain(robotId, robot) {
-    const analysis = this.analyzeKinematicChain(robot);
-    if (analysis && analysis.baseLink && analysis.endEffector) {
-      this.kinematicCache.set(robotId, analysis);
-    }
-  }
-
-  handleRobotLoaded({ robotId, robot }) {
-    if (!robot) return;
-    this.cacheKinematicChain(robotId, robot);
-    this.updateAndEmit(robotId);
-  }
-
-  handleRobotUnloaded({ robotId }) {
-    this.kinematicCache.delete(robotId);
+    return { baseLink, endEffector };
   }
 
   /**
-   * Handle TCP mount event
+   * Find the end effector link (leaf node or TCP)
    */
-  handleTCPMount({ robotId, toolId, toolName, timestamp }) {
-    if (DEBUG) console.log(`[EndEffector] TCP mounted on robot ${robotId}:`, toolName);
-    
-    // Invalidate cache to force recalculation
-    this.kinematicCache.delete(robotId);
-
-    // Get the latest robot state
-    const robot = getRobotGlobal(robotId);
-    if (DEBUG) console.log('[EndEffector] Robot state after TCP mount:', robot);
-    if (robot) {
-      this.cacheKinematicChain(robotId, robot);
-      this.updateAndEmit(robotId);
-    }
-    
-    // Send "Done" status
-    EventBus.emit('tcp:mount:status', {
-      robotId,
-      status: 'Done',
-      timestamp: Date.now()
-    });
-  }
-
-  /**
-   * Handle TCP unmount event
-   */
-  handleTCPUnmount({ robotId, timestamp }) {
-    
-    
-    // Invalidate cache to force recalculation
-    this.kinematicCache.delete(robotId);
-
-    // Get the latest robot state
-    const robot = getRobotGlobal(robotId);
-    if (DEBUG) console.log('[EndEffector] Robot state after TCP unmount:', robot);
-    if (robot) {
-      this.cacheKinematicChain(robotId, robot);
-      this.updateAndEmit(robotId);
-    }
-    
-    // Send "Done" status
-    EventBus.emit('tcp:unmount:status', {
-      robotId,
-      status: 'Done',
-      timestamp: Date.now()
-    });
-  }
-
-  updateAndEmit(robotId) {
-    const robot = getRobotGlobal(robotId);
-    if (!robot) return;
-    
-    let analysis = this.kinematicCache.get(robotId);
-    if (!analysis) {
-      analysis = this.analyzeKinematicChain(robot);
-      if (!analysis || !analysis.baseLink || !analysis.endEffector) return;
-      this.kinematicCache.set(robotId, analysis);
-    }
-    
-    // Calculate pose (vector from baseLink to TCP tip) and orientation (endEffector quaternion)
-    let pose = null;
-    let orientation = null;
-    if (analysis.baseLink && analysis.endEffector) {
-      analysis.baseLink.updateWorldMatrix(true, false);
-      analysis.endEffector.updateWorldMatrix(true, false);
-      const basePos = new THREE.Vector3();
-      analysis.baseLink.getWorldPosition(basePos);
-
-      // === Find the last point of the end effector mesh ===
-      let lastPointWorld = null;
-      analysis.endEffector.traverse(child => {
-        if (child.isMesh && child.geometry) {
-          // Ensure geometry is up to date
-          child.geometry.computeBoundingBox();
-          // Get all vertices in local space
-          const position = child.geometry.attributes.position;
-          let maxDist = -Infinity;
-          let lastPoint = new THREE.Vector3();
-          for (let i = 0; i < position.count; i++) {
-            const v = new THREE.Vector3().fromBufferAttribute(position, i);
-            const dist = v.length(); // or use v.z, v.x, etc. for axis-based
-            if (dist > maxDist) {
-              maxDist = dist;
-              lastPoint.copy(v);
-            }
-          }
-          // Transform to world coordinates
-          lastPointWorld = lastPoint.clone().applyMatrix4(child.matrixWorld);
-        }
-      });
-
-      // Fallback: if no mesh found, use link origin
-      if (!lastPointWorld) {
-        lastPointWorld = new THREE.Vector3();
-        analysis.endEffector.getWorldPosition(lastPointWorld);
-      }
-
-      pose = {
-        x: lastPointWorld.x - basePos.x,
-        y: lastPointWorld.y - basePos.y,
-        z: lastPointWorld.z - basePos.z
-      };
-
-      const eeQuat = new THREE.Quaternion();
-      analysis.endEffector.getWorldQuaternion(eeQuat);
-      orientation = {
-        x: eeQuat.x,
-        y: eeQuat.y,
-        z: eeQuat.z,
-        w: eeQuat.w
-      };
-    }
-    // Emit names, pose, and orientation
-    EventBus.emit('EndEffector/SET', {
-      robotId,
-      baseLink: analysis.baseLink.name,
-      endEffector: analysis.endEffector.name,
-      pose,
-      orientation,
-      status: 'Done',
-      timestamp: Date.now()
-    });
-  }
-
-  emitEndEffectorGlobal(pose, orientation, robotId) {
-    const now = Date.now();
-    if (now - this.lastEmitTime < this.emitInterval) return;
-    
-    this.lastEmitTime = now;
-    this.latestEndEffector = { pose, orientation, robotId, timestamp: now };
-    
-    // Use only EndEffector/SET event
-    EventBus.emit('EndEffector/SET', { 
-      pose, 
-      orientation, 
-      robotId, 
-      timestamp: now,
-      status: 'Done'  // Include "Done" status
-    });
-  }
-
-  handleGetEndEffectorGlobal() {
-    if (this.latestEndEffector) {
-      // Respond to EndEffector/GET with EndEffector/SET
-      EventBus.emit('EndEffector/SET', {
-        ...this.latestEndEffector,
-        status: 'Done'  // Include "Done" status
-      });
-    }
-  }
-
-  /**
-   * Get base link for a robot
-   * @param {string} robotId 
-   * @returns {Object|null} Base link or null
-   */
-  getBaseLink(robotId) {
-    const robot = getRobotGlobal(robotId);
-    if (!robot) return null;
-    const analysis = this.analyzeKinematicChain(robot);
-    return analysis?.baseLink || null;
-  }
-
-  /**
-   * Get end effector for a robot
-   * @param {string} robotId 
-   * @returns {Object|null} End effector link or null
-   */
-  getEndEffector(robotId) {
-    const robot = getRobotGlobal(robotId);
-    if (!robot) return null;
-    const analysis = this.analyzeKinematicChain(robot);
-    return analysis?.endEffector || null;
-  }
-
-  /**
-   * Force recalculation of kinematic chain
-   * @param {string} robotId 
-   * @param {Object} robot 
-   */
-  recalculate(robotId, robot) {
-    this.handleRobotLoaded({ robotId, robot });
-  }
-
-  /**
-   * Cleanup
-   */
-  dispose() {
-    this.kinematicCache.clear();
-    EventBus.off('EndEffector/GET', this.handleGetEndEffectorGlobal);
-    EventBus.off(RobotEvents.LOADED, this.handleRobotLoaded.bind(this));
-    EventBus.off(RobotEvents.UNLOADED, this.handleRobotUnloaded.bind(this));
-    EventBus.off('tcp:mount', this.handleTCPMount);
-    EventBus.off('tcp:unmount', this.handleTCPUnmount);
-  }
-
-  /**
-   * Print the current base link and end effector for all robots
-   */
-  printAll() {
-    console.log('[EndEffector] Current robot analyses:');
-    for (const [robotId, analysis] of this.kinematicCache.entries()) {
-      console.log(`  Robot ${robotId}: baseLink = ${analysis.baseLink?.name}, endEffector = ${analysis.endEffector?.name}`);
-    }
-  }
-
   findEndEffector(startLink, allLinks, allJoints) {
     if (!startLink) return null;
     
-    // Prefer a link named 'tcp' as the end effector if it exists
+    // Prefer TCP link if it exists
     const tcpLink = allLinks.find(link => link.name === 'tcp');
-    if (tcpLink) {
-      return tcpLink;
-    }
+    if (tcpLink) return tcpLink;
     
-    // Build parent-child relationships through joints
+    // Build parent-child relationships
     const linkChildren = new Map();
     
     allJoints.forEach(joint => {
-      // Each joint connects a parent link to a child link
       let parentLink = null;
       let childLink = null;
       
-      // Find parent and child links of this joint
       joint.traverse((child) => {
         if (child.isURDFLink && child !== joint) {
           if (!parentLink) {
@@ -338,7 +118,6 @@ class EndEffector {
         }
       });
       
-      // Map parent to children
       if (parentLink && childLink) {
         if (!linkChildren.has(parentLink)) {
           linkChildren.set(parentLink, []);
@@ -347,38 +126,336 @@ class EndEffector {
       }
     });
     
-    // Find the longest chain from base to end
-    let endEffector = startLink;
-    let maxDepth = 0;
-    
-    const findDeepestLink = (link, depth = 0) => {
-      if (depth > maxDepth) {
-        maxDepth = depth;
-        endEffector = link;
-      }
-      
-      const children = linkChildren.get(link) || [];
-      children.forEach(child => {
-        findDeepestLink(child, depth + 1);
-      });
-    };
-    
-    findDeepestLink(startLink);
-    
-    // Alternative method: find leaf links (links with no children)
+    // Find leaf links
     const leafLinks = allLinks.filter(link => {
       const children = linkChildren.get(link) || [];
       return children.length === 0 && link !== startLink;
     });
     
-    // If we have leaf links, choose the one furthest from base
-    if (leafLinks.length > 0) {
-      // For now, return the first leaf link found
-      // Could be enhanced to calculate actual kinematic distance
-      endEffector = leafLinks[0];
+    return leafLinks.length > 0 ? leafLinks[0] : startLink;
+  }
+
+  /**
+   * Calculate pose and orientation for a robot
+   */
+  calculatePoseAndOrientation(robotId) {
+    const cache = this.kinematicCache.get(robotId);
+    if (!cache || !cache.baseLink || !cache.endEffector) return null;
+    
+    // Update world matrices
+    cache.baseLink.updateWorldMatrix(true, false);
+    cache.endEffector.updateWorldMatrix(true, false);
+    
+    // Get base position
+    const basePos = new THREE.Vector3();
+    cache.baseLink.getWorldPosition(basePos);
+    
+    // Find the tip of the end effector
+    let tipPosition = new THREE.Vector3();
+    let foundMesh = false;
+    
+    cache.endEffector.traverse(child => {
+      if (child.isMesh && child.geometry && !foundMesh) {
+        child.geometry.computeBoundingBox();
+        const bbox = child.geometry.boundingBox;
+        const center = new THREE.Vector3();
+        bbox.getCenter(center);
+        center.applyMatrix4(child.matrixWorld);
+        tipPosition.copy(center);
+        foundMesh = true;
+      }
+    });
+    
+    // Fallback to link position if no mesh
+    if (!foundMesh) {
+      cache.endEffector.getWorldPosition(tipPosition);
     }
     
-    return endEffector;
+    // Calculate pose (offset from base)
+    const pose = {
+      x: tipPosition.x - basePos.x,
+      y: tipPosition.y - basePos.y,
+      z: tipPosition.z - basePos.z
+    };
+    
+    // Get orientation
+    const quaternion = new THREE.Quaternion();
+    cache.endEffector.getWorldQuaternion(quaternion);
+    const orientation = {
+      x: quaternion.x,
+      y: quaternion.y,
+      z: quaternion.z,
+      w: quaternion.w
+    };
+    
+    return { pose, orientation };
+  }
+
+  /**
+   * Handle robot loaded event
+   */
+  handleRobotLoaded({ robotId, robot }) {
+    if (!robot) return;
+    
+    const analysis = this.analyzeKinematicChain(robot);
+    if (analysis && analysis.baseLink && analysis.endEffector) {
+      this.kinematicCache.set(robotId, analysis);
+      
+      // Calculate initial pose
+      const poseData = this.calculatePoseAndOrientation(robotId);
+      if (poseData) {
+        this.poseCache.set(robotId, poseData);
+        this.emitEndEffectorUpdate(robotId);
+      }
+    }
+  }
+
+  /**
+   * Handle robot unloaded event
+   */
+  handleRobotUnloaded({ robotId }) {
+    this.kinematicCache.delete(robotId);
+    this.poseCache.delete(robotId);
+    this.processingStatus.delete(robotId);
+  }
+
+  /**
+   * Handle TCP mount event
+   */
+  async handleTCPMount({ robotId, toolId, toolName, timestamp }) {
+    if (DEBUG) console.log(`[EndEffector] TCP mounted on robot ${robotId}:`, toolName);
+    
+    // Prevent concurrent processing
+    if (this.processingStatus.get(robotId)) {
+      if (DEBUG) console.log('[EndEffector] Already processing, skipping');
+      return;
+    }
+    
+    this.processingStatus.set(robotId, true);
+    
+    try {
+      // Get updated robot state
+      const robot = getRobotGlobal(robotId);
+      if (!robot) {
+        console.warn(`[EndEffector] Robot ${robotId} not found`);
+        return;
+      }
+      
+      // Recalculate kinematic chain
+      const analysis = this.analyzeKinematicChain(robot);
+      if (analysis && analysis.baseLink && analysis.endEffector) {
+        this.kinematicCache.set(robotId, analysis);
+        
+        // Calculate new pose
+        const poseData = this.calculatePoseAndOrientation(robotId);
+        if (poseData) {
+          this.poseCache.set(robotId, poseData);
+          this.emitEndEffectorUpdate(robotId);
+        }
+      }
+      
+      // Wait 1 second before sending done status
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Send done status
+      EventBus.emit('tcp:mount:status', {
+        robotId,
+        status: 'Done',
+        timestamp: Date.now()
+      });
+      
+    } finally {
+      this.processingStatus.set(robotId, false);
+    }
+  }
+
+  /**
+   * Handle TCP unmount event
+   */
+  async handleTCPUnmount({ robotId, timestamp }) {
+    if (DEBUG) console.log(`[EndEffector] TCP unmounted from robot ${robotId}`);
+    
+    // Prevent concurrent processing
+    if (this.processingStatus.get(robotId)) {
+      if (DEBUG) console.log('[EndEffector] Already processing, skipping');
+      return;
+    }
+    
+    this.processingStatus.set(robotId, true);
+    
+    try {
+      // Get updated robot state
+      const robot = getRobotGlobal(robotId);
+      if (!robot) {
+        console.warn(`[EndEffector] Robot ${robotId} not found`);
+        return;
+      }
+      
+      // Recalculate kinematic chain
+      const analysis = this.analyzeKinematicChain(robot);
+      if (analysis && analysis.baseLink && analysis.endEffector) {
+        this.kinematicCache.set(robotId, analysis);
+        
+        // Calculate new pose
+        const poseData = this.calculatePoseAndOrientation(robotId);
+        if (poseData) {
+          this.poseCache.set(robotId, poseData);
+          this.emitEndEffectorUpdate(robotId);
+        }
+      }
+      
+      // Wait 1 second before sending done status
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Send done status
+      EventBus.emit('tcp:unmount:status', {
+        robotId,
+        status: 'Done',
+        timestamp: Date.now()
+      });
+      
+    } finally {
+      this.processingStatus.set(robotId, false);
+    }
+  }
+
+  /**
+   * Handle EndEffector/GET request
+   */
+  handleGetEndEffector() {
+    // Emit the latest data for all robots
+    for (const [robotId, cache] of this.kinematicCache.entries()) {
+      this.emitEndEffectorUpdate(robotId);
+    }
+  }
+
+  /**
+   * Handle joint change events
+   */
+  handleJointChange({ robotId }) {
+    // Mark robot as needing update
+    if (this.kinematicCache.has(robotId)) {
+      // Update will happen in the next update loop cycle
+      if (DEBUG) console.log(`[EndEffector] Joint changed for robot ${robotId}`);
+    }
+  }
+
+  /**
+   * Start the update loop for real-time pose updates
+   */
+  startUpdateLoop() {
+    if (this.updateInterval) return;
+    
+    this.updateInterval = setInterval(() => {
+      // Update all tracked robots
+      for (const robotId of this.kinematicCache.keys()) {
+        const poseData = this.calculatePoseAndOrientation(robotId);
+        if (poseData) {
+          // Check if pose has changed
+          const cachedPose = this.poseCache.get(robotId);
+          if (!cachedPose || 
+              !this.isPoseEqual(cachedPose.pose, poseData.pose) ||
+              !this.isOrientationEqual(cachedPose.orientation, poseData.orientation)) {
+            this.poseCache.set(robotId, poseData);
+            this.emitEndEffectorUpdate(robotId);
+          }
+        }
+      }
+    }, this.updateRate);
+  }
+
+  /**
+   * Stop the update loop
+   */
+  stopUpdateLoop() {
+    if (this.updateInterval) {
+      clearInterval(this.updateInterval);
+      this.updateInterval = null;
+    }
+  }
+
+  /**
+   * Check if two poses are equal
+   */
+  isPoseEqual(pose1, pose2) {
+    const epsilon = 0.0001;
+    return Math.abs(pose1.x - pose2.x) < epsilon &&
+           Math.abs(pose1.y - pose2.y) < epsilon &&
+           Math.abs(pose1.z - pose2.z) < epsilon;
+  }
+
+  /**
+   * Check if two orientations are equal
+   */
+  isOrientationEqual(ori1, ori2) {
+    const epsilon = 0.0001;
+    return Math.abs(ori1.x - ori2.x) < epsilon &&
+           Math.abs(ori1.y - ori2.y) < epsilon &&
+           Math.abs(ori1.z - ori2.z) < epsilon &&
+           Math.abs(ori1.w - ori2.w) < epsilon;
+  }
+
+  /**
+   * Emit EndEffector/SET event with current data
+   */
+  emitEndEffectorUpdate(robotId) {
+    const kinematicData = this.kinematicCache.get(robotId);
+    const poseData = this.poseCache.get(robotId);
+    
+    if (!kinematicData) return;
+    
+    const payload = {
+      robotId,
+      baseLink: kinematicData.baseLink?.name || 'unknown',
+      endEffector: kinematicData.endEffector?.name || 'unknown',
+      pose: poseData?.pose || { x: 0, y: 0, z: 0 },
+      orientation: poseData?.orientation || { x: 0, y: 0, z: 0, w: 1 },
+      status: 'Done',
+      timestamp: Date.now()
+    };
+    
+    EventBus.emit('EndEffector/SET', payload);
+  }
+
+  /**
+   * Force recalculation (for external use if needed)
+   */
+  recalculate(robotId) {
+    const robot = getRobotGlobal(robotId);
+    if (!robot) return;
+    
+    const analysis = this.analyzeKinematicChain(robot);
+    if (analysis && analysis.baseLink && analysis.endEffector) {
+      this.kinematicCache.set(robotId, analysis);
+      
+      const poseData = this.calculatePoseAndOrientation(robotId);
+      if (poseData) {
+        this.poseCache.set(robotId, poseData);
+        this.emitEndEffectorUpdate(robotId);
+      }
+    }
+  }
+
+  /**
+   * Cleanup
+   */
+  dispose() {
+    // Stop update loop
+    this.stopUpdateLoop();
+    
+    // Remove event listeners
+    EventBus.off('EndEffector/GET', this.handleGetEndEffector);
+    EventBus.off(RobotEvents.LOADED, this.handleRobotLoaded);
+    EventBus.off(RobotEvents.UNLOADED, this.handleRobotUnloaded);
+    EventBus.off('tcp:mount', this.handleTCPMount);
+    EventBus.off('tcp:unmount', this.handleTCPUnmount);
+    EventBus.off(RobotEvents.SET_JOINT_VALUE, this.handleJointChange);
+    EventBus.off(RobotEvents.SET_JOINT_VALUES, this.handleJointChange);
+    
+    // Clear caches
+    this.kinematicCache.clear();
+    this.poseCache.clear();
+    this.processingStatus.clear();
   }
 }
 
@@ -387,6 +464,4 @@ const endEffector = new EndEffector();
 
 // Export for use in other modules
 export default endEffector;
-
-// Also export the class for testing
 export { EndEffector };
