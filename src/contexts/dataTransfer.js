@@ -1025,6 +1025,33 @@ export const EndEffectorEvents = {
 };
 
 // ============================================
+// BASE LINK EVENTS
+// ============================================
+/**
+ * Base Link events namespace
+ * 
+ * Dedicated namespace for base link state management.
+ * Ensures base link is always up to date regardless of TCP attachment.
+ * Primary consumers: Any component needing real-time base link data
+ * 
+ * @namespace BaseLinkEvents
+ */
+export const BaseLinkEvents = {
+  /**
+   * Base link state updated (always emitted on any change)
+   * EMITTED BY: TCPContext, JointContext
+   * LISTENED BY: Any component needing base link data
+   * PAYLOAD: {
+   *   robotId: string,
+   *   baseLink: string|null, // The base link's name or id
+   *   previousBaseLink?: string|null, // Previous base link name if changed
+   *   timestamp: number
+   * }
+   */
+  UPDATED: 'baselink:updated',
+};
+
+// ============================================
 // CAMERA EVENTS
 // ============================================
 /**

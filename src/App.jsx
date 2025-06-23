@@ -13,7 +13,6 @@ import { TCPProvider } from './contexts/TCPContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
 import { useRobotSelection } from './contexts/hooks/useRobotManager';
 import { CameraProvider } from './contexts/CameraContext';
-import EndEffectorListenerTest from './contexts/EndEffectorListener.test.jsx';
 import './App.css';
 
 const RobotPanel = ({ onClose, viewerRef }) => {
@@ -194,7 +193,7 @@ const AppContent = () => {
         )}
       </div>
       {/* Mount the EndEffectorListenerTest for debugging (always visible) */}
-      <EndEffectorListenerTest robotId="crx10ial_1750587761103" />
+      {/* <EndEffectorListenerTest robotId="crx10ial_1750587761103" /> */}
     </div>
   );
 };

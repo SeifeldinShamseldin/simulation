@@ -357,6 +357,18 @@ class URDFLoader {
                 ...jointMap,
             };
             
+            // Ensure the base/root link is at origin (0, 0, 0)
+            // Find the base link (the one that's not a child of any joint)
+            links.forEach(l => {
+                const name = l.getAttribute('name');
+                const isRoot = robot.querySelector(`child[link="${name}"]`) === null;
+                if (isRoot && linkMap[name]) {
+                    linkMap[name].position.set(0, 0, 0);
+                    linkMap[name].rotation.set(0, 0, 0);
+                    linkMap[name].updateMatrix();
+                }
+            });
+            
             return obj;
         }
         

@@ -529,6 +529,30 @@ export const RobotProvider = ({ children }) => {
         console.warn(`[RobotContext] Robot structure issues for ${robotId}:`, validation.issues);
       }
       
+      // Ensure the robot's base is at origin within the robot object
+      let baseLink = null;
+      robot.traverse((child) => {
+        if (child.isURDFLink && child.parent === robot) {
+          baseLink = child;
+          return;
+        }
+      });
+      
+      if (baseLink) {
+        // Store the base link's current world position
+        baseLink.updateMatrixWorld(true);
+        const baseWorldPos = new THREE.Vector3();
+        baseLink.getWorldPosition(baseWorldPos);
+        
+        // If the base link is not at origin in world space relative to robot, adjust the robot
+        if (baseWorldPos.lengthSq() > 0.0001) {
+          // Move the entire robot so that base link ends up at robot's origin
+          robot.position.sub(baseWorldPos);
+          robot.updateMatrixWorld(true);
+          log(`[RobotContext] Adjusted robot position to ensure base link is at origin`);
+        }
+      }
+      
       const robotManufacturer = manufacturer || getManufacturer(robotId) || 'unknown';
 
       const robotData = {
@@ -630,32 +654,21 @@ export const RobotProvider = ({ children }) => {
 
   // ========== ROBOT POSE MANAGEMENT ==========
 
-  // Get robot pose (event-based, always returns a Promise)
-  const getRobotPose = useCallback((robotId) => {
-    return new Promise((resolve) => {
-      const requestId = `getpose_${Date.now()}`;
-      const handleResponse = (data) => {
-        if (data.requestId === requestId && data.robotId === robotId) {
-          EventBus.off(RobotPoseEvents.Commands.GET_POSE, handleResponse);
-          resolve({
-            position: data.position,
-            rotation: data.rotation
-          });
-        }
-      };
-      EventBus.on(RobotPoseEvents.Commands.GET_POSE, handleResponse);
-      EventBus.emit(RobotPoseEvents.Commands.GET_POSE, { robotId, requestId });
-      setTimeout(() => {
-        EventBus.off(RobotPoseEvents.Commands.GET_POSE, handleResponse);
-        resolve({ position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } });
-      }, 1000);
-    });
-  }, []);
+  // Track last published pose for each robot
+  const lastPublishedPoses = useRef(new Map());
 
-  // Set robot pose (event-based)
-  const setRobotPose = useCallback((robotId, pose) => {
-    EventBus.emit(RobotPoseEvents.Commands.SET_POSE, { robotId, ...pose });
-  }, []);
+  // Helper to compare poses
+  function poseEquals(a, b) {
+    if (!a || !b) return false;
+    return (
+      a.position.x === b.position.x &&
+      a.position.y === b.position.y &&
+      a.position.z === b.position.z &&
+      a.rotation.x === b.rotation.x &&
+      a.rotation.y === b.rotation.y &&
+      a.rotation.z === b.rotation.z
+    );
+  }
 
   // Event handlers for robot pose events
   useEffect(() => {
@@ -668,11 +681,27 @@ export const RobotProvider = ({ children }) => {
       if (rotation) robotData.container.rotation.set(rotation.x, rotation.y, rotation.z);
       robotData.container.updateMatrix();
       robotData.container.updateMatrixWorld(true);
-      EventBus.emit(RobotEvents.POSITION_CHANGED, {
-        robotId,
-        position: robotData.container.position,
-        rotation: robotData.container.rotation
-      });
+      // After updating, check if pose changed and emit if so
+      const newPose = {
+        position: {
+          x: robotData.container.position.x,
+          y: robotData.container.position.y,
+          z: robotData.container.position.z
+        },
+        rotation: {
+          x: robotData.container.rotation.x,
+          y: robotData.container.rotation.y,
+          z: robotData.container.rotation.z
+        }
+      };
+      const lastPose = lastPublishedPoses.current.get(robotId);
+      if (!poseEquals(newPose, lastPose)) {
+        lastPublishedPoses.current.set(robotId, newPose);
+        EventBus.emit(RobotPoseEvents.Commands.GET_POSE, {
+          robotId,
+          ...newPose
+        });
+      }
     };
 
     // GET_POSE: read robot's position/rotation and emit response
@@ -693,21 +722,67 @@ export const RobotProvider = ({ children }) => {
           z: robotData.container.rotation.z
         };
       }
-      EventBus.emit(RobotPoseEvents.Commands.GET_POSE, {
-        robotId,
-        position,
-        rotation,
-        requestId
-      });
+      const newPose = { position, rotation };
+      // If requestId is present, always emit (explicit request)
+      if (requestId) {
+        EventBus.emit(RobotPoseEvents.Commands.GET_POSE, {
+          robotId,
+          ...newPose,
+          requestId
+        });
+        return;
+      }
+      // Otherwise, only emit if pose changed
+      const lastPose = lastPublishedPoses.current.get(robotId);
+      if (!poseEquals(newPose, lastPose)) {
+        lastPublishedPoses.current.set(robotId, newPose);
+        EventBus.emit(RobotPoseEvents.Commands.GET_POSE, {
+          robotId,
+          ...newPose
+        });
+      }
     };
 
     const unsubSet = EventBus.on(RobotPoseEvents.Commands.SET_POSE, handleSetPose);
     const unsubGet = EventBus.on(RobotPoseEvents.Commands.GET_POSE, handleGetPose);
+
+    // Always publish pose for all loaded robots at a fixed interval, but only if changed
+    const interval = setInterval(() => {
+      loadedRobots.forEach((robotData, robotId) => {
+        if (!robotData?.container) return;
+        const position = {
+          x: robotData.container.position.x,
+          y: robotData.container.position.y,
+          z: robotData.container.position.z
+        };
+        const rotation = {
+          x: robotData.container.rotation.x,
+          y: robotData.container.rotation.y,
+          z: robotData.container.rotation.z
+        };
+        const newPose = { position, rotation };
+        const lastPose = lastPublishedPoses.current.get(robotId);
+        if (!poseEquals(newPose, lastPose)) {
+          lastPublishedPoses.current.set(robotId, newPose);
+          EventBus.emit(RobotPoseEvents.Commands.GET_POSE, {
+            robotId,
+            ...newPose
+          });
+        }
+      });
+    }, 100);
+
     return () => {
       unsubSet();
       unsubGet();
+      clearInterval(interval);
     };
   }, [loadedRobots]);
+
+  // Set robot pose (event-based)
+  const setRobotPose = useCallback((robotId, pose) => {
+    EventBus.emit(RobotPoseEvents.Commands.SET_POSE, { robotId, ...pose });
+  }, []);
 
   // ========== STATUS & UTILITIES ==========
 
@@ -1010,7 +1085,6 @@ export const RobotProvider = ({ children }) => {
     isInitialized,
 
     // Robot Pose
-    getRobotPose,
     setRobotPose,
   }), [
     availableRobots,
@@ -1045,7 +1119,6 @@ export const RobotProvider = ({ children }) => {
     getActiveRobots,
     getManufacturer,
     isInitialized,
-    getRobotPose,
     setRobotPose,
   ]);
 

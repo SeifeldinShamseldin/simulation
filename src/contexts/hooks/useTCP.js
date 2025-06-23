@@ -6,6 +6,7 @@ import TCPContext from '../TCPContext';
 import { useRobotManager, useRobotSelection } from './useRobotManager';
 import EventBus from '../../utils/EventBus';
 import { EndEffectorEvents } from '../dataTransfer';
+import { RobotPoseEvents } from '../dataTransfer';
 
 /**
  * Complete TCP and End Effector hook
@@ -47,8 +48,53 @@ export const useTCP = (robotIdOverride = null) => {
   });
   
   // Listen for end effector updates
+  // useEffect(() => {
+  //   if (!robotId || !isRobotReady) {
+  //     if (!robotId) console.warn('[useTCP] No robotId, skipping end effector polling.');
+  //     if (!isRobotReady) console.warn('[useTCP] Robot not ready, skipping end effector polling.');
+  //     return;
+  //   }
+  //   
+  //   const handleEndEffectorUpdate = (data) => {
+  //     if (data.robotId === robotId) {
+  //       const newState = {
+  //         position: data.position,
+  //         orientation: data.orientation,
+  //         hasTCP: data.hasTCP,
+  //         tcpOffset: data.tcpOffset || null,
+  //         toolDimensions: data.toolDimensions || null,
+  //         lastUpdate: data.timestamp,
+  //         source: data.source
+  //       };
+  //       
+  //       setEndEffectorState(newState);
+  //       
+  //       // Always log end effector updates
+  //       console.log(`[useTCP] End Effector Updated for ${robotId}:`, {
+  //         position: `(${data.position.x.toFixed(3)}, ${data.position.y.toFixed(3)}, ${data.position.z.toFixed(3)})`,
+  //         orientation: `(${data.orientation.x.toFixed(3)}, ${data.orientation.y.toFixed(3)}, ${data.orientation.z.toFixed(3)}, ${data.orientation.w.toFixed(3)})`,
+  //         hasTCP: data.hasTCP,
+  //         source: data.source
+  //       });
+  //     }
+  //   };
+  //   
+  //   // Subscribe to end effector updates
+  //   const unsubscribe = EventBus.on(EndEffectorEvents.UPDATED, handleEndEffectorUpdate);
+  //   
+  //   // Request initial state
+  //   EventBus.emit(EndEffectorEvents.Commands.GET_STATE, {
+  //     robotId,
+  //     requestId: `init-${Date.now()}`
+  //   });
+  //
+  //   // Poll for latest end effector state every 500ms
   useEffect(() => {
-    if (!robotId) return;
+    if (!robotId || !isRobotReady) {
+      if (!robotId) console.warn('[useTCP] No robotId, skipping end effector polling.');
+      if (!isRobotReady) console.warn('[useTCP] Robot not ready, skipping end effector polling.');
+      return;
+    }
     
     const handleEndEffectorUpdate = (data) => {
       if (data.robotId === robotId) {
@@ -83,19 +129,19 @@ export const useTCP = (robotIdOverride = null) => {
       requestId: `init-${Date.now()}`
     });
 
-    // Poll for latest end effector state every 100ms
+    // Poll for latest end effector state every 500ms
     const interval = setInterval(() => {
       EventBus.emit(EndEffectorEvents.Commands.GET_STATE, {
         robotId,
         requestId: `poll-${Date.now()}`
       });
-    }, 100);
+    }, 500);
     
     return () => {
       unsubscribe();
       clearInterval(interval);
     };
-  }, [robotId]);
+  }, [robotId, isRobotReady]);
   
   // Listen for end effector link (via EventBus)
   useEffect(() => {
@@ -109,6 +155,18 @@ export const useTCP = (robotIdOverride = null) => {
     // Emit initial request to start broadcast
     const requestId = `get-link-${Date.now()}`;
     EventBus.emit(EndEffectorEvents.Commands.GET_LINK, { robotId, requestId });
+    return () => unsub();
+  }, [robotId]);
+  
+  // Listen for robot pose updates and log to console whenever published
+  useEffect(() => {
+    if (!robotId) return;
+    const handlePose = (data) => {
+      if (data.robotId === robotId && data.position && data.rotation) {
+        // console.log(`[useTCP] Robot Pose for ${robotId}:`, data.position, data.rotation);
+      }
+    };
+    const unsub = EventBus.on(RobotPoseEvents.Commands.GET_POSE, handlePose);
     return () => unsub();
   }, [robotId]);
   
