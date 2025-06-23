@@ -7,6 +7,7 @@ import Reposition from './Reposition/Reposition';
 import { useRobotSelection } from '../../contexts/hooks/useRobotManager';
 import EventBus from '../../utils/EventBus';
 import addTCP from '../../core/AddTCP';
+import { getRobotGlobal } from '../../contexts/RobotContext';
 
 const Controls = ({ viewerRef }) => {
   const { activeId: activeRobotId } = useRobotSelection();
@@ -104,12 +105,19 @@ const Controls = ({ viewerRef }) => {
       {/* End Effector Pose & Orientation Only */}
       {endEffector && (
         <div style={{ color: '#333', fontSize: 13, marginBottom: 8, background: '#f8f8f8', padding: 6, borderRadius: 4 }}>
-          <div><strong>End Effector Pose & Orientation</strong></div>
+          <div><strong>End Effector Reading</strong></div>
           {endEffector.robotId && (
             <div>Robot ID: <span style={{ color: '#888' }}>{endEffector.robotId}</span></div>
           )}
-          <div>Pose: <span style={{ color: '#888' }}>{`[${endEffector.pose.x.toFixed(3)}, ${endEffector.pose.y.toFixed(3)}, ${endEffector.pose.z.toFixed(3)}]`}</span></div>
-          <div>Orientation: <span style={{ color: '#888' }}>{`[${endEffector.orientation.x.toFixed(4)}, ${endEffector.orientation.y.toFixed(4)}, ${endEffector.orientation.z.toFixed(4)}, ${endEffector.orientation.w.toFixed(4)}]`}</span></div>
+          {/* Show pose/orientation if present */}
+          {endEffector.pose && endEffector.orientation ? (
+            <>
+              <div>Pose: <span style={{ color: '#888' }}>{`[${endEffector.pose.x.toFixed(3)}, ${endEffector.pose.y.toFixed(3)}, ${endEffector.pose.z.toFixed(3)}]`}</span></div>
+              <div>Orientation: <span style={{ color: '#888' }}>{`[${endEffector.orientation.x.toFixed(4)}, ${endEffector.orientation.y.toFixed(4)}, ${endEffector.orientation.z.toFixed(4)}, ${endEffector.orientation.w.toFixed(4)}]`}</span></div>
+            </>
+          ) : null}
+          <div>Base Link: <span style={{ color: '#888' }}>{endEffector.baseLink}</span></div>
+          <div>End Effector: <span style={{ color: '#888' }}>{endEffector.endEffector}</span></div>
         </div>
       )}
       {/* Joint Control */}

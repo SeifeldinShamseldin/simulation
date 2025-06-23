@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import MeshLoader from '../core/Loader/MeshLoader';
 import URDFLoader from '../core/Loader/URDFLoader';
 import { getRobotGlobal } from '../contexts/RobotContext';
+import EventBus from '../utils/EventBus';
 
 class AddTCP {
   constructor() {
@@ -219,6 +220,14 @@ class AddTCP {
     });
 
     console.log(`[AddTCP] TCP '${tool.name}' added to robot ${robotId}`);
+    
+    // Emit global TCP mount event
+    EventBus.emit('tcp:mount', {
+      robotId,
+      toolId,
+      toolName: tool.name,
+      timestamp: Date.now()
+    });
   }
 
   /**
@@ -270,6 +279,14 @@ class AddTCP {
     });
 
     console.log(`[AddTCP] TCP added to robot ${robotId}`);
+    
+    // Emit global TCP mount event
+    EventBus.emit('tcp:mount', {
+      robotId,
+      tcpPath,
+      tcpType,
+      timestamp: Date.now()
+    });
   }
 
   /**
@@ -416,6 +433,12 @@ class AddTCP {
     this.tcps.delete(robotId);
 
     console.log(`[AddTCP] TCP removed from robot ${robotId}`);
+    
+    // Emit global TCP unmount event
+    EventBus.emit('tcp:unmount', {
+      robotId,
+      timestamp: Date.now()
+    });
   }
 
   /**
@@ -504,31 +527,3 @@ class AddTCP {
 // Create singleton instance
 const addTCP = new AddTCP();
 export default addTCP;
-
-// Usage example:
-// import addTCP from './AddTCP';
-// 
-// // Scan available tools from server
-// const tools = await addTCP.scanAvailableTools();
-// console.log('Available tools:', tools);
-// 
-// // Add TCP by tool ID
-// await addTCP.addTCPById('robot1', 'robotiq_robotiqarg2f85model');
-// 
-// // Or add TCP directly by path (backward compatibility)
-// await addTCP.addTCP('robot1', robotObject, '/tcp/gripper.stl', 'stl');
-// 
-// // Get TCP position
-// const pos = addTCP.getTCPWorldPosition('robot1');
-// 
-// // Update TCP transform
-// addTCP.setTCPTransform('robot1', {x: 0, y: 0, z: 0.1}, null, null);
-// 
-// // Check if robot has TCP
-// if (addTCP.hasTCP('robot1')) {
-//   const toolInfo = addTCP.getAttachedTool('robot1');
-//   console.log('Attached tool:', toolInfo);
-// }
-// 
-// // Remove TCP
-// addTCP.removeTCP('robot1', robotObject);
