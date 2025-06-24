@@ -650,19 +650,29 @@ export const RobotProvider = ({ children }) => {
     return _loadRobotInternal(robotId, urdfPath, options);
   }, [isInitialized, _loadRobotInternal]);
 
+  // ========== THE ONE WAY TO ACCESS ROBOTS ==========
+  
   const getRobot = useCallback((robotId) => {
-    if (!robotId) return null;
+    if (!robotId) {
+      console.warn('[RobotContext] getRobot called with null/undefined robotId');
+      return null;
+    }
     
     const robotData = loadedRobots.get(robotId);
     if (robotData) {
       return robotData.robot;
     }
     
+    // Try to find by base robot ID (for workspace robots)
     const baseRobotId = robotId.split('_')[0];
     for (const [key, data] of loadedRobots.entries()) {
       if (key.startsWith(baseRobotId + '_')) {
         return data.robot;
       }
+    }
+    
+    if (DEBUG) {
+      console.warn(`[RobotContext] Robot ${robotId} not found in loaded robots`);
     }
     
     return null;
@@ -685,19 +695,17 @@ export const RobotProvider = ({ children }) => {
     setActiveRobotIdState(robotId);
     
     if (robotId) {
-      const robotData = loadedRobots.get(robotId);
-      if (robotData) {
-        const robot = robotData.robot;
+      const robot = getRobot(robotId);
+      if (robot) {
         EventBus.emit('robot:active-changed', { robotId, robot });
       }
     }
-  }, [loadedRobots]);
+  }, [getRobot]);
 
   const activeRobot = useMemo(() => {
     if (!activeRobotId) return null;
-    const robotData = loadedRobots.get(activeRobotId);
-    return robotData?.robot || null;
-  }, [activeRobotId, loadedRobots]);
+    return getRobot(activeRobotId);
+  }, [activeRobotId, getRobot]);
 
   const activeRobots = useMemo(() => {
     return new Set(activeRobotId ? [activeRobotId] : []);
@@ -705,7 +713,12 @@ export const RobotProvider = ({ children }) => {
 
   const unloadRobot = useCallback((robotId) => {
     const robotData = loadedRobots.get(robotId);
-    if (!robotData) return;
+    if (!robotData) {
+      if (DEBUG) {
+        console.warn(`[RobotContext] Attempted to unload non-existent robot: ${robotId}`);
+      }
+      return;
+    }
     
     if (robotData.container) {
       disposeObject3D(robotData.container);
@@ -742,7 +755,12 @@ export const RobotProvider = ({ children }) => {
 
   const setRobotPose = useCallback((robotId, position, rotation) => {
     const robotData = loadedRobots.get(robotId);
-    if (!robotData || !robotData.container) return false;
+    if (!robotData || !robotData.container) {
+      if (DEBUG) {
+        console.warn(`[RobotContext] Attempted to set pose for non-existent robot: ${robotId}`);
+      }
+      return false;
+    }
     
     if (position) {
       robotData.container.position.set(position.x, position.y, position.z);
@@ -774,23 +792,21 @@ export const RobotProvider = ({ children }) => {
   
   useEffect(() => {
     const handleGetInstanceRequest = ({ robotId, requestId }) => {
-      const robotData = loadedRobots.get(robotId);
-      if (robotData?.robot) {
+      const robot = getRobot(robotId);
+      if (robot) {
         EventBus.emit(RobotEvents.GET_INSTANCE_RESPONSE, {
           robotId,
-          robot: robotData.robot,
+          robot: robot,
           requestId
         });
       }
     };
 
     const handleSetJointValue = ({ robotId, jointName, value, requestId }) => {
-      const robotData = loadedRobots.get(robotId);
+      const robot = getRobot(robotId);
       let success = false;
       
-      if (robotData?.robot) {
-        const robot = robotData.robot;
-        
+      if (robot) {
         if (robot.setJointValue && typeof robot.setJointValue === 'function') {
           success = robot.setJointValue(jointName, value);
         }
@@ -818,12 +834,10 @@ export const RobotProvider = ({ children }) => {
     };
 
     const handleSetJointValues = ({ robotId, values, requestId }) => {
-      const robotData = loadedRobots.get(robotId);
+      const robot = getRobot(robotId);
       let success = false;
       
-      if (robotData?.robot) {
-        const robot = robotData.robot;
-        
+      if (robot) {
         if (robot.setJointValues && typeof robot.setJointValues === 'function') {
           success = robot.setJointValues(values);
         }
@@ -852,19 +866,15 @@ export const RobotProvider = ({ children }) => {
     };
 
     const handleGetJointValues = ({ robotId, requestId }) => {
-      const robotData = loadedRobots.get(robotId);
+      const robot = getRobot(robotId);
       const values = {};
       
-      if (robotData?.robot) {
-        const robot = robotData.robot;
-        
-        if (robot.joints) {
-          Object.entries(robot.joints).forEach(([name, joint]) => {
-            if (joint.jointType !== 'fixed') {
-              values[name] = joint.angle || 0;
-            }
-          });
-        }
+      if (robot && robot.joints) {
+        Object.entries(robot.joints).forEach(([name, joint]) => {
+          if (joint.jointType !== 'fixed') {
+            values[name] = joint.angle || 0;
+          }
+        });
       }
       
       EventBus.emit(RobotEvents.GET_JOINT_VALUES, {
@@ -885,7 +895,7 @@ export const RobotProvider = ({ children }) => {
       unsubSetJoints();
       unsubGetJoints();
     };
-  }, [loadedRobots]);
+  }, [getRobot]);
 
   // ========== CONTEXT VALUE ==========
 
@@ -897,7 +907,13 @@ export const RobotProvider = ({ children }) => {
     workspaceRobots,
     activeRobotId,
     activeRobot,
-    loadedRobots,
+    loadedRobots: (() => {
+      // Warn developers about direct access to loadedRobots
+      if (DEBUG) {
+        console.warn('[RobotContext] ⚠️ Direct access to loadedRobots detected. Use getRobot() instead for better error handling and consistency.');
+      }
+      return loadedRobots;
+    })(),
     robots: loadedRobots, // Alias
     activeRobots,
     loadingStates,
@@ -1019,6 +1035,10 @@ export const useRobotManagerContext = useRobotContext;
 
 // Global accessor (if needed for legacy code)
 export const getRobotGlobal = (robotId) => {
+  if (DEBUG) {
+    console.warn('[RobotContext] ⚠️ getRobotGlobal is deprecated. Use useRobotContext().getRobot() instead for better error handling and consistency.');
+  }
+  
   if (!robotRegistry) return null;
   if (!robotId) return null;
   const robotData = robotRegistry.get(robotId);
