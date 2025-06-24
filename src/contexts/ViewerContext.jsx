@@ -27,8 +27,8 @@ export const ViewerProvider = ({ children }) => {
   const [error, setError] = useState(null);
   
   // ========== HANDSHAKE STATE ==========
-  const [processingRequests] = useState(new Map()); // requestId -> processing
-  const [requestTimeouts] = useState(new Map()); // requestId -> timeoutId
+  const processingRequests = useRef(new Map()); // requestId -> processing
+  const handshakeListenerSetup = useRef(false);
   
   // ========== REFS ==========
   const viewerInstanceRef = useRef(null);
@@ -46,11 +46,88 @@ export const ViewerProvider = ({ children }) => {
     focusOn
   } = useCamera();
   
+  // ========== SCENE REQUEST HANDLER WITH HANDSHAKE ==========
+  
+  const handleSceneRequest = useCallback(async (request) => {
+    const { requestId } = request;
+    
+    console.log('[ViewerContext]', `Received scene request: ${requestId}`);
+    
+    // Check if already processing this request
+    if (processingRequests.current.has(requestId)) {
+      console.warn('[ViewerContext]', `Already processing request ${requestId}`);
+      return;
+    }
+    
+    // Mark as processing
+    processingRequests.current.set(requestId, true);
+    
+    try {
+      if (isViewerReady && sceneSetupRef.current) {
+        console.log('[ViewerContext]', `Processing scene request ${requestId} - viewer is ready`);
+        
+        // Send scene reference immediately
+        EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
+          success: true,
+          requestId: requestId,
+          payload: {
+            getSceneSetup: () => sceneSetupRef.current
+          }
+        });
+        
+        // Wait 1 second then send completion status
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Send completion status
+        EventBus.emit('viewer:scene:status', {
+          requestId: requestId,
+          status: 'Done',
+          timestamp: Date.now()
+        });
+        
+        console.log('[ViewerContext]', `Scene handshake complete for ${requestId}`);
+      } else {
+        console.warn('[ViewerContext]', `Viewer not ready for request ${requestId}`);
+        // Send failure
+        EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
+          success: false,
+          requestId: requestId,
+          error: 'Viewer not initialized'
+        });
+      }
+    } catch (error) {
+      console.error('[ViewerContext]', `Error processing scene request ${requestId}:`, error);
+      EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
+        success: false,
+        requestId: requestId,
+        error: error.message
+      });
+    } finally {
+      // Clear processing status
+      processingRequests.current.delete(requestId);
+    }
+  }, [isViewerReady]);
+  
+  // Set up scene request listener
+  useEffect(() => {
+    if (!handshakeListenerSetup.current) {
+      console.log('[ViewerContext]', 'Setting up scene request listener');
+      EventBus.on(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
+      handshakeListenerSetup.current = true;
+      
+      return () => {
+        EventBus.off(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
+        handshakeListenerSetup.current = false;
+        processingRequests.current.clear();
+      };
+    }
+  }, [handleSceneRequest]);
+  
   // ========== MAINTAIN COMPATIBILITY WITH EXISTING API ==========
   
   const setViewerInstance = useCallback((viewer) => {
     if (!viewer) {
-      console.error('[ViewerContext] Attempted to set null viewer instance');
+      console.error('[ViewerContext]', 'Attempted to set null viewer instance');
       return;
     }
     viewerInstanceRef.current = viewer;
@@ -60,7 +137,7 @@ export const ViewerProvider = ({ children }) => {
   
   const getSceneSetup = useCallback(() => {
     if (!viewerInstanceRef.current && !sceneSetupRef.current) {
-      console.warn('[ViewerContext] Attempted to get scene setup before viewer initialization');
+      console.warn('[ViewerContext]', 'Attempted to get scene setup before viewer initialization');
       return null;
     }
     return sceneSetupRef.current || 
@@ -68,9 +145,9 @@ export const ViewerProvider = ({ children }) => {
   }, []);
   
   const getRobotManager = useCallback(() => {
-    console.warn('[ViewerContext] getRobotManager is deprecated. Use useRobotManager hook instead.');
+    console.warn('[ViewerContext]', 'getRobotManager is deprecated. Use useRobotManager hook instead.');
     if (!viewerInstanceRef.current) {
-      console.warn('[ViewerContext] Attempted to get robot manager before viewer initialization');
+      console.warn('[ViewerContext]', 'Attempted to get robot manager before viewer initialization');
       return null;
     }
     return null;
@@ -78,7 +155,7 @@ export const ViewerProvider = ({ children }) => {
   
   const focusOnRobot = useCallback((robotId, forceRefocus = false) => {
     if (!viewerInstanceRef.current && !sceneSetupRef.current) {
-      console.warn('[ViewerContext] Attempted to focus robot before viewer initialization');
+      console.warn('[ViewerContext]', 'Attempted to focus robot before viewer initialization');
       return;
     }
     
@@ -102,7 +179,7 @@ export const ViewerProvider = ({ children }) => {
       EventBus.emit('viewer:robot-loaded', { robotId, options });
       return result;
     } catch (error) {
-      console.error('[ViewerContext] Error loading robot:', error);
+      console.error('[ViewerContext]', 'Error loading robot:', error);
       EventBus.emit('viewer:robot-load-error', { robotId, error });
       throw error;
     }
@@ -110,7 +187,7 @@ export const ViewerProvider = ({ children }) => {
   
   const resetJoints = useCallback((robotId) => {
     if (!viewerInstanceRef.current) {
-      console.warn('[ViewerContext] Attempted to reset joints before viewer initialization');
+      console.warn('[ViewerContext]', 'Attempted to reset joints before viewer initialization');
       return;
     }
     if (viewerInstanceRef.current.resetJoints) {
@@ -126,7 +203,7 @@ export const ViewerProvider = ({ children }) => {
       return;
     }
     
-    console.log('[ViewerContext] Initializing viewer');
+    console.log('[ViewerContext]', 'Initializing viewer');
     containerRef.current = container;
     
     const mergedConfig = { ...DEFAULT_CONFIG, ...config };
@@ -149,85 +226,13 @@ export const ViewerProvider = ({ children }) => {
       EventBus.emit('viewer:initialized', { sceneSetup });
       EventBus.emit('viewer:ready');
       
-      console.log('[ViewerContext] Viewer initialized successfully');
+      console.log('[ViewerContext]', 'Viewer initialized successfully');
     } catch (error) {
-      console.error('[ViewerContext] Failed to initialize viewer:', error);
+      console.error('[ViewerContext]', 'Failed to initialize viewer:', error);
       setError(error.message);
       setIsViewerReady(false);
     }
   }, []);
-  
-  // ========== SCENE REQUEST HANDLER WITH HANDSHAKE ==========
-  
-  useEffect(() => {
-    const handleSceneRequest = async (request) => {
-      const { requestId } = request;
-      
-      // Check if already processing this request
-      if (processingRequests.has(requestId)) {
-        console.warn(`[ViewerContext] Already processing request ${requestId}`);
-        return;
-      }
-      
-      // Mark as processing
-      processingRequests.set(requestId, true);
-      
-      try {
-        if (isViewerReady && sceneSetupRef.current) {
-          console.log(`[ViewerContext] Processing scene request ${requestId}`);
-          
-          // Send scene reference
-          EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
-            success: true,
-            requestId: requestId,
-            payload: {
-              getSceneSetup: () => sceneSetupRef.current
-            }
-          });
-          
-          // Wait 1 second (like TCP pattern)
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          // Send completion status
-          EventBus.emit('viewer:scene:status', {
-            requestId: requestId,
-            status: 'Done',
-            timestamp: Date.now()
-          });
-          
-          console.log(`[ViewerContext] Scene handshake complete for ${requestId}`);
-        } else {
-          // Send failure
-          EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
-            success: false,
-            requestId: requestId,
-            error: 'Viewer not initialized'
-          });
-        }
-      } catch (error) {
-        console.error(`[ViewerContext] Error processing scene request ${requestId}:`, error);
-        EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
-          success: false,
-          requestId: requestId,
-          error: error.message
-        });
-      } finally {
-        // Clear processing status
-        processingRequests.delete(requestId);
-      }
-    };
-    
-    EventBus.on(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
-    
-    return () => {
-      EventBus.off(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
-      
-      // Clear all pending requests
-      processingRequests.clear();
-      requestTimeouts.forEach(timeout => clearTimeout(timeout));
-      requestTimeouts.clear();
-    };
-  }, [isViewerReady, processingRequests, requestTimeouts]);
   
   // ========== VIEWER CONFIGURATION ==========
   
@@ -272,7 +277,7 @@ export const ViewerProvider = ({ children }) => {
   const setupDragControls = useCallback(() => {
     if (!sceneSetupRef.current || dragControlsRef.current) return;
     
-    console.log('[ViewerContext] Setting up drag controls');
+    console.log('[ViewerContext]', 'Setting up drag controls');
     
     const scene = sceneSetupRef.current;
     const highlightMaterial = highlightMaterialRef.current;
@@ -287,26 +292,21 @@ export const ViewerProvider = ({ children }) => {
         
         if (obj.type === 'Mesh') {
           if (revert) {
-            if (obj.__origMaterial) {
-              obj.material = obj.__origMaterial;
-              delete obj.__origMaterial;
+            if (obj.originalMaterial) {
+              obj.material = obj.originalMaterial;
+              delete obj.originalMaterial;
             }
           } else {
-            obj.__origMaterial = obj.material;
+            if (!obj.originalMaterial) {
+              obj.originalMaterial = obj.material;
+            }
             obj.material = highlightMaterial;
           }
         }
         
-        if (!obj.children) return;
+        if (obj === joint) return;
         
-        if (obj === joint || !isJoint(obj)) {
-          for (let i = 0; i < obj.children.length; i++) {
-            const child = obj.children[i];
-            if (child && !child.isURDFCollider) {
-              traverse(child);
-            }
-          }
-        }
+        obj.children?.forEach(traverse);
       };
       
       traverse(joint);
@@ -315,67 +315,70 @@ export const ViewerProvider = ({ children }) => {
     const dragControls = new PointerURDFDragControls(
       scene.scene,
       scene.camera,
-      scene.renderer.domElement
+      scene.renderer.domElement,
+      scene.controls
     );
     
     dragControls.onDragStart = (joint) => {
-      console.log('[ViewerContext] Drag start:', joint.name);
-      scene.controls.enabled = false;
       EventBus.emit('viewer:drag-start', { joint });
     };
     
     dragControls.onDragEnd = (joint) => {
-      console.log('[ViewerContext] Drag end:', joint.name);
-      scene.controls.enabled = true;
       EventBus.emit('viewer:drag-end', { joint });
     };
     
+    dragControls.updateJoint = (joint, angle) => {
+      if (joint.setJointValue) {
+        joint.setJointValue(angle);
+      }
+    };
+    
     dragControls.onHover = (joint) => {
-      highlightLinkGeometry(joint, false);
-      EventBus.emit('viewer:joint-hover', { joint });
+      if (joint && isJoint(joint)) {
+        highlightLinkGeometry(joint.parent, false);
+      }
     };
     
     dragControls.onUnhover = (joint) => {
-      highlightLinkGeometry(joint, true);
-      EventBus.emit('viewer:joint-unhover', { joint });
+      if (joint && isJoint(joint)) {
+        highlightLinkGeometry(joint.parent, true);
+      }
     };
     
     dragControlsRef.current = dragControls;
     setDragControlsEnabled(true);
   }, []);
   
-  const disposeDragControls = useCallback(() => {
-    if (dragControlsRef.current) {
-      dragControlsRef.current.dispose();
-      dragControlsRef.current = null;
-      setDragControlsEnabled(false);
-      console.log('[ViewerContext] Disposed drag controls');
-    }
-  }, []);
-  
-  const setDragControls = useCallback((enabled) => {
-    if (enabled) {
+  const toggleDragControls = useCallback((enabled) => {
+    if (!dragControlsRef.current) {
       setupDragControls();
-    } else {
-      disposeDragControls();
+      return;
     }
-  }, [setupDragControls, disposeDragControls]);
+    
+    if (enabled !== undefined) {
+      dragControlsRef.current.enabled = enabled;
+      setDragControlsEnabled(enabled);
+    } else {
+      dragControlsRef.current.enabled = !dragControlsRef.current.enabled;
+      setDragControlsEnabled(dragControlsRef.current.enabled);
+    }
+  }, [setupDragControls]);
   
   // ========== TABLE MANAGEMENT ==========
   
   const loadTable = useCallback(async () => {
-    if (!sceneSetupRef.current || tableState.loaded) return false;
+    if (!sceneSetupRef.current || tableState.loaded) return;
     
     try {
       setIsLoading(true);
-      await sceneSetupRef.current.loadTable();
-      setTableState({ loaded: true, visible: true });
-      EventBus.emit('viewer:table-loaded');
-      return true;
+      const tableModel = await sceneSetupRef.current.loadTable();
+      if (tableModel) {
+        setTableState({ loaded: true, visible: true });
+        EventBus.emit('viewer:table-loaded');
+      }
     } catch (error) {
-      console.error('[ViewerContext] Error loading table:', error);
-      setError('Failed to load table');
-      return false;
+      console.error('[ViewerContext]', 'Failed to load table:', error);
+      setError(error.message);
     } finally {
       setIsLoading(false);
     }
@@ -384,177 +387,103 @@ export const ViewerProvider = ({ children }) => {
   const toggleTable = useCallback((visible) => {
     if (!sceneSetupRef.current || !tableState.loaded) return;
     
-    sceneSetupRef.current.setTableVisible(visible);
-    setTableState(prev => ({ ...prev, visible }));
-    EventBus.emit('viewer:table-toggled', { visible });
-  }, [tableState.loaded]);
-  
-  // ========== RESIZE HANDLING ==========
-  
-  const handleResize = useCallback(() => {
-    if (!containerRef.current || !sceneSetupRef.current) return;
-    
-    const width = containerRef.current.clientWidth;
-    const height = containerRef.current.clientHeight;
-    
-    if (sceneSetupRef.current.camera) {
-      sceneSetupRef.current.camera.aspect = width / height;
-      sceneSetupRef.current.camera.updateProjectionMatrix();
-    }
-    
-    if (sceneSetupRef.current.renderer) {
-      sceneSetupRef.current.renderer.setSize(width, height);
-    }
-    
-    EventBus.emit('viewer:resized', { width, height });
-  }, []);
-  
-  // ========== UTILITY METHODS ==========
-  
-  const getScene = useCallback(() => sceneSetupRef.current?.scene, []);
-  const getCamera = useCallback(() => sceneSetupRef.current?.camera, []);
-  const getRenderer = useCallback(() => sceneSetupRef.current?.renderer, []);
-  const getControls = useCallback(() => sceneSetupRef.current?.controls, []);
-  const getRobotRoot = useCallback(() => sceneSetupRef.current?.robotRoot, []);
-  
-  const render = useCallback(() => {
-    if (!sceneSetupRef.current) return;
-    
-    const { renderer, scene, camera } = sceneSetupRef.current;
-    if (renderer && scene && camera) {
-      renderer.render(scene, camera);
-    }
-  }, []);
+    const newVisibility = visible !== undefined ? visible : !tableState.visible;
+    sceneSetupRef.current.toggleTable(newVisibility);
+    setTableState(prev => ({ ...prev, visible: newVisibility }));
+    EventBus.emit('viewer:table-toggled', { visible: newVisibility });
+  }, [tableState]);
   
   // ========== CLEANUP ==========
   
   const dispose = useCallback(() => {
-    console.log('[ViewerContext] Disposing viewer');
+    console.log('[ViewerContext]', 'Disposing viewer');
     
-    disposeDragControls();
+    if (dragControlsRef.current) {
+      dragControlsRef.current.dispose();
+      dragControlsRef.current = null;
+    }
     
     if (sceneSetupRef.current) {
       sceneSetupRef.current.dispose();
       sceneSetupRef.current = null;
     }
     
-    containerRef.current = null;
-    viewerInstanceRef.current = null;
+    if (viewerInstanceRef.current) {
+      viewerInstanceRef.current = null;
+    }
+    
     setIsViewerReady(false);
     setTableState({ loaded: false, visible: false });
-    
     EventBus.emit('viewer:disposed');
-  }, [disposeDragControls]);
-  
-  // ========== ERROR HANDLING ==========
-  
-  const clearError = useCallback(() => setError(null), []);
-  
-  // ========== EFFECTS ==========
-  
-  useEffect(() => {
-    if (isViewerReady) {
-      window.addEventListener('resize', handleResize);
-      handleResize();
-      
-      return () => {
-        window.removeEventListener('resize', handleResize);
-      };
-    }
-  }, [isViewerReady, handleResize]);
-  
-  useEffect(() => {
-    return () => {
-      dispose();
-    };
-  }, [dispose]);
+  }, []);
   
   // ========== CONTEXT VALUE ==========
   
   const value = useMemo(() => ({
-    // Existing API (for compatibility)
+    // State
     isViewerReady,
-    setViewerInstance,
-    getSceneSetup,
-    getRobotManager,
-    focusOnRobot,
-    loadRobot,
-    resetJoints,
-    viewerInstance: viewerInstanceRef.current,
-    
-    // Enhanced API
     viewerConfig,
     dragControlsEnabled,
     tableState,
     isLoading,
     error,
+    
+    // Refs
+    getSceneSetup,
+    getRobotManager,
+    
+    // Core methods
+    setViewerInstance,
     initializeViewer,
     dispose,
     
-    // Scene Management
+    // Robot methods
+    loadRobot,
+    focusOnRobot,
+    resetJoints,
+    
+    // Configuration
     updateViewerConfig,
-    render,
-    handleResize,
     
-    // Drag Controls
-    setDragControls,
+    // Controls
     setupDragControls,
-    disposeDragControls,
+    toggleDragControls,
     
-    // Table Management
+    // Table
     loadTable,
     toggleTable,
-    isTableLoaded: tableState.loaded,
-    isTableVisible: tableState.visible,
     
-    // Camera Controls
-    focusOn,
+    // Camera
+    camera,
     setCameraPosition,
     setCameraTarget,
     resetCamera,
-    
-    // Getters
-    getScene,
-    getCamera,
-    getRenderer,
-    getControls,
-    getRobotRoot,
-    
-    // Error Handling
-    clearError
+    focusOn
   }), [
     isViewerReady,
-    setViewerInstance,
-    getSceneSetup,
-    getRobotManager,
-    focusOnRobot,
-    loadRobot,
-    resetJoints,
     viewerConfig,
     dragControlsEnabled,
     tableState,
     isLoading,
     error,
+    getSceneSetup,
+    getRobotManager,
+    setViewerInstance,
     initializeViewer,
     dispose,
+    loadRobot,
+    focusOnRobot,
+    resetJoints,
     updateViewerConfig,
-    render,
-    handleResize,
-    setDragControls,
     setupDragControls,
-    disposeDragControls,
+    toggleDragControls,
     loadTable,
     toggleTable,
-    focusOn,
+    camera,
     setCameraPosition,
     setCameraTarget,
     resetCamera,
-    getScene,
-    getCamera,
-    getRenderer,
-    getControls,
-    getRobotRoot,
-    clearError
+    focusOn
   ]);
   
   return (

@@ -160,9 +160,27 @@ export const RobotProvider = ({ children }) => {
   // ========== SCENE HANDSHAKE INITIALIZATION ==========
   
   useEffect(() => {
-    if (initializedRef.current) return;
+    // Skip if already initialized
+    if (initializedRef.current || isInitialized) {
+      return;
+    }
     
-    const requestId = `req-scene-${Date.now()}`;
+    let requestId = null;
+    let sceneTimeoutId = null;
+    let isHandshakeActive = false;
+    
+    const cleanup = () => {
+      if (sceneTimeoutId) {
+        clearTimeout(sceneTimeoutId);
+        sceneTimeoutId = null;
+      }
+      if (requestId) {
+        processingStatus.delete(requestId);
+        EventBus.off(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, handleSceneResponse);
+        EventBus.off('viewer:scene:status', handleSceneStatus);
+      }
+      isHandshakeActive = false;
+    };
     
     // Handle scene status (handshake completion)
     const handleSceneStatus = ({ requestId: responseId, status }) => {
@@ -179,89 +197,136 @@ export const RobotProvider = ({ children }) => {
           sceneRequestTimeoutRef.current = null;
         }
         
-        // Unsubscribe from status
-        EventBus.off('viewer:scene:status', handleSceneStatus);
+        // Cleanup
+        cleanup();
       }
     };
     
     const handleSceneResponse = (response) => {
-      if (initializedRef.current) return;
+      // Check if this is our request
+      if (!isHandshakeActive || response.requestId !== requestId || initializedRef.current) {
+        return;
+      }
       
-      if (response.requestId === requestId) {
-        EventBus.off(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, handleSceneResponse);
-        
-        if (response.success && response.payload?.getSceneSetup) {
-          sceneSetupRef.current = response.payload.getSceneSetup();
+      log(`[RobotContext] Received scene response for ${requestId}: ${response.success}`);
+      
+      if (response.success && response.payload?.getSceneSetup) {
+        try {
+          // Get scene setup
+          const sceneSetup = response.payload.getSceneSetup();
+          if (!sceneSetup) {
+            throw new Error('Scene setup function returned null');
+          }
+          
+          sceneSetupRef.current = sceneSetup;
+          
+          // Initialize URDF loader
           urdfLoaderRef.current = new URDFLoader(new THREE.LoadingManager());
           urdfLoaderRef.current.parseVisual = true;
           urdfLoaderRef.current.parseCollision = false;
+          
+          // Mark as initialized
           setIsInitialized(true);
           initializedRef.current = true;
           
           log(`[RobotContext] Initialized. Processing ${loadQueueRef.current.length} queued robot loads.`);
           
           // Process queued loads
-          loadQueueRef.current.forEach(req => {
+          const queuedLoads = [...loadQueueRef.current];
+          loadQueueRef.current = [];
+          
+          queuedLoads.forEach(req => {
             _loadRobotInternal(req.robotId, req.urdfPath, req.options)
               .then(req.resolve)
               .catch(req.reject);
           });
-          loadQueueRef.current = [];
           
-          // Listen for status completion
+          // Listen for completion status
           EventBus.on('viewer:scene:status', handleSceneStatus);
-        } else {
-          const initError = new Error('Failed to acquire a 3D scene from the viewer.');
+        } catch (error) {
+          log(`[RobotContext] Error processing scene response: ${error.message}`);
+          const initError = new Error(`Failed to initialize scene: ${error.message}`);
           setError(initError.message);
           loadQueueRef.current.forEach(req => req.reject(initError));
           loadQueueRef.current = [];
-          initializedRef.current = true;
-          setPendingSceneRequest(null);
+          cleanup();
         }
+      } else {
+        const initError = new Error(response.error || 'Failed to acquire a 3D scene from the viewer.');
+        setError(initError.message);
+        loadQueueRef.current.forEach(req => req.reject(initError));
+        loadQueueRef.current = [];
+        setPendingSceneRequest(null);
+        cleanup();
       }
     };
 
     const requestScene = () => {
-      if (initializedRef.current) return;
-      
-      // Check if already have pending request
-      if (pendingSceneRequest || processingStatus.has(requestId)) {
-        log('[RobotContext] Scene request already pending');
+      // Skip if already processing or initialized
+      if (isHandshakeActive || initializedRef.current || pendingSceneRequest) {
+        log('[RobotContext] Scene request already pending or initialized');
         return;
       }
+      
+      requestId = `req-scene-${Date.now()}`;
+      isHandshakeActive = true;
       
       log('[RobotContext] Viewer is ready, requesting scene...');
       setPendingSceneRequest(requestId);
       processingStatus.set(requestId, true);
       
-      // Listen for response
+      // Listen for response BEFORE emitting request
       EventBus.on(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, handleSceneResponse);
       
       // Emit request
       EventBus.emit(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, { requestId });
       
       // Set timeout for no response
-      sceneRequestTimeoutRef.current = setManagedTimeout(() => {
+      sceneTimeoutId = setTimeout(() => {
         if (!initializedRef.current && pendingSceneRequest === requestId) {
-          log('[RobotContext] Scene request timeout - will retry on next viewer ready event');
+          log('[RobotContext] Scene request timeout - viewer may not be ready');
           setPendingSceneRequest(null);
-          processingStatus.delete(requestId);
-          EventBus.off(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, handleSceneResponse);
+          cleanup();
+          
+          // Retry after a delay
+          setTimeout(() => {
+            if (!initializedRef.current) {
+              requestScene();
+            }
+          }, 1000);
         }
       }, 5000);
+      
+      sceneRequestTimeoutRef.current = sceneTimeoutId;
     };
     
-    EventBus.on(DataTransfer.EVENT_VIEWER_READY, requestScene);
-
-    return () => {
-      if (sceneRequestTimeoutRef.current) {
-        clearManagedTimeout(sceneRequestTimeoutRef.current);
-      }
-      EventBus.off(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, handleSceneResponse);
-      EventBus.off(DataTransfer.EVENT_VIEWER_READY, requestScene);
-      EventBus.off('viewer:scene:status', handleSceneStatus);
+    // Listen for viewer ready event
+    const handleViewerReady = () => {
+      log('[RobotContext] Viewer ready event received');
+      // Small delay to ensure viewer is fully initialized
+      setTimeout(() => {
+        if (!initializedRef.current && !isHandshakeActive) {
+          requestScene();
+        }
+      }, 100);
     };
-  }, [setManagedTimeout, clearManagedTimeout]);
+    
+    EventBus.on(DataTransfer.EVENT_VIEWER_READY, handleViewerReady);
+    
+    // Check if viewer is already ready
+    // This handles the case where RobotContext mounts after ViewerContext
+    setTimeout(() => {
+      if (!initializedRef.current && !isHandshakeActive) {
+        log('[RobotContext] Checking if viewer is already ready...');
+        requestScene();
+      }
+    }, 500);
+    
+    return () => {
+      EventBus.off(DataTransfer.EVENT_VIEWER_READY, handleViewerReady);
+      cleanup();
+    };
+  }, [isInitialized]); // Only depend on isInitialized state
 
   // ========== CLEANUP ON UNMOUNT ==========
   useEffect(() => {
