@@ -13,7 +13,7 @@ const EnvironmentContext = createContext(null);
 
 export const EnvironmentProvider = ({ children }) => {
   const { isViewerReady, getSceneSetup } = useViewer();
-  const robotManager = useRobotContext();
+  const { getRobot, getAllRobots } = useRobotContext();
   
   // State
   const [categories, setCategories] = useState([]);
@@ -39,15 +39,23 @@ export const EnvironmentProvider = ({ children }) => {
 
   // Refs
   const sceneSetupRef = useRef(null);
-  const robotManagerRef = useRef(null);
 
-  // Initialize scene setup and robot manager references
+  // Initialize scene setup reference
   useEffect(() => {
     if (isViewerReady) {
       sceneSetupRef.current = getSceneSetup();
-      robotManagerRef.current = robotManager;
     }
-  }, [isViewerReady, getSceneSetup, robotManager]);
+  }, [isViewerReady, getSceneSetup]);
+
+  // Robot access helper function
+  const accessRobot = useCallback((robotId) => {
+    const robot = getRobot(robotId);
+    if (!robot) {
+      console.warn(`[EnvironmentContext] Robot ${robotId} not found`);
+      return null;
+    }
+    return robot;
+  }, [getRobot]);
 
   // ========== MERGED SCENE FUNCTIONS FROM useScene.js ==========
 
@@ -260,7 +268,6 @@ export const EnvironmentProvider = ({ children }) => {
   // Smart placement calculation (from useSmartPlacement)
   const calculateSmartPosition = useCallback((category, basePosition = { x: 0, y: 0, z: 0 }) => {
     const sceneSetup = sceneSetupRef.current;
-    const robotManager = robotManagerRef.current;
     
     if (!sceneSetup) {
       return {
@@ -274,24 +281,21 @@ export const EnvironmentProvider = ({ children }) => {
     let robotRadius = 1;
 
     // Try to find robot from robot manager
-    if (robotManager) {
-      const allRobots = robotManager.getAllRobots();
-      if (allRobots && allRobots.size > 0) {
-        const firstRobot = Array.from(allRobots.values())[0];
-        if (firstRobot && firstRobot.model) {
-          try {
-            const robotBox = new THREE.Box3().setFromObject(firstRobot.model);
-            robotCenter = robotBox.getCenter(new THREE.Vector3());
-            robotRadius = robotBox.getSize(new THREE.Vector3()).length() / 2;
-          } catch (error) {
-            console.warn('Could not calculate robot bounds, using defaults');
-          }
+    if (getAllRobots && getAllRobots.size > 0) {
+      const firstRobot = Array.from(getAllRobots.values())[0];
+      if (firstRobot && firstRobot.model) {
+        try {
+          const robotBox = new THREE.Box3().setFromObject(firstRobot.model);
+          robotCenter = robotBox.getCenter(new THREE.Vector3());
+          robotRadius = robotBox.getSize(new THREE.Vector3()).length() / 2;
+        } catch (error) {
+          console.warn('Could not calculate robot bounds, using defaults');
         }
       }
     }
 
     // Fallback: try to find robot in scene
-    if (!robotManager || robotRadius === 1) {
+    if (!getAllRobots || robotRadius === 1) {
       try {
         const robotRoot = sceneSetup.robotRoot;
         if (robotRoot && robotRoot.children.length > 0) {
@@ -427,7 +431,7 @@ export const EnvironmentProvider = ({ children }) => {
       },
       rotation: { x: 0, y: lookAngle, z: 0 }
     };
-  }, [loadedObjects]);
+  }, [loadedObjects, getAllRobots]);
 
   // Camera controls (from useCameraControls)
   const { setCameraPosition, setCameraTarget, resetCamera, focusOn } = useCamera();

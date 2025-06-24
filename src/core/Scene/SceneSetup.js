@@ -7,6 +7,15 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader';
 import EventBus from '../../utils/EventBus';
+import { createStandardGrids } from '../../utils/threeHelpers';
+
+const DEFAULT_CONFIG = {
+  backgroundColor: '#f0f0f0',
+  enableShadows: true,
+  ambientColor: '#404040',
+  groundSize: 10000,
+  upAxis: '+Z',
+};
 
 // Debug flag
 const DEBUG = process.env.NODE_ENV === 'development';
@@ -16,47 +25,51 @@ const log = DEBUG ? console.log : () => {};
  * Optimized SceneSetup class with proper resource management
  */
 class SceneSetup {
-  constructor(container, options = {}, camera) {
-    this.container = container;
-    this.camera = camera;
-    
-    // Validate container
-    if (!container || !container.appendChild) {
+  constructor(container, options = {}) {
+    // Validate container first
+    if (!container || !(container instanceof HTMLElement)) {
       throw new Error('SceneSetup: container must be a valid DOM element');
     }
     
-    // Configuration
-    this.backgroundColor = options.backgroundColor || '#f5f5f5';
-    this.enableShadows = options.enableShadows !== undefined ? options.enableShadows : true;
-    this.ambientColor = options.ambientColor || '#8ea0a8';
-    this.upAxis = options.upAxis || '+Z';
+    this.container = container;
+    this.frameInterval = 1000 / 60;
+    this.lastFrameTime = 0;
+    this.isDisposed = false;
+    this.resizeTimeout = null;
     
-    // Resource management
+    // Configuration
+    this.backgroundColor = options.backgroundColor || DEFAULT_CONFIG.backgroundColor;
+    this.enableShadows = options.enableShadows !== undefined ? options.enableShadows : DEFAULT_CONFIG.enableShadows;
+    this.ambientColor = options.ambientColor || DEFAULT_CONFIG.ambientColor;
+    this.groundSize = options.groundSize || DEFAULT_CONFIG.groundSize;
+    this.upAxis = options.upAxis || DEFAULT_CONFIG.upAxis;
+    
+    // Dynamic environment system
     this.environmentObjects = new Map();
     this.objectLoaders = null; // Lazy initialization
     this.defaultMaterial = null; // Lazy initialization
     this.animationFrameId = null;
-    this.isDisposed = false;
     
     // Performance optimization
-    this.resizeTimeout = null;
-    this.lastFrameTime = 0;
     this.targetFPS = 60;
     this.frameInterval = 1000 / this.targetFPS;
     
-    // Initialize scene components
+    // Initialize scene components IN THE CORRECT ORDER
     this.initScene();
+    this.initCamera(); // MUST be before initControls
     this.initRenderer();
-    this.initControls();
-    this.initHumanPhysics();
+    this.initLights();
+    this.initControls(); // Now camera exists
+    this.initPhysics();
+    this.initGround();
     
-    // Add renderer to container
+    // Add the renderer to the container
     this.container.appendChild(this.renderer.domElement);
     
     // Start render loop
     this.startRenderLoop();
     
-    // Bind and add resize listener
+    // Handle window resize
     this.boundHandleResize = this.handleResize.bind(this);
     window.addEventListener('resize', this.boundHandleResize);
     this.handleResize();
@@ -67,9 +80,44 @@ class SceneSetup {
    */
   initScene() {
     this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(this.backgroundColor || '#f0f0f0');
+    this.scene.fog = new THREE.FogExp2(this.backgroundColor || '#f0f0f0', 0.02);
+    
+    // Create robot root for proper orientation handling
     this.robotRoot = new THREE.Object3D();
     this.robotRoot.name = 'RobotRoot';
     this.scene.add(this.robotRoot);
+    
+    // Use utility for grid and axes
+    const { grid, axes } = createStandardGrids(this.scene, { 
+      gridSize: 10, 
+      gridDivisions: 20, 
+      addAxes: true, 
+      axesSize: 1 
+    });
+    this.gridHelper = grid;
+    this.axesHelper = axes;
+  }
+  
+  /**
+   * Initialize the camera
+   */
+  initCamera() {
+    const aspect = this.container.clientWidth / this.container.clientHeight;
+    
+    this.camera = new THREE.PerspectiveCamera(
+      60,     // FOV
+      aspect, // Aspect ratio
+      0.01,   // Near
+      1000    // Far
+    );
+    
+    // Set initial camera position
+    this.camera.position.set(3, 2, 3);
+    this.camera.lookAt(0, 0.5, 0);
+    
+    // Ensure camera has updateProjectionMatrix method
+    this.camera.updateProjectionMatrix();
   }
   
   /**
@@ -78,15 +126,17 @@ class SceneSetup {
   initRenderer() {
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
-      alpha: true,
+      alpha: false,
       powerPreference: 'high-performance',
       stencil: false,
       depth: true
     });
     
-    this.renderer.setClearColor(0xffffff, 0);
+    this.renderer.setSize(
+      this.container.clientWidth, 
+      this.container.clientHeight
+    );
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap at 2 for performance
-    this.renderer.setSize(1, 1); // Will be resized
     
     // Configure shadows if enabled
     if (this.enableShadows) {
@@ -101,9 +151,46 @@ class SceneSetup {
   }
   
   /**
-   * Initialize orbit controls with optimizations
+   * Initialize lights
+   */
+  initLights() {
+    // Ambient light
+    this.ambientLight = new THREE.AmbientLight(this.ambientColor, 0.4);
+    this.scene.add(this.ambientLight);
+    
+    // Directional light (sun)
+    this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    this.directionalLight.position.set(10, 10, 5);
+    this.directionalLight.castShadow = this.enableShadows;
+    
+    if (this.enableShadows) {
+      this.directionalLight.shadow.mapSize.width = 2048;
+      this.directionalLight.shadow.mapSize.height = 2048;
+      this.directionalLight.shadow.camera.near = 0.5;
+      this.directionalLight.shadow.camera.far = 50;
+      this.directionalLight.shadow.camera.left = -10;
+      this.directionalLight.shadow.camera.right = 10;
+      this.directionalLight.shadow.camera.top = 10;
+      this.directionalLight.shadow.camera.bottom = -10;
+    }
+    
+    this.scene.add(this.directionalLight);
+  }
+  
+  /**
+   * Initialize orbit controls
    */
   initControls() {
+    // Check that camera exists
+    if (!this.camera) {
+      throw new Error('SceneSetup: Camera must be initialized before controls');
+    }
+    
+    // Check that renderer exists
+    if (!this.renderer || !this.renderer.domElement) {
+      throw new Error('SceneSetup: Renderer must be initialized before controls');
+    }
+    
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.rotateSpeed = 1.0;
     this.controls.zoomSpeed = 1.2;
@@ -125,9 +212,9 @@ class SceneSetup {
   }
   
   /**
-   * Initialize minimal physics world for humans
+   * Initialize physics world
    */
-  initHumanPhysics() {
+  initPhysics() {
     this.world = new CANNON.World();
     this.world.gravity.set(0, -9.82, 0);
     this.world.broadphase = new CANNON.NaiveBroadphase();
@@ -136,10 +223,15 @@ class SceneSetup {
     // Use fixed timestep for consistent physics
     this.world.defaultContactMaterial.friction = 0.4;
     this.world.defaultContactMaterial.restitution = 0.3;
-    
-    // Create ground
+  }
+  
+  /**
+   * Initialize ground
+   */
+  initGround() {
+    // Create ground material
     this.groundMaterial = new CANNON.Material('ground');
-    const groundShape = new CANNON.Box(new CANNON.Vec3(500, 0.1, 500));
+    const groundShape = new CANNON.Box(new CANNON.Vec3(this.groundSize / 2, 0.1, this.groundSize / 2));
     
     this.groundBody = new CANNON.Body({
       mass: 0,

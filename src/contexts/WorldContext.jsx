@@ -1,4 +1,4 @@
-// src/contexts/WorldContext.jsx - WORLD VISUALIZATION CONTEXT
+// src/contexts/WorldContext.jsx
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { useViewer } from './ViewerContext';
@@ -23,9 +23,6 @@ const DEFAULT_WORLD_CONFIG = {
   gridHeight: 0.002
 };
 
-// WorldContext is now the source of truth for scene background, fog, and lighting.
-// Do not set these in SceneSetup.js; all world appearance is managed here.
-
 export const WorldProvider = ({ children }) => {
   const viewerContext = useViewer();
   
@@ -41,212 +38,196 @@ export const WorldProvider = ({ children }) => {
   // ========== WORLD INITIALIZATION ==========
   
   const initializeWorld = useCallback(() => {
+    if (!viewerContext.isViewerReady) {
+      console.log('[WorldContext] Viewer not ready, skipping world initialization');
+      return false;
+    }
+    
     const sceneSetup = viewerContext.getSceneSetup();
     if (!sceneSetup || !sceneSetup.scene || worldInitializedRef.current) {
       return false;
     }
     const scene = sceneSetup.scene;
 
-    // 1. Background & Fog
-    scene.background = new THREE.Color('#eaf4fb');
-    scene.fog = new THREE.FogExp2('#eaf4fb', 0.02);
+    console.log('[WorldContext] Initializing world');
 
-    // 2. Lighting
-    scene.children.filter(obj => obj.isLight).forEach(light => scene.remove(light));
-    const hemiLight = new THREE.HemisphereLight('#eaf4fb', '#000000', 0.5);
-    hemiLight.groundColor.lerp(hemiLight.color, 0.3);
-    hemiLight.position.set(0, 1, 0);
-    scene.add(hemiLight);
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(3, 8, 3);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
-    scene.add(dirLight);
+    try {
+      // 1. Background & Fog
+      scene.background = new THREE.Color('#eaf4fb');
+      scene.fog = new THREE.FogExp2('#eaf4fb', 0.02);
 
-    // 3. Ground
-    const groundSize = 40;
-    const planeGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
-    const planeMaterial = new THREE.MeshStandardMaterial({
-      color: 0xeeeeee,
-      roughness: 0.7,
-      metalness: 0.1,
-      transparent: true,
-      opacity: 0.8
-    });
-    const ground = new THREE.Mesh(planeGeometry, planeMaterial);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = 0;
-    ground.receiveShadow = true;
-    ground.castShadow = false;
-    ground.name = 'world-ground';
-    scene.add(ground);
-    groundRef.current = ground;
+      // 2. Lighting
+      scene.children.filter(obj => obj.isLight).forEach(light => scene.remove(light));
+      const hemiLight = new THREE.HemisphereLight('#eaf4fb', '#000000', 0.5);
+      hemiLight.groundColor.lerp(hemiLight.color, 0.3);
+      hemiLight.position.set(0, 1, 0);
+      scene.add(hemiLight);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      dirLight.position.set(3, 8, 3);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.width = 2048;
+      dirLight.shadow.mapSize.height = 2048;
+      scene.add(dirLight);
 
-    // 4. Grid
-    const gridHelper = new THREE.GridHelper(
-      groundSize,
-      groundSize,
-      0x888888,
-      0xdddddd
-    );
-    gridHelper.position.y = 0.002;
-    gridHelper.name = 'world-grid';
-    gridHelper.visible = DEFAULT_WORLD_CONFIG.showGrid;
-    scene.add(gridHelper);
-    gridHelperRef.current = gridHelper;
+      // 3. Ground
+      const groundSize = 40;
+      const planeGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
+      const planeMaterial = new THREE.MeshStandardMaterial({
+        color: 0xeeeeee,
+        roughness: 0.7,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.8
+      });
+      const ground = new THREE.Mesh(planeGeometry, planeMaterial);
+      ground.rotation.x = -Math.PI / 2;
+      ground.position.y = 0;
+      ground.receiveShadow = true;
+      ground.castShadow = false;
+      ground.name = 'world-ground';
+      scene.add(ground);
+      groundRef.current = ground;
 
-    worldInitializedRef.current = true;
-    setIsWorldReady(true);
-    EventBus.emit(DataTransfer.EVENT_WORLD_READY, { ground, gridHelper });
-    return true;
-  }, [viewerContext]);
-  
-  // ========== WORLD UPDATES ==========
+      // 4. Grid
+      const gridHelper = new THREE.GridHelper(
+        worldConfig.gridSize,
+        worldConfig.gridDivisions,
+        worldConfig.gridCenterColor,
+        worldConfig.gridColor
+      );
+      gridHelper.position.y = worldConfig.gridHeight;
+      gridHelper.name = 'world-grid';
+      scene.add(gridHelper);
+      gridHelperRef.current = gridHelper;
+
+      worldInitializedRef.current = true;
+      console.log('[WorldContext] World initialized successfully');
+      
+      EventBus.emit(DataTransfer.EVENT_WORLD_INITIALIZED);
+      return true;
+    } catch (error) {
+      console.error('[WorldContext] Error initializing world:', error);
+      return false;
+    }
+  }, [viewerContext, worldConfig]);
+
+  // ========== INITIALIZE WHEN VIEWER IS READY ==========
+  useEffect(() => {
+    if (viewerContext.isViewerReady && !worldInitializedRef.current) {
+      const initialized = initializeWorld();
+      if (initialized) {
+        setIsWorldReady(true);
+      }
+    }
+  }, [viewerContext.isViewerReady, initializeWorld]);
+
+  // ========== WORLD OPERATIONS ==========
   
   const updateGroundColor = useCallback((color) => {
-    if (groundRef.current?.material) {
+    if (groundRef.current) {
       groundRef.current.material.color.set(color);
       setWorldConfig(prev => ({ ...prev, groundColor: color }));
-      EventBus.emit(DataTransfer.EVENT_WORLD_GROUND_COLOR_CHANGED, { color });
     }
   }, []);
-  
+
   const updateGroundOpacity = useCallback((opacity) => {
-    if (groundRef.current?.material) {
-      const clampedOpacity = Math.max(0, Math.min(1, opacity));
-      groundRef.current.material.opacity = clampedOpacity;
-      groundRef.current.material.transparent = clampedOpacity < 1;
-      
-      // Update grid visibility based on ground opacity
-      if (gridHelperRef.current) {
-        gridHelperRef.current.visible = clampedOpacity > 0.1 && worldConfig.showGrid;
-      }
-      
-      setWorldConfig(prev => ({ ...prev, groundOpacity: clampedOpacity }));
-      EventBus.emit(DataTransfer.EVENT_WORLD_GROUND_OPACITY_CHANGED, { opacity: clampedOpacity });
-    }
-  }, [worldConfig.showGrid]);
-  
-  const updateGroundMaterial = useCallback((updates) => {
-    if (groundRef.current?.material) {
-      Object.entries(updates).forEach(([key, value]) => {
-        if (key in groundRef.current.material) {
-          groundRef.current.material[key] = value;
-        }
-      });
-      
-      setWorldConfig(prev => ({ ...prev, ...updates }));
-      EventBus.emit(DataTransfer.EVENT_WORLD_GROUND_MATERIAL_CHANGED, updates);
+    if (groundRef.current) {
+      groundRef.current.material.opacity = opacity;
+      groundRef.current.material.transparent = opacity < 1;
+      setWorldConfig(prev => ({ ...prev, groundOpacity: opacity }));
     }
   }, []);
-  
+
+  const updateGroundMaterial = useCallback((roughness, metalness) => {
+    if (groundRef.current) {
+      groundRef.current.material.roughness = roughness;
+      groundRef.current.material.metalness = metalness;
+      setWorldConfig(prev => ({ 
+        ...prev, 
+        groundRoughness: roughness,
+        groundMetalness: metalness 
+      }));
+    }
+  }, []);
+
   const toggleGrid = useCallback((show) => {
     if (gridHelperRef.current) {
-      const shouldShow = show ?? !gridHelperRef.current.visible;
-      gridHelperRef.current.visible = shouldShow;
-      setWorldConfig(prev => ({ ...prev, showGrid: shouldShow }));
-      EventBus.emit(DataTransfer.EVENT_WORLD_GRID_TOGGLED, { visible: shouldShow });
+      gridHelperRef.current.visible = show;
+      setWorldConfig(prev => ({ ...prev, showGrid: show }));
     }
   }, []);
-  
+
   const toggleGround = useCallback((show) => {
     if (groundRef.current) {
-      const shouldShow = show ?? !groundRef.current.visible;
-      groundRef.current.visible = shouldShow;
-      setWorldConfig(prev => ({ ...prev, showGround: shouldShow }));
-      EventBus.emit(DataTransfer.EVENT_WORLD_GROUND_TOGGLED, { visible: shouldShow });
+      groundRef.current.visible = show;
+      setWorldConfig(prev => ({ ...prev, showGround: show }));
     }
   }, []);
-  
+
   const updateGridAppearance = useCallback((updates) => {
-    if (!gridHelperRef.current) return;
+    if (!viewerContext.isViewerReady) return;
     
     const sceneSetup = viewerContext.getSceneSetup();
-    if (!sceneSetup?.scene) return;
-    
-    // Remove old grid
-    sceneSetup.scene.remove(gridHelperRef.current);
-    gridHelperRef.current.geometry.dispose();
-    gridHelperRef.current.material.dispose();
-    
-    // Create new grid with updated properties
-    const newConfig = { ...worldConfig, ...updates };
-    const gridHelper = new THREE.GridHelper(
-      newConfig.gridSize || worldConfig.gridSize,
-      newConfig.gridDivisions || worldConfig.gridDivisions,
-      newConfig.gridCenterColor || worldConfig.gridCenterColor,
-      newConfig.gridColor || worldConfig.gridColor
-    );
-    
-    gridHelper.position.y = newConfig.gridHeight || worldConfig.gridHeight;
-    gridHelper.name = 'world-grid';
-    gridHelper.visible = newConfig.showGrid ?? worldConfig.showGrid;
-    
-    sceneSetup.scene.add(gridHelper);
-    gridHelperRef.current = gridHelper;
+    if (!sceneSetup || !sceneSetup.scene) return;
     
     setWorldConfig(prev => ({ ...prev, ...updates }));
-    EventBus.emit(DataTransfer.EVENT_WORLD_GRID_UPDATED, updates);
+    
+    if (gridHelperRef.current && (updates.gridSize || updates.gridDivisions || updates.gridColor || updates.gridCenterColor)) {
+      sceneSetup.scene.remove(gridHelperRef.current);
+      gridHelperRef.current.geometry.dispose();
+      gridHelperRef.current.material.dispose();
+      
+      const gridHelper = new THREE.GridHelper(
+        updates.gridSize || worldConfig.gridSize,
+        updates.gridDivisions || worldConfig.gridDivisions,
+        updates.gridCenterColor || worldConfig.gridCenterColor,
+        updates.gridColor || worldConfig.gridColor
+      );
+      gridHelper.position.y = updates.gridHeight || worldConfig.gridHeight;
+      gridHelper.name = 'world-grid';
+      gridHelper.visible = worldConfig.showGrid;
+      sceneSetup.scene.add(gridHelper);
+      gridHelperRef.current = gridHelper;
+    }
   }, [viewerContext, worldConfig]);
-  
-  // ========== WORLD STATE ==========
+
+  // ========== STATE MANAGEMENT ==========
   
   const getWorldState = useCallback(() => {
     return {
       config: { ...worldConfig },
-      ground: groundRef.current,
-      grid: gridHelperRef.current,
-      isReady: isWorldReady
+      isReady: isWorldReady,
+      hasGround: !!groundRef.current,
+      hasGrid: !!gridHelperRef.current
     };
   }, [worldConfig, isWorldReady]);
-  
-  const setWorldState = useCallback((state) => {
-    if (!state?.config) return;
-    
-    // Update configuration
-    setWorldConfig(state.config);
-    
-    // Apply configuration to existing objects
-    if (groundRef.current) {
-      updateGroundColor(state.config.groundColor);
-      updateGroundOpacity(state.config.groundOpacity);
-      updateGroundMaterial({
-        roughness: state.config.groundRoughness,
-        metalness: state.config.groundMetalness
-      });
+
+  const setWorldState = useCallback((newState) => {
+    if (newState.config) {
+      setWorldConfig(newState.config);
     }
-    
-    if (gridHelperRef.current) {
-      updateGridAppearance({
-        gridSize: state.config.gridSize,
-        gridDivisions: state.config.gridDivisions,
-        gridColor: state.config.gridColor,
-        gridCenterColor: state.config.gridCenterColor,
-        gridHeight: state.config.gridHeight,
-        showGrid: state.config.showGrid
-      });
-    }
-  }, [updateGroundColor, updateGroundOpacity, updateGroundMaterial, updateGridAppearance]);
-  
+  }, []);
+
   const resetWorld = useCallback(() => {
     setWorldConfig(DEFAULT_WORLD_CONFIG);
-    
-    // Re-initialize with default config
-    if (worldInitializedRef.current) {
-      setWorldState({ config: DEFAULT_WORLD_CONFIG });
+    if (groundRef.current) {
+      updateGroundColor(DEFAULT_WORLD_CONFIG.groundColor);
+      updateGroundOpacity(DEFAULT_WORLD_CONFIG.groundOpacity);
+      updateGroundMaterial(DEFAULT_WORLD_CONFIG.groundRoughness, DEFAULT_WORLD_CONFIG.groundMetalness);
     }
-    
-    EventBus.emit(DataTransfer.EVENT_WORLD_RESET);
-  }, [setWorldState]);
-  
+    if (gridHelperRef.current) {
+      toggleGrid(DEFAULT_WORLD_CONFIG.showGrid);
+    }
+  }, [updateGroundColor, updateGroundOpacity, updateGroundMaterial, toggleGrid]);
+
   // ========== CLEANUP ==========
   
   const cleanupWorld = useCallback(() => {
-    const sceneSetup = viewerContext.getSceneSetup();
-    if (!sceneSetup?.scene) return;
+    if (!viewerContext.isViewerReady) return;
     
-    // Remove ground
+    const sceneSetup = viewerContext.getSceneSetup();
+    if (!sceneSetup || !sceneSetup.scene) return;
+    
     if (groundRef.current) {
       sceneSetup.scene.remove(groundRef.current);
       groundRef.current.geometry.dispose();
@@ -254,7 +235,6 @@ export const WorldProvider = ({ children }) => {
       groundRef.current = null;
     }
     
-    // Remove grid
     if (gridHelperRef.current) {
       sceneSetup.scene.remove(gridHelperRef.current);
       gridHelperRef.current.geometry.dispose();
@@ -265,80 +245,38 @@ export const WorldProvider = ({ children }) => {
     worldInitializedRef.current = false;
     setIsWorldReady(false);
   }, [viewerContext]);
+
+  // ========== EFFECT: Update existing world when config changes ==========
   
-  // ========== EFFECTS ==========
-  
-  // Initialize world when viewer is ready
   useEffect(() => {
-    if (viewerContext.isViewerReady && !worldInitializedRef.current) {
-      const timer = setTimeout(() => {
-        initializeWorld();
-      }, 100);
-      return () => clearTimeout(timer);
+    if (!isWorldReady || !viewerContext.isViewerReady) return;
+    
+    const sceneSetup = viewerContext.getSceneSetup();
+    if (!sceneSetup || !sceneSetup.scene) return;
+    
+    // Update ground if it exists
+    if (groundRef.current) {
+      groundRef.current.material.color.set(worldConfig.groundColor);
+      groundRef.current.material.opacity = worldConfig.groundOpacity;
+      groundRef.current.material.roughness = worldConfig.groundRoughness;
+      groundRef.current.material.metalness = worldConfig.groundMetalness;
+      groundRef.current.visible = worldConfig.showGround;
     }
-  }, [viewerContext.isViewerReady, initializeWorld]);
+    
+    // Update grid if it exists
+    if (gridHelperRef.current) {
+      gridHelperRef.current.visible = worldConfig.showGrid;
+    }
+  }, [worldConfig, isWorldReady, viewerContext]);
+
+  // ========== CLEANUP ON UNMOUNT ==========
   
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       cleanupWorld();
     };
   }, [cleanupWorld]);
-  
-  // Add effect to update ground and grid when worldConfig changes
-  useEffect(() => {
-    if (!worldInitializedRef.current) return;
-    // Update ground
-    if (groundRef.current) {
-      if (groundRef.current.material.color.getStyle() !== worldConfig.groundColor) {
-        groundRef.current.material.color.set(worldConfig.groundColor);
-      }
-      if (groundRef.current.material.opacity !== worldConfig.groundOpacity) {
-        groundRef.current.material.opacity = worldConfig.groundOpacity;
-        groundRef.current.material.transparent = worldConfig.groundOpacity < 1;
-      }
-      if (groundRef.current.material.roughness !== worldConfig.groundRoughness) {
-        groundRef.current.material.roughness = worldConfig.groundRoughness;
-      }
-      if (groundRef.current.material.metalness !== worldConfig.groundMetalness) {
-        groundRef.current.material.metalness = worldConfig.groundMetalness;
-      }
-      groundRef.current.visible = worldConfig.showGround;
-    }
-    // Update grid
-    if (gridHelperRef.current) {
-      gridHelperRef.current.visible = worldConfig.showGrid && (worldConfig.groundOpacity > 0.1);
-      // Only recreate grid if size/divisions/colors/height changed
-      if (
-        gridHelperRef.current.geometry.parameters.width !== worldConfig.gridSize ||
-        gridHelperRef.current.geometry.parameters.height !== worldConfig.gridSize ||
-        gridHelperRef.current.geometry.parameters.widthSegments !== worldConfig.gridDivisions ||
-        gridHelperRef.current.material.color.getStyle() !== worldConfig.gridColor ||
-        gridHelperRef.current.material.color.getStyle() !== worldConfig.gridCenterColor ||
-        gridHelperRef.current.position.y !== worldConfig.gridHeight
-      ) {
-        // Remove and recreate grid
-        const sceneSetup = viewerContext.getSceneSetup();
-        if (sceneSetup?.scene) {
-          sceneSetup.scene.remove(gridHelperRef.current);
-          gridHelperRef.current.geometry.dispose();
-          gridHelperRef.current.material.dispose();
-          const gridHelper = new THREE.GridHelper(
-            worldConfig.gridSize,
-            worldConfig.gridDivisions,
-            worldConfig.gridCenterColor,
-            worldConfig.gridColor
-          );
-          gridHelper.position.y = worldConfig.gridHeight;
-          gridHelper.name = 'world-grid';
-          gridHelper.visible = worldConfig.showGrid;
-          sceneSetup.scene.add(gridHelper);
-          gridHelperRef.current = gridHelper;
-        }
-      }
-    }
-  }, [worldConfig, viewerContext]);
-  
+
   // ========== CONTEXT VALUE ==========
   
   const contextValue = {

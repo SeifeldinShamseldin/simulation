@@ -1,4 +1,4 @@
-// src/contexts/ViewerContext.jsx - ENHANCED VIEWER CONTEXT (Fixed exports)
+// src/contexts/ViewerContext.jsx
 import React, { createContext, useContext, useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import SceneSetup from '../core/Scene/SceneSetup';
@@ -26,6 +26,10 @@ export const ViewerProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   
+  // ========== HANDSHAKE STATE ==========
+  const [processingRequests] = useState(new Map()); // requestId -> processing
+  const [requestTimeouts] = useState(new Map()); // requestId -> timeoutId
+  
   // ========== REFS ==========
   const viewerInstanceRef = useRef(null);
   const sceneSetupRef = useRef(null);
@@ -33,9 +37,17 @@ export const ViewerProvider = ({ children }) => {
   const containerRef = useRef(null);
   const highlightMaterialRef = useRef(null);
   
+  // ========== CAMERA HOOKS ==========
+  const {
+    camera,
+    setCameraPosition,
+    setCameraTarget,
+    resetCamera,
+    focusOn
+  } = useCamera();
+  
   // ========== MAINTAIN COMPATIBILITY WITH EXISTING API ==========
   
-  // Store viewer instance (for compatibility)
   const setViewerInstance = useCallback((viewer) => {
     if (!viewer) {
       console.error('[ViewerContext] Attempted to set null viewer instance');
@@ -46,7 +58,6 @@ export const ViewerProvider = ({ children }) => {
     EventBus.emit('viewer:ready', { viewer });
   }, []);
   
-  // Get scene setup (existing API)
   const getSceneSetup = useCallback(() => {
     if (!viewerInstanceRef.current && !sceneSetupRef.current) {
       console.warn('[ViewerContext] Attempted to get scene setup before viewer initialization');
@@ -56,37 +67,31 @@ export const ViewerProvider = ({ children }) => {
            viewerInstanceRef.current?.sceneRef?.current;
   }, []);
   
-  // Get robot manager - DEPRECATED (existing API)
   const getRobotManager = useCallback(() => {
     console.warn('[ViewerContext] getRobotManager is deprecated. Use useRobotManager hook instead.');
     if (!viewerInstanceRef.current) {
       console.warn('[ViewerContext] Attempted to get robot manager before viewer initialization');
       return null;
     }
-    // Remove robotLoaderRef dependency - use EventBus instead
     return null;
   }, []);
   
-  // Focus on robot (existing API)
   const focusOnRobot = useCallback((robotId, forceRefocus = false) => {
     if (!viewerInstanceRef.current && !sceneSetupRef.current) {
       console.warn('[ViewerContext] Attempted to focus robot before viewer initialization');
       return;
     }
     
-    // Use viewer's focusOnRobot method if available
     if (viewerInstanceRef.current?.focusOnRobot) {
       viewerInstanceRef.current.focusOnRobot(robotId, forceRefocus);
     } else if (sceneSetupRef.current && forceRefocus) {
-      // Use scene setup's focus method
-      const robot = robotId; // Assuming robotId might be the robot object itself
+      const robot = robotId;
       if (robot && sceneSetupRef.current.focusOnObject) {
         sceneSetupRef.current.focusOnObject(robot, 0.8);
       }
     }
   }, []);
   
-  // Load robot (existing API)
   const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
     if (!viewerInstanceRef.current) {
       throw new Error('Viewer not initialized');
@@ -103,7 +108,6 @@ export const ViewerProvider = ({ children }) => {
     }
   }, []);
   
-  // Reset joints (existing API)
   const resetJoints = useCallback((robotId) => {
     if (!viewerInstanceRef.current) {
       console.warn('[ViewerContext] Attempted to reset joints before viewer initialization');
@@ -116,85 +120,155 @@ export const ViewerProvider = ({ children }) => {
   }, []);
   
   // ========== ENHANCED SCENE INITIALIZATION ==========
-  const {
-    camera,
-    setCameraPosition,
-    setCameraTarget,
-    resetCamera,
-    focusOn
-  } = useCamera();
+  
   const initializeViewer = useCallback((container, config = {}) => {
-    if (!container || sceneSetupRef.current) return;
+    if (!container || containerRef.current === container) {
+      return;
+    }
     
     console.log('[ViewerContext] Initializing viewer');
     containerRef.current = container;
     
-    const mergedConfig = { ...DEFAULT_CONFIG, ...viewerConfig, ...config };
-    
-    // Create scene setup - pass camera from CameraContext
-    const sceneSetup = new SceneSetup(container, {
-      backgroundColor: mergedConfig.backgroundColor,
-      enableShadows: mergedConfig.enableShadows,
-      ambientColor: mergedConfig.ambientColor
-    }, camera);
-    
-    // Configure camera
-    if (sceneSetup.camera) {
-      sceneSetup.camera.fov = 50;
-      sceneSetup.camera.near = 0.01;
-      sceneSetup.camera.far = 1000;
-      sceneSetup.camera.updateProjectionMatrix();
-    }
-    
-    // Set up axis
-    sceneSetup.setUpAxis(mergedConfig.upAxis);
-    
-    sceneSetupRef.current = sceneSetup;
+    const mergedConfig = { ...DEFAULT_CONFIG, ...config };
     setViewerConfig(mergedConfig);
-    setIsViewerReady(true);
     
-    // Create highlight material for drag controls
-    highlightMaterialRef.current = new THREE.MeshPhongMaterial({
-      shininess: 10,
-      color: new THREE.Color(mergedConfig.highlightColor),
-      emissive: new THREE.Color(mergedConfig.highlightColor),
-      emissiveIntensity: 0.25,
-    });
-    
-    EventBus.emit('viewer:initialized', { sceneSetup });
-    console.log('[ViewerContext] Emitting EVENT_VIEWER_READY', DataTransfer.EVENT_VIEWER_READY);
-    EventBus.emit(DataTransfer.EVENT_VIEWER_READY);
-    
-    return sceneSetup;
-  }, [viewerConfig, camera]);
+    try {
+      const sceneSetup = new SceneSetup(container, mergedConfig);
+      sceneSetupRef.current = sceneSetup;
+      
+      if (!highlightMaterialRef.current) {
+        highlightMaterialRef.current = new THREE.MeshPhongMaterial({
+          shininess: 64,
+          color: new THREE.Color(mergedConfig.highlightColor),
+          emissive: new THREE.Color(mergedConfig.highlightColor),
+          emissiveIntensity: 0.3
+        });
+      }
+      
+      setIsViewerReady(true);
+      EventBus.emit('viewer:initialized', { sceneSetup });
+      EventBus.emit('viewer:ready');
+      
+      console.log('[ViewerContext] Viewer initialized successfully');
+    } catch (error) {
+      console.error('[ViewerContext] Failed to initialize viewer:', error);
+      setError(error.message);
+      setIsViewerReady(false);
+    }
+  }, []);
   
-  // ========== SCENE MANAGEMENT ==========
-  const updateViewerConfig = useCallback((updates) => {
-    const newConfig = { ...viewerConfig, ...updates };
-    setViewerConfig(newConfig);
+  // ========== SCENE REQUEST HANDLER WITH HANDSHAKE ==========
+  
+  useEffect(() => {
+    const handleSceneRequest = async (request) => {
+      const { requestId } = request;
+      
+      // Check if already processing this request
+      if (processingRequests.has(requestId)) {
+        console.warn(`[ViewerContext] Already processing request ${requestId}`);
+        return;
+      }
+      
+      // Mark as processing
+      processingRequests.set(requestId, true);
+      
+      try {
+        if (isViewerReady && sceneSetupRef.current) {
+          console.log(`[ViewerContext] Processing scene request ${requestId}`);
+          
+          // Send scene reference
+          EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
+            success: true,
+            requestId: requestId,
+            payload: {
+              getSceneSetup: () => sceneSetupRef.current
+            }
+          });
+          
+          // Wait 1 second (like TCP pattern)
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Send completion status
+          EventBus.emit('viewer:scene:status', {
+            requestId: requestId,
+            status: 'Done',
+            timestamp: Date.now()
+          });
+          
+          console.log(`[ViewerContext] Scene handshake complete for ${requestId}`);
+        } else {
+          // Send failure
+          EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
+            success: false,
+            requestId: requestId,
+            error: 'Viewer not initialized'
+          });
+        }
+      } catch (error) {
+        console.error(`[ViewerContext] Error processing scene request ${requestId}:`, error);
+        EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
+          success: false,
+          requestId: requestId,
+          error: error.message
+        });
+      } finally {
+        // Clear processing status
+        processingRequests.delete(requestId);
+      }
+    };
     
-    if (sceneSetupRef.current) {
-      // Apply updates to existing scene
-      if (updates.backgroundColor !== undefined) {
-        sceneSetupRef.current.setBackgroundColor(updates.backgroundColor);
+    EventBus.on(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
+    
+    return () => {
+      EventBus.off(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
+      
+      // Clear all pending requests
+      processingRequests.clear();
+      requestTimeouts.forEach(timeout => clearTimeout(timeout));
+      requestTimeouts.clear();
+    };
+  }, [isViewerReady, processingRequests, requestTimeouts]);
+  
+  // ========== VIEWER CONFIGURATION ==========
+  
+  const updateViewerConfig = useCallback((updates) => {
+    setViewerConfig(prev => {
+      const newConfig = { ...prev, ...updates };
+      
+      if (sceneSetupRef.current) {
+        const sceneSetup = sceneSetupRef.current;
+        
+        if (updates.backgroundColor) {
+          sceneSetup.scene.background = new THREE.Color(updates.backgroundColor);
+        }
+        
+        if (updates.ambientColor) {
+          sceneSetup.ambientLight.color = new THREE.Color(updates.ambientColor);
+        }
+        
+        if (updates.upAxis) {
+          sceneSetup.setUpAxis(updates.upAxis);
+        }
+        
+        if (updates.enableShadows !== undefined) {
+          sceneSetup.renderer.shadowMap.enabled = updates.enableShadows;
+        }
       }
-      if (updates.upAxis !== undefined) {
-        sceneSetupRef.current.setUpAxis(updates.upAxis);
-      }
-      if (updates.enableShadows !== undefined) {
-        sceneSetupRef.current.setShadows(updates.enableShadows);
-      }
-      if (updates.highlightColor !== undefined && highlightMaterialRef.current) {
+      
+      if (updates.highlightColor && highlightMaterialRef.current) {
         const color = new THREE.Color(updates.highlightColor);
         highlightMaterialRef.current.color = color;
         highlightMaterialRef.current.emissive = color;
       }
-    }
+      
+      return newConfig;
+    });
     
-    EventBus.emit('viewer:config-updated', newConfig);
-  }, [viewerConfig]);
+    EventBus.emit('viewer:config-updated', updates);
+  }, []);
   
   // ========== DRAG CONTROLS ==========
+  
   const setupDragControls = useCallback(() => {
     if (!sceneSetupRef.current || dragControlsRef.current) return;
     
@@ -203,7 +277,6 @@ export const ViewerProvider = ({ children }) => {
     const scene = sceneSetupRef.current;
     const highlightMaterial = highlightMaterialRef.current;
     
-    // Helper functions
     const isJoint = (j) => j.isURDFJoint && j.jointType !== 'fixed';
     
     const highlightLinkGeometry = (joint, revert) => {
@@ -239,14 +312,12 @@ export const ViewerProvider = ({ children }) => {
       traverse(joint);
     };
     
-    // Create drag controls
     const dragControls = new PointerURDFDragControls(
       scene.scene,
       scene.camera,
       scene.renderer.domElement
     );
     
-    // Set up event handlers
     dragControls.onDragStart = (joint) => {
       console.log('[ViewerContext] Drag start:', joint.name);
       scene.controls.enabled = false;
@@ -291,6 +362,7 @@ export const ViewerProvider = ({ children }) => {
   }, [setupDragControls, disposeDragControls]);
   
   // ========== TABLE MANAGEMENT ==========
+  
   const loadTable = useCallback(async () => {
     if (!sceneSetupRef.current || tableState.loaded) return false;
     
@@ -318,6 +390,7 @@ export const ViewerProvider = ({ children }) => {
   }, [tableState.loaded]);
   
   // ========== RESIZE HANDLING ==========
+  
   const handleResize = useCallback(() => {
     if (!containerRef.current || !sceneSetupRef.current) return;
     
@@ -337,14 +410,11 @@ export const ViewerProvider = ({ children }) => {
   }, []);
   
   // ========== UTILITY METHODS ==========
+  
   const getScene = useCallback(() => sceneSetupRef.current?.scene, []);
-  
   const getCamera = useCallback(() => sceneSetupRef.current?.camera, []);
-  
   const getRenderer = useCallback(() => sceneSetupRef.current?.renderer, []);
-  
   const getControls = useCallback(() => sceneSetupRef.current?.controls, []);
-  
   const getRobotRoot = useCallback(() => sceneSetupRef.current?.robotRoot, []);
   
   const render = useCallback(() => {
@@ -357,6 +427,7 @@ export const ViewerProvider = ({ children }) => {
   }, []);
   
   // ========== CLEANUP ==========
+  
   const dispose = useCallback(() => {
     console.log('[ViewerContext] Disposing viewer');
     
@@ -376,15 +447,14 @@ export const ViewerProvider = ({ children }) => {
   }, [disposeDragControls]);
   
   // ========== ERROR HANDLING ==========
+  
   const clearError = useCallback(() => setError(null), []);
   
   // ========== EFFECTS ==========
+  
   useEffect(() => {
-    // Set up resize listener
     if (isViewerReady) {
       window.addEventListener('resize', handleResize);
-      
-      // Initial resize
       handleResize();
       
       return () => {
@@ -393,37 +463,14 @@ export const ViewerProvider = ({ children }) => {
     }
   }, [isViewerReady, handleResize]);
   
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       dispose();
     };
   }, [dispose]);
   
-  // ========== EVENTBUS: Respond to robot:needs-scene requests ==========
-  useEffect(() => {
-    const handleSceneRequest = (request) => {
-      if (isViewerReady && sceneSetupRef.current) {
-        EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
-          success: true,
-          requestId: request.requestId,
-          payload: {
-            getSceneSetup: () => sceneSetupRef.current
-          }
-        });
-      } else {
-        EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
-          success: false,
-          requestId: request.requestId,
-          error: 'Viewer not initialized.'
-        });
-      }
-    };
-    EventBus.on(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
-    return () => EventBus.off(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, handleSceneRequest);
-  }, [isViewerReady]);
+  // ========== CONTEXT VALUE ==========
   
-  // Memoize context value to prevent unnecessary re-renders
   const value = useMemo(() => ({
     // Existing API (for compatibility)
     isViewerReady,
@@ -444,36 +491,36 @@ export const ViewerProvider = ({ children }) => {
     initializeViewer,
     dispose,
     
-    // ========== SCENE MANAGEMENT ==========
+    // Scene Management
     updateViewerConfig,
     render,
     handleResize,
     
-    // ========== DRAG CONTROLS ==========
+    // Drag Controls
     setDragControls,
     setupDragControls,
     disposeDragControls,
     
-    // ========== TABLE MANAGEMENT ==========
+    // Table Management
     loadTable,
     toggleTable,
     isTableLoaded: tableState.loaded,
     isTableVisible: tableState.visible,
     
-    // ========== CAMERA CONTROLS ==========
+    // Camera Controls
     focusOn,
     setCameraPosition,
     setCameraTarget,
     resetCamera,
     
-    // ========== GETTERS ==========
+    // Getters
     getScene,
     getCamera,
     getRenderer,
     getControls,
     getRobotRoot,
     
-    // ========== ERROR HANDLING ==========
+    // Error Handling
     clearError
   }), [
     isViewerReady,
@@ -483,7 +530,6 @@ export const ViewerProvider = ({ children }) => {
     focusOnRobot,
     loadRobot,
     resetJoints,
-    viewerInstanceRef,
     viewerConfig,
     dragControlsEnabled,
     tableState,
@@ -518,7 +564,6 @@ export const ViewerProvider = ({ children }) => {
   );
 };
 
-// IMPORTANT: Export useViewer here to maintain compatibility
 export const useViewer = () => {
   const context = useContext(ViewerContext);
   if (!context) {
@@ -526,3 +571,5 @@ export const useViewer = () => {
   }
   return context;
 };
+
+export default ViewerContext;

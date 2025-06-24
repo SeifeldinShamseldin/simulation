@@ -1,13 +1,11 @@
-// src/contexts/RobotContext.jsx - OPTIMIZED VERSION
+// src/contexts/RobotContext.jsx
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import * as THREE from 'three';
 import EventBus from '../utils/EventBus';
 import URDFLoader from '../core/Loader/URDFLoader';
 import * as DataTransfer from './dataTransfer';
 import { RobotPoseEvents, RobotEvents } from './dataTransfer';
-import { robotRegistry } from './robotRegistry';
 
-// Debug flag - set to false in production
 const DEBUG = process.env.NODE_ENV === 'development';
 const log = DEBUG ? console.log : () => {};
 
@@ -21,6 +19,9 @@ const LOADING_STATES = {
   ERROR: 'error'
 };
 
+// Robot registry for global access (if needed for legacy compatibility)
+const robotRegistry = new Map();
+
 /**
  * Properly dispose of THREE.js objects including textures
  */
@@ -33,7 +34,6 @@ const disposeObject3D = (object) => {
     if (child.material) {
       const materials = Array.isArray(child.material) ? child.material : [child.material];
       materials.forEach(material => {
-        // Dispose all material properties
         Object.keys(material).forEach(key => {
           const value = material[key];
           if (value && typeof value.dispose === 'function') {
@@ -45,7 +45,6 @@ const disposeObject3D = (object) => {
     }
   });
   
-  // Clear from parent
   if (object.parent) {
     object.parent.remove(object);
   }
@@ -66,12 +65,10 @@ const validateRobotStructure = (robot, robotId) => {
     issues: []
   };
 
-  // Check if robot has joints
   if (robot.joints && typeof robot.joints === 'object') {
     validation.hasJoints = true;
     validation.jointCount = Object.keys(robot.joints).length;
     
-    // Check each joint
     Object.entries(robot.joints).forEach(([jointName, joint]) => {
       if (joint.jointType !== 'fixed') {
         const jointInfo = {
@@ -92,54 +89,52 @@ const validateRobotStructure = (robot, robotId) => {
     validation.issues.push('Robot has no joints object');
   }
 
-  // Check robot-level methods
   validation.hasSetJointValue = typeof robot.setJointValue === 'function';
   validation.hasSetJointValues = typeof robot.setJointValues === 'function';
-
-  log(`[RobotContext] Validation results for ${robotId}:`, validation);
+  
+  if (!validation.hasSetJointValue) {
+    validation.issues.push('Robot missing setJointValue method');
+  }
+  if (!validation.hasSetJointValues) {
+    validation.issues.push('Robot missing setJointValues method');
+  }
 
   return validation;
 };
 
 export const RobotProvider = ({ children }) => {
-  // ========== REFS (Optimized) ==========
-  const sceneSetupRef = useRef(null);
-  const urdfLoaderRef = useRef(null);
-  const loadQueueRef = useRef([]);
-  const robotManufacturerMap = useRef(new Map());
-  const robotIndexMap = useRef(new Map()); // NEW: Fast robot lookup
-  const timeoutIdsRef = useRef(new Set()); // NEW: Track timeouts for cleanup
-  const abortControllerRef = useRef(null); // NEW: For cancelling fetch requests
-  const initializedRef = useRef(false);
-  const isDiscoveringRef = useRef(false);
-
-  // ========== STATE (Optimized - removed duplicates) ==========
-  
-  // Robot Discovery State
+  // ========== STATE ==========
   const [availableRobots, setAvailableRobots] = useState([]);
   const [categories, setCategories] = useState([]);
   const [availableTools, setAvailableTools] = useState([]);
-
-  // Workspace State
   const [workspaceRobots, setWorkspaceRobots] = useState([]);
-
-  // Active Robot Management (simplified)
   const [activeRobotId, setActiveRobotIdState] = useState(null);
   const [loadedRobots, setLoadedRobots] = useState(new Map());
   const [loadingStates, setLoadingStates] = useState(new Map());
-
-  // Loading & Error States
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [isInitialized, setIsInitialized] = useState(false);
-
-  // Robot pose state - tracks position and rotation for each robot
   const [robotPoses, setRobotPoses] = useState(new Map());
-
+  
+  // ========== HANDSHAKE STATE ==========
+  const [pendingSceneRequest, setPendingSceneRequest] = useState(null);
+  const [processingStatus] = useState(new Map()); // Track processing status
+  
+  // ========== REFS ==========
+  const sceneSetupRef = useRef(null);
+  const urdfLoaderRef = useRef(null);
+  const loadQueueRef = useRef([]);
+  const robotManufacturerMap = useRef(new Map());
+  const robotIndexMap = useRef(new Map());
+  const initializedRef = useRef(false);
+  const isDiscoveringRef = useRef(false);
+  const abortControllerRef = useRef(null);
+  const timeoutIdsRef = useRef(new Set());
+  const sceneRequestTimeoutRef = useRef(null);
+  
   // ========== HELPER FUNCTIONS ==========
   
-  // Centralized timeout management
   const setManagedTimeout = useCallback((callback, delay) => {
     const timeoutId = setTimeout(() => {
       timeoutIdsRef.current.delete(timeoutId);
@@ -154,30 +149,47 @@ export const RobotProvider = ({ children }) => {
     timeoutIdsRef.current.delete(timeoutId);
   }, []);
 
-  // Clear all timeouts on unmount
-  useEffect(() => {
-    return () => {
-      timeoutIdsRef.current.forEach(clearTimeout);
-      timeoutIdsRef.current.clear();
-      
-      // Cancel any pending fetch requests
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-    };
+  const getManufacturer = useCallback((robotId) => {
+    const manufacturer = robotManufacturerMap.current.get(robotId);
+    if (manufacturer) return manufacturer;
+    
+    const robot = robotIndexMap.current.get(robotId);
+    return robot?.manufacturer || null;
   }, []);
 
-  // ========== INITIALIZATION (Optimized) ==========
+  // ========== SCENE HANDSHAKE INITIALIZATION ==========
   
   useEffect(() => {
+    if (initializedRef.current) return;
+    
     const requestId = `req-scene-${Date.now()}`;
-    let timeoutId;
-
+    
+    // Handle scene status (handshake completion)
+    const handleSceneStatus = ({ requestId: responseId, status }) => {
+      if (responseId === requestId && status === 'Done') {
+        log('[RobotContext] Scene handshake complete');
+        
+        // Clear pending request
+        setPendingSceneRequest(null);
+        processingStatus.delete(requestId);
+        
+        // Clear timeout
+        if (sceneRequestTimeoutRef.current) {
+          clearManagedTimeout(sceneRequestTimeoutRef.current);
+          sceneRequestTimeoutRef.current = null;
+        }
+        
+        // Unsubscribe from status
+        EventBus.off('viewer:scene:status', handleSceneStatus);
+      }
+    };
+    
     const handleSceneResponse = (response) => {
       if (initializedRef.current) return;
+      
       if (response.requestId === requestId) {
-        clearManagedTimeout(timeoutId);
         EventBus.off(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, handleSceneResponse);
+        
         if (response.success && response.payload?.getSceneSetup) {
           sceneSetupRef.current = response.payload.getSceneSetup();
           urdfLoaderRef.current = new URDFLoader(new THREE.LoadingManager());
@@ -195,29 +207,46 @@ export const RobotProvider = ({ children }) => {
               .catch(req.reject);
           });
           loadQueueRef.current = [];
+          
+          // Listen for status completion
+          EventBus.on('viewer:scene:status', handleSceneStatus);
         } else {
           const initError = new Error('Failed to acquire a 3D scene from the viewer.');
           setError(initError.message);
           loadQueueRef.current.forEach(req => req.reject(initError));
           loadQueueRef.current = [];
           initializedRef.current = true;
+          setPendingSceneRequest(null);
         }
       }
     };
 
     const requestScene = () => {
       if (initializedRef.current) return;
+      
+      // Check if already have pending request
+      if (pendingSceneRequest || processingStatus.has(requestId)) {
+        log('[RobotContext] Scene request already pending');
+        return;
+      }
+      
       log('[RobotContext] Viewer is ready, requesting scene...');
+      setPendingSceneRequest(requestId);
+      processingStatus.set(requestId, true);
+      
+      // Listen for response
       EventBus.on(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, handleSceneResponse);
+      
+      // Emit request
       EventBus.emit(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, { requestId });
       
-      timeoutId = setManagedTimeout(() => {
-        if (!initializedRef.current) {
-          setError('Viewer did not respond to scene request in time.');
-          // DO NOT set initializedRef.current = true
-          // DO NOT clear the queue
-          // Optionally, you can re-emit the scene request here to retry, or just keep waiting for the event
-          // EventBus.emit(DataTransfer.EVENT_ROBOT_NEEDS_SCENE, { requestId });
+      // Set timeout for no response
+      sceneRequestTimeoutRef.current = setManagedTimeout(() => {
+        if (!initializedRef.current && pendingSceneRequest === requestId) {
+          log('[RobotContext] Scene request timeout - will retry on next viewer ready event');
+          setPendingSceneRequest(null);
+          processingStatus.delete(requestId);
+          EventBus.off(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, handleSceneResponse);
         }
       }, 5000);
     };
@@ -225,16 +254,29 @@ export const RobotProvider = ({ children }) => {
     EventBus.on(DataTransfer.EVENT_VIEWER_READY, requestScene);
 
     return () => {
-      if (timeoutId) clearManagedTimeout(timeoutId);
+      if (sceneRequestTimeoutRef.current) {
+        clearManagedTimeout(sceneRequestTimeoutRef.current);
+      }
       EventBus.off(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, handleSceneResponse);
       EventBus.off(DataTransfer.EVENT_VIEWER_READY, requestScene);
+      EventBus.off('viewer:scene:status', handleSceneStatus);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setManagedTimeout, clearManagedTimeout]);
+
+  // ========== CLEANUP ON UNMOUNT ==========
+  useEffect(() => {
+    return () => {
+      timeoutIdsRef.current.forEach(clearTimeout);
+      timeoutIdsRef.current.clear();
+      
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, []);
 
   // ========== INDEXING & OPTIMIZATION ==========
   
-  // Update manufacturer map and robot index when categories change
   useEffect(() => {
     robotManufacturerMap.current.clear();
     robotIndexMap.current.clear();
@@ -252,7 +294,7 @@ export const RobotProvider = ({ children }) => {
     });
   }, [categories]);
 
-  // ========== ROBOT DISCOVERY (Optimized with AbortController) ==========
+  // ========== ROBOT DISCOVERY ==========
 
   const discoverRobots = useCallback(async () => {
     if (isDiscoveringRef.current) {
@@ -260,7 +302,6 @@ export const RobotProvider = ({ children }) => {
       return;
     }
     
-    // Cancel any previous request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -288,7 +329,7 @@ export const RobotProvider = ({ children }) => {
           (category.robots || []).forEach(robot => {
             allRobots.push({
               ...robot,
-              manufacturer: category.id, // Standardize on 'manufacturer'
+              manufacturer: category.id,
               manufacturerLogoPath: category.manufacturerLogoPath,
             });
           });
@@ -302,7 +343,7 @@ export const RobotProvider = ({ children }) => {
     } catch (err) {
       if (err.name !== 'AbortError') {
         console.error('[RobotContext] Robot discovery error:', err);
-        setError('Error connecting to server. Please ensure the server is running on port 3001.');
+        setError('Error connecting to server.');
       }
     } finally {
       setIsLoading(false);
@@ -310,140 +351,43 @@ export const RobotProvider = ({ children }) => {
     }
   }, []);
 
-  // ========== WORKSPACE MANAGEMENT (Optimized localStorage) ==========
-
-  // Load workspace robots once on mount
-  useEffect(() => {
-    try {
-      const savedRobots = localStorage.getItem('workspaceRobots');
-      if (savedRobots) {
-        const robots = JSON.parse(savedRobots);
-        setWorkspaceRobots(robots);
-        log('[RobotContext] Loaded workspace robots from localStorage:', robots.length);
-      }
-    } catch (error) {
-      console.error('[RobotContext] Error loading saved robots:', error);
-    }
-  }, []);
-
-  // Debounced save to localStorage
-  useEffect(() => {
-    const saveTimeout = setManagedTimeout(() => {
-      try {
-        localStorage.setItem('workspaceRobots', JSON.stringify(workspaceRobots));
-        log('[RobotContext] Saved workspace robots to localStorage');
-      } catch (error) {
-        console.error('[RobotContext] Error saving robots:', error);
-      }
-    }, 500); // Debounce for 500ms
-
-    return () => clearManagedTimeout(saveTimeout);
-  }, [workspaceRobots, setManagedTimeout, clearManagedTimeout]);
-
-  // ========== OPTIMIZED MANUFACTURER LOOKUP ==========
+  // ========== DISCOVER TOOLS ==========
   
-  const getManufacturer = useCallback((robotId) => {
-    if (!robotId) return null;
-    
-    // For objects, extract ID
-    if (typeof robotId === 'object') {
-      robotId = robotId.id || robotId.robotId;
+  const discoverTools = useCallback(async () => {
+    try {
+      const response = await fetch('/api/tcp/scan');
+      const result = await response.json();
+      
+      if (result.success) {
+        setAvailableTools(result.tools || []);
+        log('[RobotContext] Discovered tools:', result.tools?.length || 0);
+      }
+    } catch (err) {
+      console.error('[RobotContext] Tool discovery error:', err);
     }
-    
-    const baseRobotId = robotId.split('_')[0];
-    
-    // O(1) lookup from map
-    return robotManufacturerMap.current.get(baseRobotId) || 
-           robotManufacturerMap.current.get(robotId) || 
-           'unknown';
   }, []);
 
-  // ========== ROBOT OPERATIONS (Simplified) ==========
-
+  // ========== ROBOT WORKSPACE MANAGEMENT ==========
+  
   const addRobotToWorkspace = useCallback((robotData) => {
     const robotId = `${robotData.id}_${Date.now()}`;
+    
     const newRobot = {
+      ...robotData,
       id: robotId,
-      robotId: robotData.id,
-      name: robotData.name,
-      manufacturer: robotData.manufacturer || getManufacturer(robotData.id),
-      urdfPath: robotData.urdfPath,
-      imagePath: robotData.imagePath,
-      addedAt: new Date().toISOString()
+      workspaceId: robotId,
+      addedAt: new Date().toISOString(),
+      manufacturer: robotData.manufacturer || getManufacturer(robotData.id) || 'unknown'
     };
     
-    setWorkspaceRobots(prev => {
-      const exists = prev.some(r => r.robotId === robotData.id);
-      if (exists) {
-        log('[RobotContext] Robot already in workspace:', robotData.name);
-        return prev;
-      }
-      return [...prev, newRobot];
-    });
-    
+    setWorkspaceRobots(prev => [...prev, newRobot]);
     setSuccessMessage(`${robotData.name} added to workspace!`);
     setManagedTimeout(() => setSuccessMessage(''), 3000);
     
-    // Update maps
     robotManufacturerMap.current.set(robotId, newRobot.manufacturer);
     
     return newRobot;
   }, [getManufacturer, setManagedTimeout]);
-
-  const isRobotLoaded = useCallback((robotId) => {
-    return loadedRobots.has(robotId);
-  }, [loadedRobots]);
-
-  const setActiveRobotId = useCallback((robotId) => {
-    log(`[RobotContext] Setting active robot ID to: ${robotId}`);
-    setActiveRobotIdState(robotId);
-    
-    if (robotId) {
-      const robotData = loadedRobots.get(robotId);
-      if (robotData) {
-        const robot = robotData.robot;
-        EventBus.emit('robot:active-changed', { robotId, robot });
-      }
-    }
-  }, [loadedRobots]);
-
-  // Active robot getter
-  const activeRobot = useMemo(() => {
-    if (!activeRobotId) return null;
-    const robotData = loadedRobots.get(activeRobotId);
-    return robotData?.robot || null;
-  }, [activeRobotId, loadedRobots]);
-
-  // Active robots Set (computed from activeRobotId)
-  const activeRobots = useMemo(() => {
-    return new Set(activeRobotId ? [activeRobotId] : []);
-  }, [activeRobotId]);
-
-  const unloadRobot = useCallback((robotId) => {
-    const robotData = loadedRobots.get(robotId);
-    if (!robotData) return;
-    
-    // Properly dispose THREE.js objects
-    if (robotData.container) {
-      disposeObject3D(robotData.container);
-    }
-    
-    setLoadedRobots(prev => {
-      const newMap = new Map(prev);
-      newMap.delete(robotId);
-      return newMap;
-    });
-    
-    if (activeRobotId === robotId) {
-      setActiveRobotId(null);
-    }
-    
-    setSuccessMessage(`${robotId} unloaded`);
-    setManagedTimeout(() => setSuccessMessage(''), 3000);
-    
-    EventBus.emit('robot:unloaded', { robotId });
-    EventBus.emit('robot:removed', { robotName: robotId, robotId });
-  }, [loadedRobots, activeRobotId, setActiveRobotId, setManagedTimeout]);
 
   const removeRobotFromWorkspace = useCallback((workspaceRobotId) => {
     setWorkspaceRobots(prev => {
@@ -456,7 +400,7 @@ export const RobotProvider = ({ children }) => {
     
     setSuccessMessage('Robot removed from workspace');
     setManagedTimeout(() => setSuccessMessage(''), 3000);
-  }, [isRobotLoaded, unloadRobot, setManagedTimeout]);
+  }, [setManagedTimeout]);
 
   const isRobotInWorkspace = useCallback((robotId) => {
     return workspaceRobots.some(r => r.robotId === robotId);
@@ -468,15 +412,50 @@ export const RobotProvider = ({ children }) => {
 
   const clearWorkspace = useCallback(() => {
     if (window.confirm('Clear all robots from workspace?')) {
-      // Unload all loaded robots
       loadedRobots.forEach((_, robotId) => unloadRobot(robotId));
       setWorkspaceRobots([]);
       setSuccessMessage('Workspace cleared');
       setManagedTimeout(() => setSuccessMessage(''), 3000);
     }
-  }, [loadedRobots, unloadRobot, setManagedTimeout]);
+  }, [loadedRobots, setManagedTimeout]);
 
-  // ========== ROBOT LOADING (Optimized) ==========
+  // ========== IMPORT/EXPORT ==========
+  
+  const importRobots = useCallback(async (file) => {
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      
+      if (data.robots && Array.isArray(data.robots)) {
+        setWorkspaceRobots(data.robots);
+        setSuccessMessage(`Imported ${data.robots.length} robots`);
+        setManagedTimeout(() => setSuccessMessage(''), 3000);
+      }
+    } catch (err) {
+      console.error('[RobotContext] Import error:', err);
+      setError('Failed to import robots');
+    }
+  }, [setManagedTimeout]);
+
+  const exportRobots = useCallback(() => {
+    const data = {
+      robots: workspaceRobots,
+      exportedAt: new Date().toISOString()
+    };
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `robots-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    setSuccessMessage('Robots exported');
+    setManagedTimeout(() => setSuccessMessage(''), 3000);
+  }, [workspaceRobots, setManagedTimeout]);
+
+  // ========== ROBOT LOADING ==========
 
   const isRobotReady = useCallback((robotId) => {
     const robotData = loadedRobots.get(robotId);
@@ -523,14 +502,13 @@ export const RobotProvider = ({ children }) => {
       });
       
       robot.name = robotId;
-      robot.robotName = robotId; // Compatibility
+      robot.robotName = robotId;
 
       const validation = validateRobotStructure(robot, robotId);
       if (validation.issues.length > 0) {
         console.warn(`[RobotContext] Robot structure issues for ${robotId}:`, validation.issues);
       }
       
-      // Ensure the robot's base is at origin within the robot object
       let baseLink = null;
       robot.traverse((child) => {
         if (child.isURDFLink && child.parent === robot) {
@@ -540,14 +518,11 @@ export const RobotProvider = ({ children }) => {
       });
       
       if (baseLink) {
-        // Store the base link's current world position
         baseLink.updateMatrixWorld(true);
         const baseWorldPos = new THREE.Vector3();
         baseLink.getWorldPosition(baseWorldPos);
         
-        // If the base link is not at origin in world space relative to robot, adjust the robot
         if (baseWorldPos.lengthSq() > 0.0001) {
-          // Move the entire robot so that base link ends up at robot's origin
           robot.position.sub(baseWorldPos);
           robot.updateMatrixWorld(true);
           log(`[RobotContext] Adjusted robot position to ensure base link is at origin`);
@@ -557,7 +532,7 @@ export const RobotProvider = ({ children }) => {
       const robotManufacturer = manufacturer || getManufacturer(robotId) || 'unknown';
 
       const robotData = {
-        robot: robot, // Single reference, no 'model' duplicate
+        robot: robot,
         id: robotId,
         urdfPath: urdfPath,
         manufacturer: robotManufacturer,
@@ -597,7 +572,7 @@ export const RobotProvider = ({ children }) => {
       if (onError) onError(error);
       throw error;
     }
-  }, [activeRobotId, setActiveRobotId, getManufacturer]);
+  }, [activeRobotId, getManufacturer]);
 
   const loadRobot = useCallback(async (robotId, urdfPath, options = {}) => {
     if (!isInitialized) {
@@ -613,13 +588,11 @@ export const RobotProvider = ({ children }) => {
   const getRobot = useCallback((robotId) => {
     if (!robotId) return null;
     
-    // Direct O(1) lookup
     const robotData = loadedRobots.get(robotId);
     if (robotData) {
       return robotData.robot;
     }
     
-    // Try base robot ID
     const baseRobotId = robotId.split('_')[0];
     for (const [key, data] of loadedRobots.entries()) {
       if (key.startsWith(baseRobotId + '_')) {
@@ -635,8 +608,60 @@ export const RobotProvider = ({ children }) => {
   }, [loadedRobots]);
 
   const getActiveRobots = useCallback(() => {
-    return activeRobotId ? [activeRobotId] : [];
+    return activeRobotId ? new Set([activeRobotId]) : new Set();
   }, [activeRobotId]);
+
+  const isRobotLoaded = useCallback((robotId) => {
+    return loadedRobots.has(robotId);
+  }, [loadedRobots]);
+
+  const setActiveRobotId = useCallback((robotId) => {
+    log(`[RobotContext] Setting active robot ID to: ${robotId}`);
+    setActiveRobotIdState(robotId);
+    
+    if (robotId) {
+      const robotData = loadedRobots.get(robotId);
+      if (robotData) {
+        const robot = robotData.robot;
+        EventBus.emit('robot:active-changed', { robotId, robot });
+      }
+    }
+  }, [loadedRobots]);
+
+  const activeRobot = useMemo(() => {
+    if (!activeRobotId) return null;
+    const robotData = loadedRobots.get(activeRobotId);
+    return robotData?.robot || null;
+  }, [activeRobotId, loadedRobots]);
+
+  const activeRobots = useMemo(() => {
+    return new Set(activeRobotId ? [activeRobotId] : []);
+  }, [activeRobotId]);
+
+  const unloadRobot = useCallback((robotId) => {
+    const robotData = loadedRobots.get(robotId);
+    if (!robotData) return;
+    
+    if (robotData.container) {
+      disposeObject3D(robotData.container);
+    }
+    
+    setLoadedRobots(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(robotId);
+      return newMap;
+    });
+    
+    if (activeRobotId === robotId) {
+      setActiveRobotId(null);
+    }
+    
+    setSuccessMessage(`${robotId} unloaded`);
+    setManagedTimeout(() => setSuccessMessage(''), 3000);
+    
+    EventBus.emit('robot:unloaded', { robotId });
+    EventBus.emit('robot:removed', { robotName: robotId, robotId });
+  }, [loadedRobots, activeRobotId, setActiveRobotId, setManagedTimeout]);
 
   const setRobotActive = useCallback((robotId, isActive) => {
     if (isActive) {
@@ -644,210 +669,45 @@ export const RobotProvider = ({ children }) => {
     } else if (activeRobotId === robotId) {
       setActiveRobotId(null);
     }
-    
-    const robotData = loadedRobots.get(robotId);
-    if (robotData?.container) {
-      robotData.container.visible = isActive;
-    }
-    
-    return true;
-  }, [activeRobotId, setActiveRobotId, loadedRobots]);
-
-  // ========== ROBOT POSE MANAGEMENT ==========
-
-  // Track last published pose for each robot
-  const lastPublishedPoses = useRef(new Map());
-
-  // Helper to compare poses
-  function poseEquals(a, b) {
-    if (!a || !b) return false;
-    return (
-      a.position.x === b.position.x &&
-      a.position.y === b.position.y &&
-      a.position.z === b.position.z &&
-      a.rotation.x === b.rotation.x &&
-      a.rotation.y === b.rotation.y &&
-      a.rotation.z === b.rotation.z
-    );
-  }
-
-  // Event handlers for robot pose events
-  useEffect(() => {
-    // SET_POSE: update robot's position/rotation in 3D scene
-    const handleSetPose = (data) => {
-      const { robotId, position, rotation } = data;
-      const robotData = loadedRobots.get(robotId);
-      if (!robotData?.container) return;
-      if (position) robotData.container.position.set(position.x, position.y, position.z);
-      if (rotation) robotData.container.rotation.set(rotation.x, rotation.y, rotation.z);
-      robotData.container.updateMatrix();
-      robotData.container.updateMatrixWorld(true);
-      // After updating, check if pose changed and emit if so
-      const newPose = {
-        position: {
-          x: robotData.container.position.x,
-          y: robotData.container.position.y,
-          z: robotData.container.position.z
-        },
-        rotation: {
-          x: robotData.container.rotation.x,
-          y: robotData.container.rotation.y,
-          z: robotData.container.rotation.z
-        }
-      };
-      const lastPose = lastPublishedPoses.current.get(robotId);
-      if (!poseEquals(newPose, lastPose)) {
-        lastPublishedPoses.current.set(robotId, newPose);
-        EventBus.emit(RobotPoseEvents.Commands.GET_POSE, {
-          robotId,
-          ...newPose
-        });
-      }
-    };
-
-    // GET_POSE: read robot's position/rotation and emit response
-    const handleGetPose = (data) => {
-      const { robotId, requestId } = data;
-      const robotData = loadedRobots.get(robotId);
-      let position = { x: 0, y: 0, z: 0 };
-      let rotation = { x: 0, y: 0, z: 0 };
-      if (robotData?.container) {
-        position = {
-          x: robotData.container.position.x,
-          y: robotData.container.position.y,
-          z: robotData.container.position.z
-        };
-        rotation = {
-          x: robotData.container.rotation.x,
-          y: robotData.container.rotation.y,
-          z: robotData.container.rotation.z
-        };
-      }
-      const newPose = { position, rotation };
-      // If requestId is present, always emit (explicit request)
-      if (requestId) {
-        EventBus.emit(RobotPoseEvents.Commands.GET_POSE, {
-          robotId,
-          ...newPose,
-          requestId
-        });
-        return;
-      }
-      // Otherwise, only emit if pose changed
-      const lastPose = lastPublishedPoses.current.get(robotId);
-      if (!poseEquals(newPose, lastPose)) {
-        lastPublishedPoses.current.set(robotId, newPose);
-        EventBus.emit(RobotPoseEvents.Commands.GET_POSE, {
-          robotId,
-          ...newPose
-        });
-      }
-    };
-
-    const unsubSet = EventBus.on(RobotPoseEvents.Commands.SET_POSE, handleSetPose);
-    const unsubGet = EventBus.on(RobotPoseEvents.Commands.GET_POSE, handleGetPose);
-
-    // Always publish pose for all loaded robots at a fixed interval, but only if changed
-    const interval = setInterval(() => {
-      loadedRobots.forEach((robotData, robotId) => {
-        if (!robotData?.container) return;
-        const position = {
-          x: robotData.container.position.x,
-          y: robotData.container.position.y,
-          z: robotData.container.position.z
-        };
-        const rotation = {
-          x: robotData.container.rotation.x,
-          y: robotData.container.rotation.y,
-          z: robotData.container.rotation.z
-        };
-        const newPose = { position, rotation };
-        const lastPose = lastPublishedPoses.current.get(robotId);
-        if (!poseEquals(newPose, lastPose)) {
-          lastPublishedPoses.current.set(robotId, newPose);
-          EventBus.emit(RobotPoseEvents.Commands.GET_POSE, {
-            robotId,
-            ...newPose
-          });
-        }
-      });
-    }, 100);
-
-    return () => {
-      unsubSet();
-      unsubGet();
-      clearInterval(interval);
-    };
-  }, [loadedRobots]);
-
-  // Set robot pose (event-based)
-  const setRobotPose = useCallback((robotId, pose) => {
-    EventBus.emit(RobotPoseEvents.Commands.SET_POSE, { robotId, ...pose });
-  }, []);
-
-  // ========== STATUS & UTILITIES ==========
-
-  const getRobotLoadStatus = useCallback((robot) => {
-    const loaded = isRobotLoaded(robot.id);
-    return {
-      isLoaded: loaded,
-      statusText: loaded ? 'Loaded' : 'Click to Load'
-    };
-  }, [isRobotLoaded]);
-
-  const importRobots = useCallback((robotsData) => {
-    try {
-      setWorkspaceRobots(robotsData);
-      setSuccessMessage(`Imported ${robotsData.length} robots`);
-      setManagedTimeout(() => setSuccessMessage(''), 3000);
-    } catch (error) {
-      console.error('[RobotContext] Error importing robots:', error);
-      setError('Failed to import robots');
-    }
-  }, [setManagedTimeout]);
-
-  const exportRobots = useCallback(() => {
-    try {
-      const dataStr = JSON.stringify(workspaceRobots, null, 2);
-      const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(dataBlob);
-      
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `workspace_robots_${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      URL.revokeObjectURL(url);
-      setSuccessMessage('Robots exported successfully');
-      setManagedTimeout(() => setSuccessMessage(''), 3000);
-    } catch (error) {
-      console.error('[RobotContext] Error exporting robots:', error);
-      setError('Failed to export robots');
-    }
-  }, [workspaceRobots, setManagedTimeout]);
-
-  // ========== EVENT LISTENERS ==========
-
-  useEffect(() => {
-    const handleRobotRemoved = (data) => {
-      if (data.robotName === activeRobotId) {
-        setActiveRobotId(null);
-      }
-    };
-    
-    const unsubscribeRemoved = EventBus.on('robot:removed', handleRobotRemoved);
-    
-    return () => {
-      unsubscribeRemoved();
-    };
   }, [activeRobotId, setActiveRobotId]);
 
-  // ========== ROBOT INSTANCE & JOINT COMMAND HANDLERS ==========
+  const getRobotLoadStatus = useCallback((robotId) => {
+    return loadingStates.get(robotId) || LOADING_STATES.IDLE;
+  }, [loadingStates]);
+
+  const setRobotPose = useCallback((robotId, position, rotation) => {
+    const robotData = loadedRobots.get(robotId);
+    if (!robotData || !robotData.container) return false;
+    
+    if (position) {
+      robotData.container.position.set(position.x, position.y, position.z);
+    }
+    
+    if (rotation) {
+      robotData.container.rotation.set(rotation.x, rotation.y, rotation.z);
+    }
+    
+    robotData.container.updateMatrixWorld(true);
+    
+    const newPose = {
+      position: robotData.container.position.clone(),
+      rotation: robotData.container.rotation.clone()
+    };
+    
+    setRobotPoses(prev => new Map(prev).set(robotId, newPose));
+    
+    EventBus.emit(DataTransfer.EVENT_ROBOT_POSITION_CHANGED, {
+      robotId,
+      position: newPose.position,
+      rotation: newPose.rotation
+    });
+    
+    return true;
+  }, [loadedRobots]);
+
+  // ========== JOINT COMMAND HANDLERS ==========
   
   useEffect(() => {
-    // Handle robot instance requests
     const handleGetInstanceRequest = ({ robotId, requestId }) => {
       const robotData = loadedRobots.get(robotId);
       if (robotData?.robot) {
@@ -859,7 +719,6 @@ export const RobotProvider = ({ children }) => {
       }
     };
 
-    // Handle set joint value command
     const handleSetJointValue = ({ robotId, jointName, value, requestId }) => {
       const robotData = loadedRobots.get(robotId);
       let success = false;
@@ -867,12 +726,10 @@ export const RobotProvider = ({ children }) => {
       if (robotData?.robot) {
         const robot = robotData.robot;
         
-        // Try robot's setJointValue method
         if (robot.setJointValue && typeof robot.setJointValue === 'function') {
           success = robot.setJointValue(jointName, value);
         }
         
-        // Try joint's setJointValue method
         if (!success && robot.joints && robot.joints[jointName]) {
           if (robot.joints[jointName].setJointValue) {
             success = robot.joints[jointName].setJointValue(value);
@@ -882,13 +739,11 @@ export const RobotProvider = ({ children }) => {
           }
         }
         
-        // Update matrix world if successful
         if (success && robot.updateMatrixWorld) {
           robot.updateMatrixWorld(true);
         }
       }
       
-      // Send response
       EventBus.emit(RobotEvents.SET_JOINT_VALUE, {
         robotId,
         jointName,
@@ -897,7 +752,6 @@ export const RobotProvider = ({ children }) => {
       });
     };
 
-    // Handle set joint values command
     const handleSetJointValues = ({ robotId, values, requestId }) => {
       const robotData = loadedRobots.get(robotId);
       let success = false;
@@ -905,40 +759,33 @@ export const RobotProvider = ({ children }) => {
       if (robotData?.robot) {
         const robot = robotData.robot;
         
-        // Try robot's setJointValues method
         if (robot.setJointValues && typeof robot.setJointValues === 'function') {
           success = robot.setJointValues(values);
-        } else {
-          // Fallback: set each joint individually
-          success = true;
-          Object.entries(values).forEach(([jointName, value]) => {
-            if (robot.joints && robot.joints[jointName]) {
-              if (robot.joints[jointName].setJointValue) {
-                const jointSuccess = robot.joints[jointName].setJointValue(value);
-                if (!jointSuccess) success = false;
-              }
-              if (robot.joints[jointName].setPosition) {
-                robot.joints[jointName].setPosition(value);
-              }
-            }
-          });
         }
         
-        // Update matrix world if successful
+        if (!success) {
+          for (const [jointName, value] of Object.entries(values || {})) {
+            if (robot.joints && robot.joints[jointName]) {
+              if (robot.joints[jointName].setJointValue) {
+                robot.joints[jointName].setJointValue(value);
+                success = true;
+              }
+            }
+          }
+        }
+        
         if (success && robot.updateMatrixWorld) {
           robot.updateMatrixWorld(true);
         }
       }
       
-      // Send response
       EventBus.emit(RobotEvents.SET_JOINT_VALUES, {
         robotId,
-        values: values || {},
+        values,
         requestId
       });
     };
 
-    // Handle get joint values command
     const handleGetJointValues = ({ robotId, requestId }) => {
       const robotData = loadedRobots.get(robotId);
       const values = {};
@@ -946,20 +793,15 @@ export const RobotProvider = ({ children }) => {
       if (robotData?.robot) {
         const robot = robotData.robot;
         
-        // Try robot's getJointValues method
-        if (robot.getJointValues && typeof robot.getJointValues === 'function') {
-          Object.assign(values, robot.getJointValues());
-        } else {
-          // Fallback: traverse robot object
-          robot.traverse((child) => {
-            if (child.isURDFJoint && child.jointType !== 'fixed' && typeof child.angle !== 'undefined') {
-              values[child.name] = child.angle;
+        if (robot.joints) {
+          Object.entries(robot.joints).forEach(([name, joint]) => {
+            if (joint.jointType !== 'fixed') {
+              values[name] = joint.angle || 0;
             }
           });
         }
       }
       
-      // Send response
       EventBus.emit(RobotEvents.GET_JOINT_VALUES, {
         robotId,
         values: values || {},
@@ -967,7 +809,6 @@ export const RobotProvider = ({ children }) => {
       });
     };
 
-    // Register all handlers
     const unsubGetInstance = EventBus.on(RobotEvents.GET_INSTANCE_REQUEST, handleGetInstanceRequest);
     const unsubSetJoint = EventBus.on(RobotEvents.SET_JOINT_VALUE, handleSetJointValue);
     const unsubSetJoints = EventBus.on(RobotEvents.SET_JOINT_VALUES, handleSetJointValues);
@@ -981,7 +822,7 @@ export const RobotProvider = ({ children }) => {
     };
   }, [loadedRobots]);
 
-  // ========== CONTEXT VALUE (Optimized) ==========
+  // ========== CONTEXT VALUE ==========
 
   const value = useMemo(() => ({
     // State
@@ -1085,6 +926,7 @@ export const RobotProvider = ({ children }) => {
     setRobotPose,
   ]);
 
+  // Sync with global registry if needed
   useEffect(() => {
     robotRegistry.clear();
     loadedRobots.forEach((data, key) => {
@@ -1099,7 +941,6 @@ export const RobotProvider = ({ children }) => {
   );
 };
 
-/* eslint-disable react-refresh/only-export-components */
 export const useRobotContext = () => {
   const context = useContext(RobotContext);
   if (!context) {
@@ -1108,10 +949,10 @@ export const useRobotContext = () => {
   return context;
 };
 
-// Compatibility export - useRobotManagerContext points to useRobotContext
+// Compatibility export
 export const useRobotManagerContext = useRobotContext;
-/* eslint-enable react-refresh/only-export-components */
 
+// Global accessor (if needed for legacy code)
 export const getRobotGlobal = (robotId) => {
   if (!robotRegistry) return null;
   if (!robotId) return null;
@@ -1119,7 +960,6 @@ export const getRobotGlobal = (robotId) => {
   if (robotData) {
     return robotData.robot;
   }
-  // Try base robot ID
   const baseRobotId = robotId.split('_')[0];
   for (const [key, data] of robotRegistry.entries()) {
     if (key.startsWith(baseRobotId + '_')) {
