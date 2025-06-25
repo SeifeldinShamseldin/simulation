@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import EventBus from '../../../utils/EventBus';
 
 const LoadedRobots = ({ 
   viewerRef, 
@@ -53,8 +52,6 @@ const LoadedRobots = ({
   const goBackToSelection = () => {
     // Don't clear the robot - just go back to selection
     setShowRobotSelection(true);
-    
-    EventBus.emit('robot:controls-hidden', { robotId: activeRobotId });
   };
 
   if (!activeRobot) return null;

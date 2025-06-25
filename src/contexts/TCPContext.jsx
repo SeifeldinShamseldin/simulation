@@ -4,7 +4,7 @@ import { useRobotContext } from './RobotContext';
 import MeshLoader from '../core/Loader/MeshLoader';
 import URDFLoader from '../core/Loader/URDFLoader';
 import EventBus from '../utils/EventBus';
-import { RobotEvents } from './dataTransfer';
+import { RobotEvents, TCPEvents } from './dataTransfer';
 
 const TCPContext = createContext(null);
 
@@ -314,7 +314,7 @@ export const TCPProvider = ({ children }) => {
     console.log(`[AddTCP] TCP removed from robot ${robotId}`);
     
     // Emit global TCP unmount event
-    EventBus.emit('tcp:unmount', {
+    EventBus.emit(TCPEvents.UNMOUNT, {
       robotId,
       timestamp: Date.now()
     });
@@ -406,7 +406,7 @@ export const TCPProvider = ({ children }) => {
     console.log(`[AddTCP] TCP '${tool.name}' added to robot ${robotId}`);
     
     // Emit global TCP mount event
-    EventBus.emit('tcp:mount', {
+    EventBus.emit(TCPEvents.MOUNT, {
       robotId,
       toolId,
       toolName: tool.name,
@@ -471,7 +471,7 @@ export const TCPProvider = ({ children }) => {
     console.log(`[AddTCP] TCP added to robot ${robotId}`);
     
     // Emit global TCP mount event
-    EventBus.emit('tcp:mount', {
+    EventBus.emit(TCPEvents.MOUNT, {
       robotId,
       tcpPath,
       tcpType,
@@ -545,8 +545,8 @@ export const TCPProvider = ({ children }) => {
   // ========== EFFECTS ==========
   useEffect(() => {
     // Listen for status events
-    const unsubscribeMountStatus = EventBus.on('tcp:mount:status', handleMountStatus);
-    const unsubscribeUnmountStatus = EventBus.on('tcp:unmount:status', handleUnmountStatus);
+    const unsubscribeMountStatus = EventBus.on(TCPEvents.MOUNT_STATUS, handleMountStatus);
+    const unsubscribeUnmountStatus = EventBus.on(TCPEvents.UNMOUNT_STATUS, handleUnmountStatus);
     const unsubscribeRobotUnloaded = EventBus.on(RobotEvents.UNLOADED, handleRobotUnloaded);
     
     return () => {

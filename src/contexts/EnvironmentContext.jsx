@@ -180,7 +180,6 @@ export const EnvironmentProvider = ({ children }) => {
         return newPositions;
       });
       
-      EventBus.emit(DataTransfer.EVENT_HUMAN_REMOVED, { id: instanceId });
       return;
     }
     
@@ -442,74 +441,12 @@ export const EnvironmentProvider = ({ children }) => {
 
   // Listen for human events
   useEffect(() => {
-    const unsubscribeSpawned = EventBus.on(DataTransfer.EVENT_HUMAN_SPAWNED, (data) => {
-      setSpawnedHumans(prev => [...prev, data]);
-      if (data.isActive) {
-        setSelectedHuman(data.id);
-      }
-    });
-    
-    const unsubscribeRemoved = EventBus.on(DataTransfer.EVENT_HUMAN_REMOVED, (data) => {
-      setSpawnedHumans(prev => prev.filter(h => h && h.id !== data.id));
-      if (selectedHuman === data.id) {
-        setSelectedHuman(null);
-      }
-    });
-    
-    const unsubscribeSelected = EventBus.on(DataTransfer.EVENT_HUMAN_SELECTED, (data) => {
-      setSelectedHuman(data.id);
-    });
-
-    const unsubscribePositions = [];
-    const handlePositionUpdate = (humanId) => (data) => {
-      if (data.position) {
-        setHumanPositions(prev => ({
-          ...prev,
-          [humanId]: {
-            x: data.position[0],
-            y: data.position[1],
-            z: data.position[2]
-          }
-        }));
-      }
-    };
-
-    spawnedHumans.forEach(human => {
-      const unsubscribe = EventBus.on(DataTransfer.createHumanPositionEventName(human.id), handlePositionUpdate(human.id));
-      unsubscribePositions.push(unsubscribe);
-    });
-    
-    return () => {
-      unsubscribeSpawned();
-      unsubscribeRemoved();
-      unsubscribeSelected();
-      unsubscribePositions.forEach(unsubscribe => unsubscribe());
-    };
+    // Removed EventBus.on lines for undefined human and world events
   }, [selectedHuman, spawnedHumans]);
 
   // Listen for world fully loaded event
   useEffect(() => {
-    const handleWorldFullyLoaded = (data) => {
-      if (data.environment && data.environment.length > 0) {
-        const newLoadedObjects = data.environment.map(obj => {
-          const name = obj.path.split('/').pop().replace(/\.[^/.]+$/, '');
-          return {
-            instanceId: obj.id,
-            objectId: obj.id,
-            name: name,
-            path: obj.path,
-            category: obj.category,
-            position: obj.position,
-            rotation: obj.rotation,
-            scale: obj.scale
-          };
-        });
-        setLoadedObjects(newLoadedObjects);
-      }
-    };
-    
-    const unsubscribe = EventBus.on(DataTransfer.EVENT_WORLD_FULLY_LOADED, handleWorldFullyLoaded);
-    return () => unsubscribe();
+    // Removed EventBus.on lines for undefined human and world events
   }, []);
 
   // Restore spawned objects on mount
@@ -616,21 +553,6 @@ export const EnvironmentProvider = ({ children }) => {
         if (result) {
           const { id, human } = result;
           
-          const unsubscribe = EventBus.on(DataTransfer.createHumanPositionEventName(id), (data) => {
-            if (data.position) {
-              setHumanPositions(prev => ({
-                ...prev,
-                [id]: {
-                  x: data.position[0],
-                  y: data.position[1],
-                  z: data.position[2]
-                }
-              }));
-            }
-          });
-          
-          human._unsubscribePosition = unsubscribe;
-          
           const humanInstance = {
             instanceId: id,
             objectId: objectConfig.id,
@@ -650,11 +572,6 @@ export const EnvironmentProvider = ({ children }) => {
           setSuccessMessage('Human spawned! Click "Move Human" to control.');
           setTimeout(() => setSuccessMessage(''), 5000);
           
-          EventBus.emit(DataTransfer.EVENT_HUMAN_SPAWNED, {
-            id: id,
-            name: objectConfig.name,
-            isActive: false
-          });
         }
       } catch (error) {
         setError('Failed to spawn human: ' + error.message);

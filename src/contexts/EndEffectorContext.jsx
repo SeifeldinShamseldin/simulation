@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect, use
 import * as THREE from 'three';
 import { useRobotContext } from './RobotContext';
 import EventBus from '../utils/EventBus';
-import { RobotEvents } from './dataTransfer';
+import { RobotEvents, EndEffectorEvents, TCPEvents } from './dataTransfer';
 
 const DEBUG = false; // Set to true for debugging
 
@@ -194,7 +194,7 @@ export const EndEffectorProvider = ({ children }) => {
       timestamp: Date.now()
     };
     
-    EventBus.emit('EndEffector/SET', payload);
+    EventBus.emit(EndEffectorEvents.SET, payload);
   }, [kinematicCache, poseCache]);
   
   // ========== EVENT HANDLERS ==========
@@ -271,7 +271,7 @@ export const EndEffectorProvider = ({ children }) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Send done status
-      EventBus.emit('tcp:mount:status', {
+      EventBus.emit(TCPEvents.MOUNT_STATUS, {
         robotId,
         status: 'Done',
         timestamp: Date.now()
@@ -318,7 +318,7 @@ export const EndEffectorProvider = ({ children }) => {
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Send done status
-      EventBus.emit('tcp:unmount:status', {
+      EventBus.emit(TCPEvents.UNMOUNT_STATUS, {
         robotId,
         status: 'Done',
         timestamp: Date.now()
@@ -378,11 +378,11 @@ export const EndEffectorProvider = ({ children }) => {
   // ========== EFFECTS ==========
   useEffect(() => {
     // Listen to events
-    const unsubscribeGet = EventBus.on('EndEffector/GET', handleGetEndEffector);
+    const unsubscribeGet = EventBus.on(EndEffectorEvents.GET, handleGetEndEffector);
     const unsubscribeLoaded = EventBus.on(RobotEvents.LOADED, handleRobotLoaded);
     const unsubscribeUnloaded = EventBus.on(RobotEvents.UNLOADED, handleRobotUnloaded);
-    const unsubscribeTCPMount = EventBus.on('tcp:mount', handleTCPMount);
-    const unsubscribeTCPUnmount = EventBus.on('tcp:unmount', handleTCPUnmount);
+    const unsubscribeTCPMount = EventBus.on(TCPEvents.MOUNT, handleTCPMount);
+    const unsubscribeTCPUnmount = EventBus.on(TCPEvents.UNMOUNT, handleTCPUnmount);
     const unsubscribeJointChange = EventBus.on(RobotEvents.SET_JOINT_VALUE, handleJointChange);
     const unsubscribeJointChanges = EventBus.on(RobotEvents.SET_JOINT_VALUES, handleJointChange);
     

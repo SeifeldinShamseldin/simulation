@@ -7,6 +7,7 @@ import EventBus from '../utils/EventBus';
 import useCamera from './hooks/useCamera';
 import * as DataTransfer from './dataTransfer';
 import DebugSystem from '../utils/DebugSystem';
+import { ViewerEvents } from './dataTransfer';
 
 const ViewerContext = createContext(null);
 
@@ -98,7 +99,7 @@ export const ViewerProvider = ({ children }) => {
         await new Promise(resolve => setTimeout(resolve, 1000));
         
         // Send completion status
-        EventBus.emit('viewer:scene:status', {
+        EventBus.emit(ViewerEvents.SCENE_STATUS, {
           requestId: requestId,
           status: 'Done',
           timestamp: Date.now()
@@ -160,7 +161,6 @@ export const ViewerProvider = ({ children }) => {
     viewerInstanceRef.current = viewer;
     setIsViewerReady(true);
     console.log('[ViewerContext] Viewer instance set, isViewerReady set to true');
-    EventBus.emit('viewer:ready', { viewer });
   }, []);
   
   const getSceneSetup = useCallback(() => {
@@ -218,12 +218,15 @@ export const ViewerProvider = ({ children }) => {
       console.log('[ViewerContext] Loading robot via viewer instance');
       const result = await viewerInstanceRef.current.loadRobot(robotId, urdfPath, options);
       console.log('[ViewerContext] Robot loaded successfully:', robotId);
-      EventBus.emit('viewer:robot-loaded', { robotId, options });
       return result;
     } catch (error) {
       console.error('[ViewerContext] Error loading robot:', robotId, error);
       DebugSystem.error('[ViewerContext]', 'Error loading robot:', error);
-      EventBus.emit('viewer:robot-load-error', { robotId, error });
+      EventBus.emit(DataTransfer.EVENT_VIEWER_HERE_IS_SCENE, {
+        success: false,
+        requestId: requestId,
+        error: error.message
+      });
       throw error;
     }
   }, []);
@@ -239,7 +242,6 @@ export const ViewerProvider = ({ children }) => {
       console.log('[ViewerContext] Resetting joints via viewer instance');
       viewerInstanceRef.current.resetJoints(robotId);
     }
-    EventBus.emit('viewer:joints-reset', { robotId });
   }, []);
   
   // ========== ENHANCED SCENE INITIALIZATION ==========
@@ -289,8 +291,7 @@ export const ViewerProvider = ({ children }) => {
       
       setIsViewerReady(true);
       console.log('[ViewerContext] Viewer ready state set to true');
-      EventBus.emit('viewer:initialized', { sceneSetup });
-      EventBus.emit('viewer:ready');
+      EventBus.emit(ViewerEvents.READY);
       
       console.log('[ViewerContext] Viewer initialized successfully');
       DebugSystem.debug('[ViewerContext]', 'Viewer initialized successfully');
@@ -344,7 +345,7 @@ export const ViewerProvider = ({ children }) => {
       return newConfig;
     });
     
-    EventBus.emit('viewer:config-updated', updates);
+    EventBus.emit(ViewerEvents.CONFIG_UPDATED, updates);
   }, []);
   
   // ========== DRAG CONTROLS ==========
@@ -402,12 +403,12 @@ export const ViewerProvider = ({ children }) => {
     
     dragControls.onDragStart = (joint) => {
       console.log('[ViewerContext] Drag start:', joint);
-      EventBus.emit('viewer:drag-start', { joint });
+      EventBus.emit(ViewerEvents.DRAG_START, { joint });
     };
     
     dragControls.onDragEnd = (joint) => {
       console.log('[ViewerContext] Drag end:', joint);
-      EventBus.emit('viewer:drag-end', { joint });
+      EventBus.emit(ViewerEvents.DRAG_END, { joint });
     };
     
     dragControls.updateJoint = (joint, angle) => {
@@ -472,7 +473,6 @@ export const ViewerProvider = ({ children }) => {
       if (tableModel) {
         console.log('[ViewerContext] Table loaded successfully');
         setTableState({ loaded: true, visible: true });
-        EventBus.emit('viewer:table-loaded');
       }
     } catch (error) {
       console.error('[ViewerContext] Failed to load table:', error);
@@ -482,7 +482,7 @@ export const ViewerProvider = ({ children }) => {
       setIsLoading(false);
       console.log('[ViewerContext] Table loading finished');
     }
-  }, [tableState.loaded]);
+  }, [tableState]);
   
   const toggleTable = useCallback((visible) => {
     console.log('[ViewerContext] toggleTable called:', visible);
@@ -495,7 +495,6 @@ export const ViewerProvider = ({ children }) => {
     console.log('[ViewerContext] Setting table visibility to:', newVisibility);
     sceneSetupRef.current.toggleTable(newVisibility);
     setTableState(prev => ({ ...prev, visible: newVisibility }));
-    EventBus.emit('viewer:table-toggled', { visible: newVisibility });
   }, [tableState]);
   
   // ========== CLEANUP ==========
@@ -524,7 +523,6 @@ export const ViewerProvider = ({ children }) => {
     setIsViewerReady(false);
     setTableState({ loaded: false, visible: false });
     console.log('[ViewerContext] Viewer disposed successfully');
-    EventBus.emit('viewer:disposed');
   }, []);
   
   // ========== CONTEXT VALUE ==========

@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useViewer as useViewerBase } from '../ViewerContext'; // Import useViewer, not useViewerContext
 import { useRobotManager } from './useRobotManager';
-import EventBus from '../../utils/EventBus';
 
 // ========== MAIN HOOK (re-export the base hook) ==========
 export const useViewer = () => {
@@ -35,12 +34,6 @@ export const useViewerDragControls = () => {
       if (joint && robotManager.getCurrentRobotName) {
         const robotName = robotManager.getCurrentRobotName();
         const jointValues = robotManager.getJointValues(robotName);
-        
-        EventBus.emit('viewer:joint-values-updated', {
-          robotName,
-          jointName: joint.name,
-          values: jointValues
-        });
       }
     };
     
@@ -68,7 +61,6 @@ export const useViewerTable = () => {
       if (sceneSetup.loadTable) {
         await sceneSetup.loadTable();
         setTableState({ loaded: true, visible: true });
-        EventBus.emit('viewer:table-loaded');
         return true;
       }
       return false;
@@ -85,7 +77,6 @@ export const useViewerTable = () => {
     if (sceneSetup.setTableVisible) {
       sceneSetup.setTableVisible(visible);
       setTableState(prev => ({ ...prev, visible }));
-      EventBus.emit('viewer:table-toggled', { visible });
     }
   }, [viewer, tableState.loaded]);
   
@@ -125,8 +116,6 @@ export const useViewerConfig = () => {
         sceneSetup.setShadows(updates.enableShadows);
       }
     }
-    
-    EventBus.emit('viewer:config-updated', { ...config, ...updates });
   }, [viewer, config]);
   
   return {
@@ -166,9 +155,6 @@ export const useViewerControl = () => {
         }, 100);
       }
     };
-    
-    const unsubscribe = EventBus.on('robot:loaded', handleRobotLoaded);
-    return () => unsubscribe();
   }, [viewer]);
   
   return {

@@ -76,8 +76,6 @@ class WorldAPI {
     // Save to localStorage
     this.saveToStorage();
     
-    EventBus.emit('world:saved', { worldId: worldState.id, name });
-    
     return worldState;
   }
   
@@ -156,20 +154,11 @@ class WorldAPI {
       }
       
       this.currentWorld = worldId;
-      EventBus.emit('world:loaded', { worldId, name: world.name });
-      
-      // Emit a single event with all loaded data
-      EventBus.emit('world:fully-loaded', {
-        worldId: worldId,
-        robots: world.robots,
-        environment: world.environment
-      });
       
       return true;
       
     } catch (error) {
       console.error('Error loading world:', error);
-      EventBus.emit('world:load-error', { worldId, error });
       return false;
     }
   }
@@ -183,7 +172,6 @@ class WorldAPI {
         this.currentWorld = null;
       }
       this.saveToStorage();
-      EventBus.emit('world:deleted', { worldId });
       return true;
     }
     return false;
@@ -232,7 +220,6 @@ class WorldAPI {
       this.worlds.set(world.id, world);
       this.saveToStorage();
       
-      EventBus.emit('world:imported', { worldId: world.id, name: world.name });
       return world;
     } catch (error) {
       console.error('Error importing world:', error);

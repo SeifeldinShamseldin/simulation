@@ -56,12 +56,33 @@ export const RobotEvents = {
   LOADED: 'robot:loaded',
   UNLOADED: 'robot:unloaded',
   REMOVED: 'robot:removed',
+  REGISTERED: 'robot:registered',
+  // ========== Robot Instance Management ==========
+  GET_INSTANCE_REQUEST: 'robot:get-instance-request',
+  GET_INSTANCE_RESPONSE: 'robot:get-instance-response',
+  // ========== Joint Commands ==========
+  SET_JOINT_VALUE: 'robot:set-joint-value',
+  SET_JOINT_VALUES: 'robot:set-joint-values',
+  GET_JOINT_VALUES: 'robot:get-joint-values',
   // ========== Commands (Requests) ==========
   Commands: {
     SET_POSE: 'robot:set-pose',
     POSE_UPDATED: 'robot:pose-updated'
-  }
+  },
+  // ========== Commands (Requests) ==========
+  NEEDS_REMOVAL: 'robot:needs-removal'
 };
+
+/**
+ * Helper to emit a robot:needs-removal handshake event with a unique requestId.
+ * @param {string} robotId - The robot's unique ID.
+ * @returns {string} requestId - The unique request ID used for the handshake.
+ */
+export function emitRobotNeedsRemoval(robotId) {
+  const requestId = `remove-${robotId}-${Date.now()}`;
+  EventBus.emit(RobotEvents.NEEDS_REMOVAL, { robotId, requestId });
+  return requestId;
+}
 
 // ============================================
 // VIEWER EVENTS
@@ -82,76 +103,17 @@ export const ViewerEvents = {
   TABLE_LOADED: 'viewer:table-loaded',
   TABLE_TOGGLED: 'viewer:table-toggled',
   ROBOT_REMOVED: 'viewer:robot-removed',
-  ROBOT_ADDED: 'viewer:robot-added'
+  ROBOT_ADDED: 'viewer:robot-added',
+  SCENE_STATUS: 'viewer:scene:status',
+  INITIALIZED: 'viewer:initialized',
+  CONFIG_UPDATED: 'viewer:config-updated',
+  DRAG_START: 'viewer:drag-start',
+  DRAG_END: 'viewer:drag-end',
+  JOINT_VALUES_UPDATED: 'viewer:joint-values-updated',
+  DISPOSED: 'viewer:disposed'
 };
 
-// ============================================
-// ENVIRONMENT EVENTS
-// ============================================
-/**
- * Environment object events namespace
- * 
- * Handles spawning, removing, and selecting environment objects.
- * Primary consumers: EnvironmentContext, UI components
- * 
- * @namespace EnvironmentEvents
- */
-export const EnvironmentEvents = {
-  OBJECT_SPAWNED: 'environment:object-spawned',
-  OBJECT_REMOVED: 'environment:object-removed',
-  OBJECT_SELECTED: 'environment:object-selected'
-};
 
-// ============================================
-// SCENE EVENTS
-// ============================================
-/**
- * Scene registry events namespace
- * 
- * Handles object registration/unregistration in scene.
- * Primary consumers: EnvironmentContext, Debug tools
- * 
- * @namespace SceneEvents
- */
-export const SceneEvents = {
-  OBJECT_REGISTERED: 'scene:object-registered',
-  OBJECT_UNREGISTERED: 'scene:object-unregistered',
-  OBJECT_UPDATED: 'scene:object-updated'
-};
-
-// ============================================
-// HUMAN EVENTS
-// ============================================
-/**
- * Human character events namespace
- * 
- * Handles human spawning, movement, and selection.
- * Primary consumers: EnvironmentContext, HumanController
- * 
- * @namespace HumanEvents
- */
-export const HumanEvents = {
-  SPAWNED: 'human:spawned',
-  REMOVED: 'human:removed',
-  SELECTED: 'human:selected',
-  positionUpdate: (id) => `human:position-update:${id}`,
-  createPositionEventName: (id) => `human:position-update:${id}`
-};
-
-// ============================================
-// WORLD EVENTS
-// ============================================
-/**
- * World visualization events namespace
- * 
- * Handles world environment settings like grid, ground, gravity.
- * Primary consumers: WorldContext, Physics systems
- * 
- * @namespace WorldEvents
- */
-export const WorldEvents = {
-  FULLY_LOADED: 'world:fully-loaded'
-};
 
 // ============================================
 // TCP EVENTS
@@ -174,19 +136,15 @@ export const TCPEvents = {
 };
 
 // ============================================
-// TRAJECTORY EVENTS
+// ENDEFFECTOR EVENTS
 // ============================================
 /**
- * Trajectory events namespace
- * 
- * Handles trajectory recording and playback.
- * Primary consumers: TrajectoryContext
- * 
- * @namespace TrajectoryEvents
+ * EndEffector events namespace
+ * Handles end effector data requests and updates.
+ * Primary consumers: EndEffectorContext, Controls
+ * @namespace EndEffectorEvents
  */
-export const TrajectoryEvents = {
-  FRAME_RECORDED: 'trajectory:frame-recorded',
-  PLAYBACK_STOPPED: 'trajectory:playback-stopped',
-  PLAYBACK_COMPLETED: 'trajectory:playback-completed',
-  REQUEST_STATE: 'trajectory:request-state',
+export const EndEffectorEvents = {
+  SET: 'EndEffector/SET',
+  GET: 'EndEffector/GET'
 };

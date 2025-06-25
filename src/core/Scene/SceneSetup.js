@@ -202,10 +202,7 @@ class SceneSetup {
     
     // Store the change listener for cleanup
     this.controlsChangeHandler = () => {
-      EventBus.emit('scene:camera-moved', {
-        position: this.camera.position.toArray(),
-        target: this.controls.target.toArray()
-      });
+      // Placeholder for compatibility
     };
     
     this.controls.addEventListener('change', this.controlsChangeHandler);
@@ -251,16 +248,15 @@ class SceneSetup {
       const loadingManager = new THREE.LoadingManager();
       
       loadingManager.onStart = () => {
-        EventBus.emit('scene:loading-start');
+        // Placeholder for compatibility
       };
       
       loadingManager.onLoad = () => {
-        EventBus.emit('scene:loading-complete');
+        // Placeholder for compatibility
       };
       
       loadingManager.onError = (url) => {
-        console.error('Error loading:', url);
-        EventBus.emit('scene:loading-error', { url });
+        // Placeholder for compatibility
       };
       
       this.objectLoaders = {
@@ -346,8 +342,6 @@ class SceneSetup {
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(width, height);
-        
-        EventBus.emit('scene:resized', { width, height });
       }
     }, 150); // 150ms debounce
   }
@@ -524,13 +518,10 @@ class SceneSetup {
         this.renderer.shadowMap.needsUpdate = true;
       }
       
-      EventBus.emit('scene:object-loaded', { id, object, config });
-      
       return { id, object };
       
     } catch (error) {
       console.error(`Failed to load environment object: ${path}`, error);
-      EventBus.emit('scene:object-load-error', { path, error });
       throw error;
     }
   }
@@ -568,7 +559,6 @@ class SceneSetup {
     });
     
     this.environmentObjects.delete(id);
-    EventBus.emit('scene:object-removed', { id });
   }
   
   /**
@@ -667,8 +657,6 @@ class SceneSetup {
     this.controls = null;
     this.robotRoot = null;
     this.container = null;
-    
-    EventBus.emit('scene:disposed');
   }
   
   /**

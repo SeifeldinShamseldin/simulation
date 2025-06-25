@@ -9,6 +9,7 @@ import { useTCP } from '../../contexts/TCPContext';
 import { useEndEffector } from '../../contexts/EndEffectorContext';
 import { useRobotContext } from '../../contexts/RobotContext';
 import EventBus from '../../utils/EventBus';
+import { EndEffectorEvents } from '../../contexts/dataTransfer';
 
 const Controls = ({ viewerRef }) => {
   const { activeId: activeRobotId } = useRobotSelection();
@@ -87,15 +88,15 @@ const Controls = ({ viewerRef }) => {
       }
     };
     
-    EventBus.on('EndEffector/SET', handler);
+    EventBus.on(EndEffectorEvents.SET, handler);
     
     // Request initial data
     if (activeRobotId) {
-      EventBus.emit('EndEffector/GET');
+      EventBus.emit(EndEffectorEvents.GET);
     }
     
     return () => {
-      EventBus.off('EndEffector/SET', handler);
+      EventBus.off(EndEffectorEvents.SET, handler);
     };
   }, [activeRobotId]);
 

@@ -61,16 +61,9 @@ class HumanController {
       // Start update loop
       this.startUpdateLoop();
       
-      // Emit ready event
-      EventBus.emit('human:ready', {
-        position: this.model.position.toArray(),
-        id: this.id
-      });
-      
       return true;
     } catch (error) {
       console.error('Failed to initialize human controller:', error);
-      EventBus.emit('human:error', { message: error.message, id: this.id });
       return false;
     }
   }
@@ -87,11 +80,6 @@ class HumanController {
           modelPath,
           (loaded) => resolve(loaded),
           (progress) => {
-            EventBus.emit('human:loading-progress', {
-              loaded: progress.loaded,
-              total: progress.total,
-              id: this.id
-            });
           },
           (error) => reject(error)
         );
@@ -213,7 +201,6 @@ class HumanController {
     
     // Emit movement start
     if (['w', 'a', 's', 'd'].includes(key)) {
-      EventBus.emit('human:movement-start', { key, id: this.id });
     }
   }
   
@@ -230,8 +217,6 @@ class HumanController {
     // Check if all movement keys are released
     if (!this.keysPressed.w && !this.keysPressed.a && 
         !this.keysPressed.s && !this.keysPressed.d) {
-      EventBus.emit('human:movement-stop', { id: this.id });
-      this.playAnimation('idle');
     }
   }
   
@@ -257,7 +242,6 @@ class HumanController {
     if (!this.movementEnabled) {
       // If movement disabled, ensure idle animation
       if (this.currentAction && this.animations.idle) {
-        this.playAnimation('idle');
       }
       return;
     }
@@ -299,26 +283,6 @@ class HumanController {
       this.moveDirection.normalize();
       
       // Play appropriate animation
-      this.playAnimation(this.isRunning ? 'run' : 'walk');
-      
-      // Calculate target rotation based on movement direction
-      const targetRotation = Math.atan2(-this.moveDirection.x, -this.moveDirection.z);
-      
-      // Smooth rotation
-      const currentRotation = this.model.rotation.y;
-      let rotationDiff = targetRotation - currentRotation;
-      
-      // Normalize rotation difference to [-PI, PI]
-      while (rotationDiff > Math.PI) rotationDiff -= 2 * Math.PI;
-      while (rotationDiff < -Math.PI) rotationDiff += 2 * Math.PI;
-      
-      // Apply smooth rotation
-      this.model.rotation.y += rotationDiff * 0.15;
-      
-      // Apply movement
-      this.moveDirection.multiplyScalar(this.currentSpeed);
-      this.body.velocity.x = this.moveDirection.x;
-      this.body.velocity.z = this.moveDirection.z;
     }
     
     // Keep the body on the ground (prevent floating)
@@ -335,22 +299,12 @@ class HumanController {
     this.model.position.x = this.body.position.x;
     this.model.position.z = this.body.position.z;
     this.model.position.y = this.body.position.y - 0.5; // Adjust for body center vs feet
-    
-    // Emit position update
-    EventBus.emitThrottled(`human:position-update:${this.id}`, {
-      id: this.id,
-      position: this.model.position.toArray(),
-      rotation: this.model.rotation.y,
-      velocity: this.moveDirection.toArray(),
-      isRunning: this.isRunning
-    }, 50);
   }
   
   playAnimation(name) {
     if (!this.mixer || !this.animations[name]) {
       // If specific animation doesn't exist, try to keep current
       if (!this.animations[name] && this.currentAction) {
-        return;
       }
     }
     
@@ -363,8 +317,6 @@ class HumanController {
       
       newAction.reset().fadeIn(0.2).play();
       this.currentAction = newAction;
-      
-      EventBus.emit('human:animation-change', { animation: name, id: this.id });
     }
   }
   
@@ -386,8 +338,6 @@ class HumanController {
     this.body.position.set(position.x, 0.5, position.z); // Always at ground height
     this.body.velocity.set(0, 0, 0);
     this.model.position.set(position.x, 0, position.z); // Model at ground level
-    
-    EventBus.emit('human:teleported', { position, id: this.id });
   }
   
   startUpdateLoop() {
@@ -427,13 +377,6 @@ class HumanController {
     
     // Update visual model position
     this.model.position.set(x, y, z);
-    
-    // Emit position update
-    EventBus.emit(`human:position-update:${this.id}`, {
-      id: this.id,
-      position: [x, y, z],
-      source: 'manual'
-    });
   }
   
   getInfo() {
@@ -470,8 +413,6 @@ class HumanController {
     if (this.mixer) {
       this.mixer.stopAllAction();
     }
-    
-    EventBus.emit('human:disposed', { id: this.id });
   }
   
   // Add method to enable/disable movement
@@ -495,10 +436,7 @@ class HumanController {
         this.body.velocity.z = 0;
       }
       this.moveDirection.set(0, 0, 0);
-      this.playAnimation('idle');
     }
-    
-    EventBus.emit('human:movement-toggle', { enabled, id: this.id });
   }
 }
 
@@ -517,12 +455,6 @@ class HumanManager {
   syncMovementStates() {
     // Sync and emit state for all humans
     this.humans.forEach((human, id) => {
-      EventBus.emit('human:state-update', {
-        id,
-        movementEnabled: human.movementEnabled,
-        position: human.model ? human.model.position.toArray() : [0, 0, 0],
-        rotation: human.model ? human.model.rotation.y : 0
-      });
     });
   }
   
@@ -559,11 +491,6 @@ class HumanManager {
       const prevHuman = this.humans.get(this.activeHumanId);
       if (prevHuman) {
         prevHuman.setMovementEnabled(false);
-        // Force immediate state update
-        EventBus.emit('human:state-update', {
-          id: this.activeHumanId,
-          movementEnabled: false
-        });
       }
     }
     
@@ -572,11 +499,6 @@ class HumanManager {
     if (human) {
       // Enable movement on new active human
       human.setMovementEnabled(true);
-      // Force immediate state update
-      EventBus.emit('human:state-update', {
-        id,
-        movementEnabled: true
-      });
     }
   }
   

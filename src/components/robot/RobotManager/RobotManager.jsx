@@ -1,7 +1,6 @@
 // src/components/robot/RobotManager/RobotManager.jsx - PURE UI COMPONENT
 import React, { useState, useEffect } from 'react';
 import { useRobotWorkspace, useRobotManagement, useRobotLoading } from '../../../contexts/hooks/useRobotManager';
-import EventBus from '../../../utils/EventBus';
 
 const RobotCard = ({ robot, isLoaded, onLoad, onRemove }) => {
   const [imageError, setImageError] = useState(false);
@@ -239,33 +238,11 @@ const RobotManager = ({
       setLocalSuccess(`${robot.name} loaded successfully!`);
       setTimeout(() => setLocalSuccess(''), 3000);
       
-      EventBus.emit('robot:workspace-robot-loaded', {
-        robotId: robot.id,
-        name: robot.name
-      });
-      
     } catch (error) {
       console.error('[RobotManager] Error loading robot:', error);
       setLocalError('Failed to load robot: ' + error.message);
     }
   };
-
-  // NEW: Listen for robot:loaded event to set active robot
-  useEffect(() => {
-    const handleRobotLoaded = (data) => {
-      const { robotId } = data;
-      console.log(`[RobotManager] Received robot:loaded event for robotId: ${robotId}`);
-      if (onRobotSelected) {
-        onRobotSelected(robotId);
-      }
-    };
-
-    EventBus.on('robot:loaded', handleRobotLoaded);
-
-    return () => {
-      EventBus.off('robot:loaded', handleRobotLoaded);
-    };
-  }, [onRobotSelected]);
 
   const handleRemoveRobot = (robotId) => {
     if (window.confirm('Remove this robot from your workspace?')) {
