@@ -91,7 +91,6 @@ export const EnvironmentProvider = ({ children }) => {
         ...metadata
       };
       
-      EventBus.emit(DataTransfer.EVENT_SCENE_OBJECT_REGISTERED, { type, id, object, metadata });
       console.log(`Registered ${type} object: ${id}`);
     } catch (error) {
       console.error('Error registering object:', error);
@@ -133,7 +132,6 @@ export const EnvironmentProvider = ({ children }) => {
         return newRegistries;
       });
       
-      EventBus.emit(DataTransfer.EVENT_SCENE_OBJECT_UNREGISTERED, { type, id });
       console.log(`Unregistered ${type} object: ${id}`);
     } catch (error) {
       console.error('Error unregistering object:', error);
@@ -171,7 +169,7 @@ export const EnvironmentProvider = ({ children }) => {
       }
       
       humanManager.removeHuman(instanceId);
-      setSpawnedHumans(prev => prev.filter(h => h.id !== instanceId));
+      setSpawnedHumans(prev => prev.filter(h => h && h.id !== instanceId));
       setSelectedHuman(null);
       
       setLoadedObjects(prev => prev.filter(obj => obj.instanceId !== instanceId));
@@ -261,8 +259,6 @@ export const EnvironmentProvider = ({ children }) => {
     object.updateMatrixWorld(true);
     
     sceneSetup.updateEnvironmentObject(instanceId, updates);
-    
-    EventBus.emit(DataTransfer.EVENT_SCENE_OBJECT_UPDATED, { type: 'environment', id: instanceId, updates });
   }, []);
 
   // Smart placement calculation (from useSmartPlacement)
@@ -454,7 +450,7 @@ export const EnvironmentProvider = ({ children }) => {
     });
     
     const unsubscribeRemoved = EventBus.on(DataTransfer.EVENT_HUMAN_REMOVED, (data) => {
-      setSpawnedHumans(prev => prev.filter(h => h.id !== data.id));
+      setSpawnedHumans(prev => prev.filter(h => h && h.id !== data.id));
       if (selectedHuman === data.id) {
         setSelectedHuman(null);
       }

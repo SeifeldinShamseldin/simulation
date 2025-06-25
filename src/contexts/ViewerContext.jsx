@@ -600,6 +600,23 @@ export const ViewerProvider = ({ children }) => {
   ]);
   
   console.log('[ViewerContext] Rendering ViewerProvider');
+  useEffect(() => {
+    const handleRobotNeedsRemoval = ({ robotId, requestId }) => {
+      // Remove robot from scene
+      if (sceneSetupRef.current && sceneSetupRef.current.robotRoot) {
+        const robotContainer = sceneSetupRef.current.robotRoot.children.find(obj => obj.name === `${robotId}_container`);
+        if (robotContainer) {
+          sceneSetupRef.current.robotRoot.remove(robotContainer);
+        }
+      }
+      // Emit handshake response
+      EventBus.emit(DataTransfer.ViewerEvents.ROBOT_REMOVED, { robotId, requestId, success: true });
+    };
+    EventBus.on(DataTransfer.RobotEvents.NEEDS_REMOVAL, handleRobotNeedsRemoval);
+    return () => {
+      EventBus.off(DataTransfer.RobotEvents.NEEDS_REMOVAL, handleRobotNeedsRemoval);
+    };
+  }, []);
   return (
     <ViewerContext.Provider value={value}>
       {children}

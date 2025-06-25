@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import EventBus from '../utils/EventBus';
 import URDFLoader from '../core/Loader/URDFLoader';
 import * as DataTransfer from './dataTransfer';
-import { RobotPoseEvents, RobotEvents } from './dataTransfer';
+import { RobotEvents, ViewerEvents } from './dataTransfer';
 
 const DEBUG = process.env.NODE_ENV === 'development';
 const log = DEBUG ? console.log : () => {};
@@ -101,11 +101,12 @@ const validateRobotStructure = (robot, robotId) => {
 
 export const RobotProvider = ({ children }) => {
   // ========== STATE ==========
+  const [activeRobotId, setActiveRobotIdState] = useState(null);
+  const setActiveRobotId = useCallback((id) => setActiveRobotIdState(id), []);
   const [availableRobots, setAvailableRobots] = useState([]);
   const [categories, setCategories] = useState([]);
   const [availableTools, setAvailableTools] = useState([]);
   const [workspaceRobots, setWorkspaceRobots] = useState([]);
-  const [activeRobotId, setActiveRobotIdState] = useState(null);
   const [loadedRobots, setLoadedRobots] = useState(new Map());
   const [loadingStates, setLoadingStates] = useState(new Map());
   const [isLoading, setIsLoading] = useState(false);
@@ -451,18 +452,32 @@ export const RobotProvider = ({ children }) => {
     return newRobot;
   }, [getManufacturer, setManagedTimeout]);
 
-  const removeRobotFromWorkspace = useCallback((workspaceRobotId) => {
-    setWorkspaceRobots(prev => {
-      const robotToRemove = prev.find(r => r.id === workspaceRobotId);
-      if (robotToRemove && isRobotLoaded(robotToRemove.id)) {
-        unloadRobot(robotToRemove.id);
+  const removeRobot = useCallback((robotId) => {
+    const requestId = `remove-${robotId}-${Date.now()}`;
+    // Listen for handshake response
+    const handleViewerRemoved = (data) => {
+      if (data.robotId === robotId && data.requestId === requestId && data.success) {
+        // Clean up state after viewer confirms removal
+        setLoadedRobots(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(robotId);
+          return newMap;
+        });
+        setWorkspaceRobots(prev => prev.filter(r => r.id !== robotId));
+        if (activeRobotId === robotId) {
+          setActiveRobotId(null);
+        }
+        setSuccessMessage('Robot removed from workspace');
+        setManagedTimeout(() => setSuccessMessage(''), 3000);
+        EventBus.emit('robot:unloaded', { robotId });
+        EventBus.emit('robot:removed', { robotName: robotId, robotId });
+        EventBus.off(ViewerEvents.ROBOT_REMOVED, handleViewerRemoved);
       }
-      return prev.filter(r => r.id !== workspaceRobotId);
-    });
-    
-    setSuccessMessage('Robot removed from workspace');
-    setManagedTimeout(() => setSuccessMessage(''), 3000);
-  }, [setManagedTimeout]);
+    };
+    EventBus.on(ViewerEvents.ROBOT_REMOVED, handleViewerRemoved);
+    // Emit handshake request
+    EventBus.emit(RobotEvents.NEEDS_REMOVAL, { robotId, requestId });
+  }, [activeRobotId, setActiveRobotId, setManagedTimeout]);
 
   const isRobotInWorkspace = useCallback((robotId) => {
     return workspaceRobots.some(r => r.robotId === robotId);
@@ -474,12 +489,12 @@ export const RobotProvider = ({ children }) => {
 
   const clearWorkspace = useCallback(() => {
     if (window.confirm('Clear all robots from workspace?')) {
-      loadedRobots.forEach((_, robotId) => unloadRobot(robotId));
+      loadedRobots.forEach((_, robotId) => removeRobot(robotId));
       setWorkspaceRobots([]);
       setSuccessMessage('Workspace cleared');
       setManagedTimeout(() => setSuccessMessage(''), 3000);
     }
-  }, [loadedRobots, setManagedTimeout]);
+  }, [loadedRobots, removeRobot, setManagedTimeout]);
 
   // ========== IMPORT/EXPORT ==========
   
@@ -618,7 +633,7 @@ export const RobotProvider = ({ children }) => {
       
       log(`[RobotContext] Successfully loaded robot: ${robotId}`);
       
-      EventBus.emit(DataTransfer.EVENT_ROBOT_LOADED, { 
+      EventBus.emit('viewer:robot-loaded', { 
         robotName: robotId, 
         robot: robot, 
         robotId: robotId 
@@ -687,18 +702,6 @@ export const RobotProvider = ({ children }) => {
     return loadedRobots.has(robotId);
   }, [loadedRobots]);
 
-  const setActiveRobotId = useCallback((robotId) => {
-    log(`[RobotContext] Setting active robot ID to: ${robotId}`);
-    setActiveRobotIdState(robotId);
-    
-    if (robotId) {
-      const robot = getRobot(robotId);
-      if (robot) {
-        EventBus.emit('robot:active-changed', { robotId, robot });
-      }
-    }
-  }, [getRobot]);
-
   const activeRobot = useMemo(() => {
     if (!activeRobotId) return null;
     return getRobot(activeRobotId);
@@ -707,36 +710,6 @@ export const RobotProvider = ({ children }) => {
   const activeRobots = useMemo(() => {
     return new Set(activeRobotId ? [activeRobotId] : []);
   }, [activeRobotId]);
-
-  const unloadRobot = useCallback((robotId) => {
-    const robotData = loadedRobots.get(robotId);
-    if (!robotData) {
-      if (DEBUG) {
-        console.warn(`[RobotContext] Attempted to unload non-existent robot: ${robotId}`);
-      }
-      return;
-    }
-    
-    if (robotData.container) {
-      disposeObject3D(robotData.container);
-    }
-    
-    setLoadedRobots(prev => {
-      const newMap = new Map(prev);
-      newMap.delete(robotId);
-      return newMap;
-    });
-    
-    if (activeRobotId === robotId) {
-      setActiveRobotId(null);
-    }
-    
-    setSuccessMessage(`${robotId} unloaded`);
-    setManagedTimeout(() => setSuccessMessage(''), 3000);
-    
-    EventBus.emit('robot:unloaded', { robotId });
-    EventBus.emit('robot:removed', { robotName: robotId, robotId });
-  }, [loadedRobots, activeRobotId, setActiveRobotId, setManagedTimeout]);
 
   const setRobotActive = useCallback((robotId, isActive) => {
     if (isActive) {
@@ -749,6 +722,16 @@ export const RobotProvider = ({ children }) => {
   const getRobotLoadStatus = useCallback((robotId) => {
     return loadingStates.get(robotId) || LOADING_STATES.IDLE;
   }, [loadingStates]);
+
+  const EPSILON = 1e-6;
+  function isPoseEqual(p1, p2) {
+    if (!p1 || !p2) return false;
+    return (
+      Math.abs(p1.x - p2.x) < EPSILON &&
+      Math.abs(p1.y - p2.y) < EPSILON &&
+      Math.abs(p1.z - p2.z) < EPSILON
+    );
+  }
 
   const setRobotPose = useCallback((robotId, position, rotation) => {
     const robotData = loadedRobots.get(robotId);
@@ -775,12 +758,6 @@ export const RobotProvider = ({ children }) => {
     };
     
     setRobotPoses(prev => new Map(prev).set(robotId, newPose));
-    
-    EventBus.emit(DataTransfer.EVENT_ROBOT_POSITION_CHANGED, {
-      robotId,
-      position: newPose.position,
-      rotation: newPose.rotation
-    });
     
     return true;
   }, [loadedRobots]);
@@ -916,7 +893,7 @@ export const RobotProvider = ({ children }) => {
     
     // Workspace Operations
     addRobotToWorkspace,
-    removeRobotFromWorkspace,
+    removeRobot,
     isRobotInWorkspace,
     getWorkspaceRobot,
     clearWorkspace,
@@ -925,7 +902,6 @@ export const RobotProvider = ({ children }) => {
     
     // Robot Loading
     loadRobot,
-    unloadRobot,
     isRobotLoaded,
     getRobot,
     setActiveRobotId,
@@ -935,7 +911,6 @@ export const RobotProvider = ({ children }) => {
     // Robot Management
     getAllRobots,
     setRobotActive,
-    removeRobot: unloadRobot, // Alias
     getActiveRobots,
     
     // Computed Properties
@@ -976,14 +951,13 @@ export const RobotProvider = ({ children }) => {
     successMessage,
     discoverRobots,
     addRobotToWorkspace,
-    removeRobotFromWorkspace,
+    removeRobot,
     isRobotInWorkspace,
     getWorkspaceRobot,
     clearWorkspace,
     importRobots,
     exportRobots,
     loadRobot,
-    unloadRobot,
     isRobotLoaded,
     getRobot,
     setActiveRobotId,
@@ -999,6 +973,44 @@ export const RobotProvider = ({ children }) => {
   // Sync with global registry if needed
   useEffect(() => {
     // Removed robotRegistry sync - no longer needed
+  }, [loadedRobots]);
+
+  useEffect(() => {
+    const handleSetPose = ({ robotId, position, rotation }) => {
+      setRobotPoses(prev => {
+        const prevPose = prev.get(robotId) || {};
+        const newPosition = position !== undefined ? position : (prevPose.position || { x: 0, y: 0, z: 0 });
+        const newRotation = rotation !== undefined ? rotation : (prevPose.rotation || { x: 0, y: 0, z: 0 });
+
+        // Only update and emit if changed
+        if (
+          isPoseEqual(prevPose.position, newPosition) &&
+          isPoseEqual(prevPose.rotation, newRotation)
+        ) {
+          return prev; // No change, do nothing
+        }
+
+        // Update pose in 3D scene if robot is loaded
+        const robotData = loadedRobots.get(robotId);
+        if (robotData && robotData.container) {
+          robotData.container.position.set(newPosition.x, newPosition.y, newPosition.z);
+          robotData.container.rotation.set(newRotation.x, newRotation.y, newRotation.z);
+        }
+
+        // Emit pose updated event (always include both position and rotation)
+        EventBus.emit(DataTransfer.RobotEvents.Commands.POSE_UPDATED, {
+          robotId,
+          position: newPosition,
+          rotation: newRotation
+        });
+
+        return new Map(prev).set(robotId, { position: newPosition, rotation: newRotation });
+      });
+    };
+    EventBus.on(DataTransfer.RobotEvents.Commands.SET_POSE, handleSetPose);
+    return () => {
+      EventBus.off(DataTransfer.RobotEvents.Commands.SET_POSE, handleSetPose);
+    };
   }, [loadedRobots]);
 
   return (

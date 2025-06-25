@@ -41,6 +41,22 @@ class DebugSystem {
       }
     }
     
+    // Warn function with context filtering
+    warn(context, ...args) {
+      if (this.isEnabled && this.DEBUG_CONTEXTS[context]) {
+        console.warn(`[${context}]`, ...args);
+        this.addLog('warn', [`[${context}]`, ...args]);
+      }
+    }
+    
+    // Error function with context filtering
+    error(context, ...args) {
+      if (this.isEnabled && this.DEBUG_CONTEXTS[context]) {
+        console.error(`[${context}]`, ...args);
+        this.addLog('error', [`[${context}]`, ...args]);
+      }
+    }
+    
     // Context-specific debug functions for convenience
     tcp(...args) {
       this.debug('TCP', ...args);

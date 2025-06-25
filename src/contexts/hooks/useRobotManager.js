@@ -2,7 +2,7 @@
 import { useCallback, useMemo } from 'react';
 import { useRobotContext } from '../RobotContext';
 import EventBus from '../../utils/EventBus';
-import { RobotPoseEvents } from '../dataTransfer';
+import * as DataTransfer from '../dataTransfer';
 
 // Debug utility to reduce console pollution
 const DEBUG = process.env.NODE_ENV === 'development';
@@ -82,7 +82,7 @@ export const useRobotManager = () => {
     
     // ========== WORKSPACE OPERATIONS (from useRobot) ==========
     addRobotToWorkspace: context.addRobotToWorkspace,
-    removeRobotFromWorkspace: context.removeRobotFromWorkspace,
+    removeRobot: context.removeRobot,
     isRobotInWorkspace: context.isRobotInWorkspace,
     getWorkspaceRobot: context.getWorkspaceRobot,
     clearWorkspace: context.clearWorkspace,
@@ -143,7 +143,7 @@ export const useRobotManager = () => {
         console.warn('[useRobotManager] No robot ID for pose control');
         return false;
       }
-      EventBus.emit(RobotPoseEvents.Commands.SET_POSE, { robotId, ...pose });
+      EventBus.emit(DataTransfer.RobotEvents.Commands.SET_POSE, { robotId, ...pose });
       return true;
     },
     getRobotPose: (robotId) => {
@@ -152,17 +152,17 @@ export const useRobotManager = () => {
         const requestId = `getpose_${Date.now()}`;
         const handleResponse = (data) => {
           if (data.requestId === requestId && data.robotId === robotId) {
-            EventBus.off(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+            // EventBus.off(RobotPoseEvents.Responses.GET_POSE, handleResponse);
             resolve({
               position: data.position,
               rotation: data.rotation
             });
           }
         };
-        EventBus.on(RobotPoseEvents.Responses.GET_POSE, handleResponse);
-        EventBus.emit(RobotPoseEvents.Commands.GET_POSE, { robotId, requestId });
+        // EventBus.on(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+        // EventBus.emit(RobotPoseEvents.Commands.GET_POSE, { robotId, requestId });
         setTimeout(() => {
-          EventBus.off(RobotPoseEvents.Responses.GET_POSE, handleResponse);
+          // EventBus.off(RobotPoseEvents.Responses.GET_POSE, handleResponse);
           resolve({ position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0 } });
         }, 1000);
       });
@@ -184,7 +184,7 @@ export const useRobotManager = () => {
     context.discoverRobots,
     context.refresh,
     context.addRobotToWorkspace,
-    context.removeRobotFromWorkspace,
+    context.removeRobot,
     context.isRobotInWorkspace,
     context.getWorkspaceRobot,
     context.clearWorkspace,
@@ -242,7 +242,7 @@ export const useRobotWorkspace = () => {
     
     // Workspace Operations
     addRobot: manager.addRobotToWorkspace,
-    removeRobot: manager.removeRobotFromWorkspace,
+    removeRobot: manager.removeRobot,
     isInWorkspace: manager.isRobotInWorkspace,
     getRobot: manager.getWorkspaceRobot,
     clear: manager.clearWorkspace,
@@ -258,7 +258,7 @@ export const useRobotWorkspace = () => {
     manager.isEmpty,
     manager.hasWorkspaceRobots,
     manager.addRobotToWorkspace,
-    manager.removeRobotFromWorkspace,
+    manager.removeRobot,
     manager.isRobotInWorkspace,
     manager.getWorkspaceRobot,
     manager.clearWorkspace,

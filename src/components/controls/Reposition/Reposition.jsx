@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRobotManager, useRobotSelection } from '../../../contexts/hooks/useRobotManager';
 import EventBus from '../../../utils/EventBus';
-import { RobotPoseEvents } from '../../../contexts/dataTransfer';
 
 /**
  * Component for repositioning the robot in world space
@@ -12,6 +11,7 @@ const Reposition = ({ viewerRef }) => {
   // Get robot manager functions
   const { getRobotPose, setRobotPose } = useRobotManager();
   const [position, setPosition] = useState({ x: 0, y: 0, z: 0 });
+  const [rotation, setRotation] = useState({ x: 0, y: 0, z: 0 });
   const [isLoading, setIsLoading] = useState(false);
   
   // Initialize position when robot changes
@@ -23,6 +23,7 @@ const Reposition = ({ viewerRef }) => {
     // Get robot pose using event system
     getRobotPose(activeRobotId).then(pose => {
       setPosition(pose.position);
+      setRotation(pose.rotation || { x: 0, y: 0, z: 0 });
       setIsLoading(false);
     });
   }, [activeRobotId, getRobotPose]);
@@ -52,14 +53,14 @@ const Reposition = ({ viewerRef }) => {
     }
 
     // Use event-based system to set robot pose
-    setRobotPose(activeRobotId, { position });
+    setRobotPose(activeRobotId, { position, rotation });
     
-    console.log('[Reposition] Applied position:', position);
+    console.log('[Reposition] Applied position:', position, 'rotation:', rotation);
 
     if (viewerRef?.current?.focusOnRobot) {
       viewerRef.current.focusOnRobot(activeRobotId);
     }
-  }, [activeRobotId, position, setRobotPose, viewerRef]);
+  }, [activeRobotId, position, rotation, setRobotPose, viewerRef]);
   
   /**
    * Move relative to current position
@@ -89,6 +90,14 @@ const Reposition = ({ viewerRef }) => {
       viewerRef.current.focusOnRobot(activeRobotId);
     }
   }, [activeRobotId, setRobotPose, viewerRef]);
+  
+  // Add flip handlers
+  const flipAxis = (axis, sign) => {
+    setPosition(prev => ({ ...prev, [axis]: sign * Math.abs(prev[axis]) }));
+  };
+  const flipRotationAxis = (axis, sign) => {
+    setRotation(prev => ({ ...prev, [axis]: sign * Math.abs(prev[axis]) }));
+  };
   
   if (!activeRobotId) {
     return (
@@ -195,6 +204,36 @@ const Reposition = ({ viewerRef }) => {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+          
+          <div className="controls-btn-group" style={{ marginTop: 4 }}>
+            <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipAxis('x', 1)}>+X</button>
+            <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipAxis('x', -1)}>-X</button>
+          </div>
+          <div className="controls-btn-group" style={{ marginTop: 4 }}>
+            <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipAxis('y', 1)}>+Y</button>
+            <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipAxis('y', -1)}>-Y</button>
+          </div>
+          <div className="controls-btn-group" style={{ marginTop: 4 }}>
+            <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipAxis('z', 1)}>+Z</button>
+            <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipAxis('z', -1)}>-Z</button>
+          </div>
+          
+          <div className="controls-form-group">
+            <label className="controls-form-label">Rotation (rad):</label>
+            <div className="controls-form-row">
+              <input type="number" value={rotation.x} step="0.1" onChange={e => setRotation(r => ({ ...r, x: parseFloat(e.target.value) }))} />
+              <input type="number" value={rotation.y} step="0.1" onChange={e => setRotation(r => ({ ...r, y: parseFloat(e.target.value) }))} />
+              <input type="number" value={rotation.z} step="0.1" onChange={e => setRotation(r => ({ ...r, z: parseFloat(e.target.value) }))} />
+            </div>
+            <div className="controls-btn-group" style={{ marginTop: 4 }}>
+              <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipRotationAxis('x', 1)}>+X</button>
+              <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipRotationAxis('x', -1)}>-X</button>
+              <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipRotationAxis('y', 1)}>+Y</button>
+              <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipRotationAxis('y', -1)}>-Y</button>
+              <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipRotationAxis('z', 1)}>+Z</button>
+              <button className="controls-btn controls-btn-tertiary controls-btn-xs" onClick={() => flipRotationAxis('z', -1)}>-Z</button>
             </div>
           </div>
           
