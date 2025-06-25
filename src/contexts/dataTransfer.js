@@ -56,81 +56,12 @@ export const RobotEvents = {
   LOADED: 'robot:loaded',
   UNLOADED: 'robot:unloaded',
   REMOVED: 'robot:removed',
-  REGISTERED: 'robot:registered',
-  ACTIVE_CHANGED: 'robot:active-changed',
-  JOINTS_CHANGED: 'robot:joints-changed',
-  JOINTS_RESET: 'robot:joints-reset',
-  WORKSPACE_UPDATED: 'robot:workspace-updated',
-  DISCOVERY_COMPLETE: 'robot:discovery-complete',
-  MANAGER_SYNCED: 'robot:manager-synced',
-  
-  // ========== State Events ==========
-  LOADING_STATE_CHANGED: 'robot:loading-state-changed',
-  POSITION_CHANGED: 'robot:position-changed',
-  
-  // ========== Robot Instance Management ==========
-  GET_INSTANCE_REQUEST: 'robot:get-instance-request',
-  GET_INSTANCE_RESPONSE: 'robot:get-instance-response',
-  
-  // ========== Joint Commands ==========
-  SET_JOINT_VALUE: 'robot:set-joint-value',
-  SET_JOINT_VALUES: 'robot:set-joint-values',
-  GET_JOINT_VALUES: 'robot:get-joint-values',
-  
-  // ========== Workspace Events ==========
-  WORKSPACE_UPDATED: 'robot:workspace-updated',
-  
   // ========== Commands (Requests) ==========
   Commands: {
-    MOVE_JOINT: 'robot:command:move-joint',
-    MOVE_JOINTS: 'robot:command:move-joints',
-    REQUEST_JOINTS: 'robot:command:request-joints',
-    LOAD: 'robot:command:load',
-    UNLOAD: 'robot:command:unload',
-    SET_ACTIVE: 'robot:command:set-active',
-    RESET_JOINTS: 'robot:command:reset-joints',
-    ADD_TO_WORKSPACE: 'robot:command:add-to-workspace',
-    REMOVE_FROM_WORKSPACE: 'robot:command:remove-from-workspace',
-    DISCOVER: 'robot:command:discover',
-    SET_POSITION: 'robot:command:set-position',
     SET_POSE: 'robot:set-pose',
-    GET_POSE: 'robot:get-pose',
     POSE_UPDATED: 'robot:pose-updated'
-  },
-  
-  // ========== Responses ==========
-  Responses: {
-    JOINT_VALUES: 'robot:response:joint-values'
-  },
-  
-  // ========== Commands (Requests) ==========
-  NEEDS_REMOVAL: 'robot:needs-removal',
-  NEEDS_ADDITION: 'robot:needs-addition'
+  }
 };
-
-/**
- * Helper to emit a robot:needs-removal handshake event with a unique requestId.
- * @param {string} robotId - The robot's unique ID.
- * @returns {string} requestId - The unique request ID used for the handshake.
- */
-export function emitRobotNeedsRemoval(robotId) {
-  const requestId = `remove-${robotId}-${Date.now()}`;
-  EventBus.emit(RobotEvents.NEEDS_REMOVAL, { robotId, requestId });
-  return requestId;
-}
-
-/**
- * Helper to emit a robot:needs-addition handshake event with a unique requestId.
- * @param {string} robotId - The robot's unique ID.
- * @param {string} urdfPath - The URDF path for the robot.
- * @param {Object} [options] - Additional options.
- * @returns {string} requestId - The unique request ID used for the handshake.
- */
-export function emitRobotNeedsAddition(robotId, urdfPath, options = {}) {
-  const requestId = `add-${robotId}-${Date.now()}`;
-  EventBus.emit(RobotEvents.NEEDS_ADDITION, { robotId, urdfPath, options, requestId });
-  return requestId;
-}
 
 // ============================================
 // VIEWER EVENTS

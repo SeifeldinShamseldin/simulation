@@ -103,7 +103,6 @@ export const WorldProvider = ({ children }) => {
       worldInitializedRef.current = true;
       console.log('[WorldContext] World initialized successfully');
       
-      EventBus.emit(DataTransfer.EVENT_WORLD_INITIALIZED);
       return true;
     } catch (error) {
       console.error('[WorldContext] Error initializing world:', error);
