@@ -10,9 +10,10 @@ import { RobotProvider } from './contexts/RobotContext'; // Unified context
 import { WorldProvider } from './contexts/WorldContext';
 import { ViewerProvider, useViewer } from './contexts/ViewerContext';
 import { EnvironmentProvider } from './contexts/EnvironmentContext';
+import { EndEffectorProvider } from './contexts/EndEffectorContext';
+import { TCPProvider } from './contexts/TCPContext';
 import { useRobotSelection } from './contexts/hooks/useRobotManager';
 import { CameraProvider } from './contexts/CameraContext';
-import endEffector from './core/EndEffector/EndEffector';
 import './App.css';
 
 const RobotPanel = ({ onClose, viewerRef }) => {
@@ -206,7 +207,11 @@ const App = () => {
         <RobotProvider>
           <WorldProvider>
             <EnvironmentProvider>
-              <AppContent />
+              <EndEffectorProvider>
+                <TCPProvider>
+                  <AppContent />
+                </TCPProvider>
+              </EndEffectorProvider>
             </EnvironmentProvider>
           </WorldProvider>
         </RobotProvider>

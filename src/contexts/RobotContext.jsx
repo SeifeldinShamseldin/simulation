@@ -19,9 +19,6 @@ const LOADING_STATES = {
   ERROR: 'error'
 };
 
-// Robot registry for global access (if needed for legacy compatibility)
-const robotRegistry = new Map();
-
 /**
  * Properly dispose of THREE.js objects including textures
  */
@@ -907,14 +904,6 @@ export const RobotProvider = ({ children }) => {
     workspaceRobots,
     activeRobotId,
     activeRobot,
-    loadedRobots: (() => {
-      // Warn developers about direct access to loadedRobots
-      if (DEBUG) {
-        console.warn('[RobotContext] ⚠️ Direct access to loadedRobots detected. Use getRobot() instead for better error handling and consistency.');
-      }
-      return loadedRobots;
-    })(),
-    robots: loadedRobots, // Alias
     activeRobots,
     loadingStates,
     isLoading,
@@ -1009,10 +998,7 @@ export const RobotProvider = ({ children }) => {
 
   // Sync with global registry if needed
   useEffect(() => {
-    robotRegistry.clear();
-    loadedRobots.forEach((data, key) => {
-      robotRegistry.set(key, data);
-    });
+    // Removed robotRegistry sync - no longer needed
   }, [loadedRobots]);
 
   return (
@@ -1039,18 +1025,8 @@ export const getRobotGlobal = (robotId) => {
     console.warn('[RobotContext] ⚠️ getRobotGlobal is deprecated. Use useRobotContext().getRobot() instead for better error handling and consistency.');
   }
   
-  if (!robotRegistry) return null;
-  if (!robotId) return null;
-  const robotData = robotRegistry.get(robotId);
-  if (robotData) {
-    return robotData.robot;
-  }
-  const baseRobotId = robotId.split('_')[0];
-  for (const [key, data] of robotRegistry.entries()) {
-    if (key.startsWith(baseRobotId + '_')) {
-      return data.robot;
-    }
-  }
+  // This function is deprecated and should not be used
+  // Use useRobotContext().getRobot() instead
   return null;
 };
 

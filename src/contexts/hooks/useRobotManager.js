@@ -51,27 +51,26 @@ export const useRobotManager = () => {
   }, [context.workspaceRobots]);
   
   const isRobotLoadedCheck = useCallback((robotName) => {
-    return context.robots.has(robotName);
-  }, [context.robots]);
+    return context.isRobotLoaded(robotName);
+  }, [context.isRobotLoaded]);
   
   const isRobotActiveCheck = useCallback((robotName) => {
     return context.activeRobots.has(robotName);
   }, [context.activeRobots]);
   
   const getRobotData = useCallback((robotName) => {
-    return context.robots.get(robotName);
-  }, [context.robots]);
+    return context.getRobot(robotName);
+  }, [context.getRobot]);
   
   // ========== MEMOIZED RETURN OBJECT (Only for expensive operations) ==========
   return useMemo(() => ({
-    // ========== ROBOT STATE (from useRobot) ==========
+    // ========== STATE (merged) ==========
     availableRobots: context.availableRobots,
     categories: context.categories,
+    availableTools: context.availableTools,
     workspaceRobots: context.workspaceRobots,
     activeRobotId: context.activeRobotId,
     activeRobot: context.activeRobot,
-    loadedRobots: context.loadedRobots,
-    robots: context.robots, // Alias for compatibility
     activeRobots: context.activeRobots,
     isLoading: context.isLoading,
     error: context.error,
@@ -99,7 +98,6 @@ export const useRobotManager = () => {
     setActiveRobotId: context.setActiveRobotId,
     setActiveRobot: context.setActiveRobot,
     getRobotLoadStatus: context.getRobotLoadStatus,
-    getLoadedRobots: context.getLoadedRobots,
     
     // ========== ROBOT MANAGEMENT METHODS (from useRobotManager) ==========
     setRobotActive: context.setRobotActive,
@@ -177,8 +175,6 @@ export const useRobotManager = () => {
     context.workspaceRobots,
     context.activeRobotId,
     context.activeRobot,
-    context.loadedRobots,
-    context.robots,
     context.activeRobots,
     context.isLoading,
     context.error,
@@ -202,7 +198,6 @@ export const useRobotManager = () => {
     context.setActiveRobotId,
     context.setActiveRobot,
     context.getRobotLoadStatus,
-    context.getLoadedRobots,
     context.setRobotActive,
     context.removeRobot,
     context.setJointValue,
@@ -313,7 +308,6 @@ export const useRobotManagement = () => {
   
   return useMemo(() => ({
     // Loading State
-    loadedRobots: manager.loadedRobots,
     hasLoaded: manager.hasLoadedRobots,
     
     // Loading Operations
@@ -322,20 +316,18 @@ export const useRobotManagement = () => {
     isLoaded: manager.isRobotLoaded,
     getRobot: manager.getRobot,
     getStatus: manager.getRobotLoadStatus,
-    getAll: manager.getLoadedRobots,
+    getAll: manager.getAllRobots,
     
     // Computed Properties
-    loadedCount: manager.loadedRobots.size,
-    hasRobots: manager.loadedRobots.size > 0
+    hasRobots: manager.hasLoadedRobots
   }), [
-    manager.loadedRobots,
     manager.hasLoadedRobots,
     manager.loadRobot,
     manager.unloadRobot,
     manager.isRobotLoaded,
     manager.getRobot,
     manager.getRobotLoadStatus,
-    manager.getLoadedRobots
+    manager.getAllRobots
   ]);
 };
 
@@ -483,15 +475,14 @@ export const useRobotManagerCollection = () => {
   const manager = useRobotManager();
   
   const getRobotNames = useCallback(() => {
-    return Array.from(manager.robots.keys());
-  }, [manager.robots]);
+    return manager.getAllRobots().map(robot => robot.id || robot.name);
+  }, [manager.getAllRobots]);
   
   const getRobotModels = useCallback(() => {
-    return Array.from(manager.robots.values()).map(robotData => robotData.model || robotData.robot);
-  }, [manager.robots]);
+    return manager.getAllRobots().map(robotData => robotData.model || robotData.robot);
+  }, [manager.getAllRobots]);
   
   return useMemo(() => ({
-    robots: manager.robots,
     getAllRobots: manager.getAllRobots,
     getRobot: manager.getRobot,
     removeRobot: manager.removeRobot,
@@ -504,7 +495,6 @@ export const useRobotManagerCollection = () => {
     getRobotNames,
     getRobotModels
   }), [
-    manager.robots,
     manager.getAllRobots,
     manager.getRobot,
     manager.removeRobot,
