@@ -274,7 +274,6 @@ export const TCPProvider = ({ children }) => {
       
       if (data.success) {
         setAvailableTools(data.tools || []);
-        console.log(`[AddTCP] Found ${data.tools?.length || 0} TCP tools`);
         return data.tools || [];
       } else {
         console.error('[AddTCP] Failed to scan tools:', data.message);

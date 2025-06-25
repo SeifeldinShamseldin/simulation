@@ -1,7 +1,7 @@
 // src/components/controls/Controls.jsx - Updated to remove unwanted sections
 import React, { useEffect, useState, useCallback } from 'react';
 import ControlJoints from './ControlJoints/ControlJoints';
-//import TCPController from './tcp/TCPController';
+import TCPController from './tcp/TCPController';
 import Reposition from './Reposition/Reposition';
 //import IKController from './IKController/IKController';
 import { useRobotSelection } from '../../contexts/hooks/useRobotManager';
@@ -129,35 +129,8 @@ const Controls = ({ viewerRef }) => {
 
   return (
     <div className="controls">
-      {/* TCP Tool Control UI */}
-      <div style={{ marginBottom: 16, padding: 8, border: '1px solid #eee', borderRadius: 6 }}>
-        <h4 style={{ margin: '0 0 8px 0' }}>TCP Tool Control</h4>
-        {attachedTCP ? (
-          <div style={{ marginBottom: 8 }}>
-            <div><strong>Attached Tool:</strong> {attachedTCP.toolName || 'Unknown'}</div>
-            <div>Type: {attachedTCP.toolType || 'N/A'}</div>
-            <div>Position: {attachedTCP.position ? `[${attachedTCP.position.x.toFixed(3)}, ${attachedTCP.position.y.toFixed(3)}, ${attachedTCP.position.z.toFixed(3)}]` : 'N/A'}</div>
-            <div>Orientation: {attachedTCP.orientation ? `[${attachedTCP.orientation.x.toFixed(4)}, ${attachedTCP.orientation.y.toFixed(4)}, ${attachedTCP.orientation.z.toFixed(4)}, ${attachedTCP.orientation.w.toFixed(4)}]` : 'N/A'}</div>
-            <button onClick={handleRemoveTCP} disabled={isLoadingTCP} style={{ marginTop: 8 }}>Remove TCP</button>
-          </div>
-        ) : (
-          <>
-            <select
-              value={selectedToolId}
-              onChange={e => setSelectedToolId(e.target.value)}
-              style={{ width: '100%', marginBottom: 8 }}
-            >
-              <option value="">Select TCP Tool...</option>
-              {availableTools.map(tool => (
-                <option key={tool.id} value={tool.id}>{tool.name} ({tool.type})</option>
-              ))}
-            </select>
-            <button onClick={handleAddTCP} disabled={!selectedToolId || isLoadingTCP} style={{ width: '100%' }}>
-              {isLoadingTCP ? 'Adding...' : 'Add TCP'}
-            </button>
-          </>
-        )}
-      </div>
+
+      
       {/* End Effector Pose & Orientation Only */}
       {endEffectorData && (
         <div style={{ color: '#333', fontSize: 13, marginBottom: 8, background: '#f8f8f8', padding: 6, borderRadius: 4 }}>
@@ -179,8 +152,8 @@ const Controls = ({ viewerRef }) => {
       {/* Joint Control */}
       <ControlJoints viewerRef={viewerRef} />
       
-      {/* IK Control 
-      <IKController />*/}
+      {/* TCP Controller */}
+      <TCPController viewerRef={viewerRef} />
 
       {/* Reposition Control */}
       <Reposition viewerRef={viewerRef} />

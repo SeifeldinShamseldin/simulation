@@ -1240,7 +1240,6 @@ app.get('/api/tcp/scan', (req, res) => {
         }
       }
       
-      console.log(`Found ${tools.length} TCP tools`);
       res.json({ success: true, tools });
       
     } catch (scanError) {
